@@ -1,0 +1,16 @@
+{
+  "name": "@interverse/engine",
+  "version": "0.0.0",
+  "description": "@interverse/engine — the core Interverse Engine framework",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "pixi.js": "^8.6.6"
+  }
+}

@@ -1,0 +1,7 @@
+node_modules
+dist
+build
+pnpm-lock.yaml
+
+# Author-owned master spec — do not reformat.
+interverse-engine-spec.md
