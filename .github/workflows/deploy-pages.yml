@@ -1,9 +1,12 @@
 name: Deploy demo to GitHub Pages
 
 # Builds games/hello and publishes it so it can be opened on any phone via a URL.
+# Deploys only from the default branch (main): GitHub Pages' environment
+# protection rejects deploys from other branches, and running on feature
+# branches would just produce failing runs and cancel the real deploy.
 on:
   push:
-    branches: [fabian-branch, main]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
