@@ -13,6 +13,7 @@
     "build": "pnpm --filter @interverse/hello build",
     "preview": "pnpm --filter @interverse/hello preview",
     "typecheck": "pnpm -r --if-present typecheck",
+    "verify": "node scripts/verify.mjs",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
@@ -20,6 +21,7 @@
   "devDependencies": {
     "@eslint/js": "^9.18.0",
     "eslint": "^9.18.0",
+    "playwright-core": "^1.61.1",
     "prettier": "^3.4.2",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.21.0"

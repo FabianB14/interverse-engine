@@ -10,6 +10,9 @@ build/
 # Vite
 .vite/
 
+# Headless playtest screenshots
+verify-shots/
+
 # Logs
 *.log
 npm-debug.log*

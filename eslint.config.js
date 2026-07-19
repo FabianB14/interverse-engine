@@ -20,4 +20,17 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // Node tooling scripts (some code inside page.evaluate runs in-browser).
+    files: ['scripts/**/*.mjs'],
+    languageOptions: {
+      globals: {
+        console: 'readonly',
+        process: 'readonly',
+        window: 'readonly',
+        performance: 'readonly',
+        requestAnimationFrame: 'readonly',
+      },
+    },
+  },
 );
