@@ -1,0 +1,32 @@
+{
+  "name": "interverse-engine",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Interverse Engine — an AI-native 2D game framework for mobile party games, cozy games, and 2D RPGs",
+  "type": "module",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @interverse/hello dev",
+    "build": "pnpm --filter @interverse/hello build",
+    "preview": "pnpm --filter @interverse/hello preview",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "eslint": "^9.18.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.21.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}
