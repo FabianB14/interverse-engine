@@ -78,8 +78,11 @@ export async function createGame(config: GameConfig): Promise<Game> {
   app.stage.addChild(world);
 
   const fitWorld = (): void => {
-    const screenW = app.renderer.width / app.renderer.resolution;
-    const screenH = app.renderer.height / app.renderer.resolution;
+    // app.screen is always logical (CSS) pixels regardless of devicePixelRatio.
+    // Do NOT divide renderer dimensions by resolution here — that shrinks the
+    // world into the top-left corner on high-DPR phone screens.
+    const screenW = app.screen.width;
+    const screenH = app.screen.height;
     // Contain: scale so the whole design area is visible, then center (letterbox).
     const scale = Math.min(screenW / width, screenH / height);
     world.scale.set(scale);

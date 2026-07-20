@@ -31,7 +31,12 @@ const browser = await chromium.launch({
   ...(executablePath ? { executablePath } : {}),
   args: ['--use-gl=angle', '--use-angle=swiftshader', '--no-sandbox', '--enable-webgl'],
 });
-const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+// deviceScaleFactor 3 mimics a real phone's pixel density — a DPR-1 test
+// masks letterbox/resolution bugs that only show up on device.
+const page = await browser.newPage({
+  viewport: { width: 390, height: 844 },
+  deviceScaleFactor: 3,
+});
 
 const errors = [];
 page.on('console', (m) => {
@@ -58,8 +63,21 @@ await page.waitForTimeout(300);
 const score = await page.evaluate(() => window.__blobtap?.score() ?? -1);
 await page.screenshot({ path: `${outDir}/2-play.png` });
 
-// Sample real rAF frame rate for one second mid-round.
-const fps = await page.evaluate(
+// Wait for the round to end (debug hook disappears when PlayScene exits).
+await page.waitForFunction(() => !window.__blobtap, null, { timeout: 20_000 });
+await page.waitForTimeout(900); // results pop-in
+await page.screenshot({ path: `${outDir}/3-results.png` });
+await page.close();
+
+// FPS pass at DPR 1: this container renders on CPU (SwiftShader), which
+// can't push 3x pixels at 60fps the way a real phone GPU can. Layout is
+// checked above at DPR 3; frame pacing is checked here at DPR 1.
+const fpsPage = await browser.newPage({ viewport: { width: 390, height: 844 } });
+await fpsPage.goto(url, { waitUntil: 'networkidle' });
+await fpsPage.waitForSelector('canvas', { timeout: 10_000 });
+await fpsPage.mouse.click(195, 600); // into the play scene
+await fpsPage.waitForTimeout(1200);
+const fps = await fpsPage.evaluate(
   () =>
     new Promise((resolve) => {
       let frames = 0;
@@ -72,11 +90,6 @@ const fps = await page.evaluate(
       requestAnimationFrame(loop);
     }),
 );
-
-// Wait for the round to end (debug hook disappears when PlayScene exits).
-await page.waitForFunction(() => !window.__blobtap, null, { timeout: 20_000 });
-await page.waitForTimeout(900); // results pop-in
-await page.screenshot({ path: `${outDir}/3-results.png` });
 
 await browser.close();
 

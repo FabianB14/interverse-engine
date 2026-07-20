@@ -26,7 +26,8 @@ async function main(): Promise<void> {
   let acc = 0;
   let smoothed = 60;
   game.app.ticker.add(() => {
-    smoothed += (game.app.ticker.FPS - smoothed) * 0.1;
+    // Clamp: ticker.FPS spikes to absurd values during the first frames.
+    smoothed += (Math.min(game.app.ticker.FPS, 120) - smoothed) * 0.1;
     acc += game.app.ticker.deltaMS;
     if (acc >= 250) {
       acc = 0;
