@@ -31,6 +31,7 @@ interface LobbyDebug {
   classes?: () => Record<string, string>;
   pick?: (cls: string) => void;
   bossHp?: () => number | null;
+  revive?: () => void;
 }
 
 declare global {

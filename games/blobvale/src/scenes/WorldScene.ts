@@ -286,6 +286,11 @@ export class WorldScene extends Scene {
         return v ? v.hp : null;
       },
       warp: (x: number, y: number) => this.me.position.set(x, y),
+      revive: () => {
+        if (!this.session.isHost) return;
+        this.downUntil = 0;
+        for (const st of Object.values(this.stats)) st.hp = st.max;
+      },
       joystickScreen: () => {
         const p = this.joystick.getGlobalPosition();
         return { x: p.x, y: p.y };

@@ -11,6 +11,11 @@
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='17' r='13' fill='%23ff6f91' stroke='%23fff' stroke-width='2'/%3E%3Ccircle cx='11.5' cy='14' r='2' fill='%232b2b3a'/%3E%3Ccircle cx='20.5' cy='14' r='2' fill='%232b2b3a'/%3E%3C/svg%3E"
     />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>New Game — Interverse</title>
     <style>
       :root {
@@ -36,5 +41,29 @@
   </head>
   <body>
     <script type="module" src="/src/main.ts"></script>
+    <script>
+      // PWA: cache the app shell (not during local dev) and surface an
+      // Install button when the browser offers one (Android/desktop Chrome).
+      if ('serviceWorker' in navigator && location.hostname !== 'localhost') {
+        navigator.serviceWorker.register('./sw.js');
+      }
+      let deferredInstall = null;
+      window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredInstall = e;
+        const b = document.createElement('button');
+        b.textContent = '⬇ Install';
+        b.style.cssText =
+          'position:fixed;top:10px;right:10px;z-index:20;padding:9px 16px;' +
+          'border-radius:999px;border:0;background:#ffd166;color:#1c1c28;' +
+          'font:700 14px system-ui;box-shadow:0 2px 8px rgba(0,0,0,.4)';
+        b.onclick = () => {
+          if (deferredInstall) deferredInstall.prompt();
+          deferredInstall = null;
+          b.remove();
+        };
+        document.body.appendChild(b);
+      });
+    </script>
   </body>
 </html>

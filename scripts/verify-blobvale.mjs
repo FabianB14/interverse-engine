@@ -125,6 +125,7 @@ await sleep(900);
 const lateJoinerInWorld = await p4.evaluate(() => window.__blobvale.playerCount());
 const remotesSeenByP2 = await p2.evaluate(() => window.__blobvale.remoteIds().length);
 // COMBAT (M2): host warps to a mob camp and fights until a kill lands.
+await p1.evaluate(() => window.__blobvale.revive());
 await p1.evaluate(() => window.__blobvale.warp(1248, 980));
 await sleep(500);
 const mobsOnP2 = await p2.evaluate(() => window.__blobvale.mobCount());
@@ -139,6 +140,7 @@ const statsHost = await p1.evaluate(() => window.__blobvale.myStats());
 const combatOk =
   mobsOnP2 > 0 && killsHost >= 1 && killsJoiner >= 1 && (statsHost.xp > 0 || statsHost.lvl > 1);
 // BOSS: host warps to the lair; joiner must see the boss lose HP.
+await p1.evaluate(() => window.__blobvale.revive());
 await p1.evaluate(() => window.__blobvale.warp(770, 290));
 await sleep(600);
 const bossBefore = await p2.evaluate(() => window.__blobvale.bossHp());
