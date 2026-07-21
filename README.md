@@ -3,15 +3,17 @@
 An AI-native 2D game framework for mobile party games, cozy games, and 2D RPGs.
 See [`interverse-engine-spec.md`](./interverse-engine-spec.md) for the master spec.
 
-> **Status: Phase 3 — Multiplayer.**
-> Phase 1: engine core (**Blob Tap**). Phase 2: tilemap + dialogue + UI kit
-> (**Cozy Room**). Phase 3 adds the room-code relay server and
-> `@interverse/net` client — demoed by **Tap Party**: host a room, others
-> join with a 4-letter code, everyone sees everyone's taps live.
+> **Status: Phase 4 — Claude tooling.**
+> Phases 1–3 delivered the engine core (**Blob Tap**), tilemap/dialogue/UI
+> (**Cozy Room**), and multiplayer (**Tap Party**, relay live). Phase 4
+> makes Claude Code the engine's editor: `CLAUDE.md`, the `interverse` MCP
+> server (screenshots, dev servers, bot players, dialogue validation),
+> `/new-game` + `/new-scene` + `/new-minigame` + `/new-art` + `/playtest`
+> commands, engine skills, and a runnable party-game template — scaffolding
+> a joinable multiplayer lobby now takes zero hand-written code.
 >
-> **Play them:** https://fabianb14.github.io/interverse-engine/ (hub with
-> all demos, auto-deployed from `main`). Tap Party needs the relay deployed
-> (see Multiplayer below).
+> **Play the demos:** https://fabianb14.github.io/interverse-engine/
+> (auto-deployed from `main`).
 
 ## Layout
 
