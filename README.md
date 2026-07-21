@@ -3,15 +3,15 @@
 An AI-native 2D game framework for mobile party games, cozy games, and 2D RPGs.
 See [`interverse-engine-spec.md`](./interverse-engine-spec.md) for the master spec.
 
-> **Status: Phase 2 — UI kit + tilemap + dialogue.**
-> Phase 1 delivered the engine core (scenes, entities/behaviors, tap input,
-> vector art, audio, saves) with **Blob Tap**. Phase 2 adds tilemaps with
-> collision, a camera, a virtual joystick, a JSON dialogue system, and the
-> `@interverse/ui` component kit — demoed by **Cozy Room**, a walkable room
-> with an NPC conversation.
+> **Status: Phase 3 — Multiplayer.**
+> Phase 1: engine core (**Blob Tap**). Phase 2: tilemap + dialogue + UI kit
+> (**Cozy Room**). Phase 3 adds the room-code relay server and
+> `@interverse/net` client — demoed by **Tap Party**: host a room, others
+> join with a 4-letter code, everyone sees everyone's taps live.
 >
 > **Play them:** https://fabianb14.github.io/interverse-engine/ (hub with
-> both demos, auto-deployed from `main`).
+> all demos, auto-deployed from `main`). Tap Party needs the relay deployed
+> (see Multiplayer below).
 
 ## Layout
 
@@ -21,15 +21,37 @@ packages/
     src/app/       createGame(): PixiJS boot, letterbox resize, fixed-timestep loop
     src/scene/     Scene + SceneManager (replace/push/pop, fade transition)
     src/entity/    Entity + behaviors (Velocity, Timer, Tween, Wobble)
-    src/input/     makeTappable() — multi-touch-safe tap
+    src/input/     makeTappable(), VirtualJoystick
+    src/world/     tilemaps (data/collision/painters) + Camera
+    src/dialogue/  DialogueRunner — JSON nodes, choices, flags
     src/art/       drawBlob, blobCharacter, palettes, juice (popIn/squash)
     src/audio/     procedural SFX with mobile audio unlock
     src/save/      versioned localStorage wrapper
+  ui-kit/      @interverse/ui — Button, Panel, DialogueBox
+  net-client/  @interverse/net — host/join sessions over the relay
+relay/         room-code relay server (Node + ws) — one deploy serves all games
 games/
-  hello/       Blob Tap — the Phase 1 demo game (Title → Play → Results)
-scripts/
-  verify.mjs   headless playtest: taps through the game, checks score + FPS
+  hello/       Blob Tap — Phase 1 demo (arcade)
+  room/        Cozy Room — Phase 2 demo (tilemap + NPC dialogue)
+  taps/        Tap Party — Phase 3 demo (multiplayer room codes)
+scripts/       headless playtests (verify, verify-room, verify-net)
 ```
+
+## Multiplayer
+
+One relay serves every game — it only creates rooms and forwards messages
+(host-authoritative, spec §5). Deploy it once:
+
+1. On Render: **New → Blueprint**, pick this repo — `render.yaml` configures
+   an `interverse-relay` web service on the free plan.
+2. Copy the service URL (e.g. `https://interverse-relay.onrender.com`).
+3. Put it in `games/taps/src/config.ts` (`DEFAULT_RELAY_URL`) and push — or
+   test immediately by opening the deployed game with
+   `?relay=wss://interverse-relay.onrender.com` (saved to the device after
+   the first visit).
+
+Local dev needs no deploy: `pnpm relay` starts it on :8787 and the games
+find it automatically on localhost.
 
 ## Requirements
 

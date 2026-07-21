@@ -1,0 +1,13 @@
+{
+  "name": "@interverse/net",
+  "version": "0.0.0",
+  "description": "@interverse/net — room/session client for Interverse Engine games",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

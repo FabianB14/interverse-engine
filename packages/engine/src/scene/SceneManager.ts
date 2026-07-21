@@ -24,6 +24,8 @@ export class SceneManager {
   private readonly fadeOverlay = new Graphics();
   private game: Game | null = null;
   private fade: FadeState | null = null;
+  /** Latest request made mid-transition; runs once the current fade ends. */
+  private pending: { action: () => void; opts: TransitionOptions } | null = null;
 
   constructor(width: number, height: number) {
     this.fadeOverlay.rect(0, 0, width, height).fill(0x000000);
@@ -87,6 +89,11 @@ export class SceneManager {
           this.fade = null;
           this.fadeOverlay.visible = false;
           this.fadeOverlay.eventMode = 'auto';
+          if (this.pending) {
+            const next = this.pending;
+            this.pending = null;
+            this.transitionTo(next.action, next.opts);
+          }
         }
       }
     }
@@ -102,7 +109,13 @@ export class SceneManager {
   }
 
   private transitionTo(action: () => void, opts: TransitionOptions): void {
-    if (this.fade) return; // ignore requests while a transition is running
+    if (this.fade) {
+      // Queue (latest wins) rather than silently dropping the request —
+      // async flows (e.g. a network join resolving) legitimately land
+      // mid-fade.
+      this.pending = { action, opts };
+      return;
+    }
     const total = opts.fade ?? (this.current ? 0.3 : 0);
     if (total <= 0) {
       action();

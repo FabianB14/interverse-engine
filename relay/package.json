@@ -1,0 +1,24 @@
+{
+  "name": "@interverse/relay",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Interverse room-code relay server — creates rooms, forwards messages (spec 5.2)",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "dev": "tsc && node dist/server.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.7",
+    "@types/ws": "^8.5.13",
+    "typescript": "^5.7.3"
+  }
+}

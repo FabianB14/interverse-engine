@@ -1,0 +1,16 @@
+# Render Blueprint — deploys the Interverse relay server (spec 5.2).
+# One relay serves every Interverse game: it only creates rooms and forwards
+# messages; game logic lives on the host player's device.
+#
+# Setup (once): Render dashboard -> New -> Blueprint -> pick this repo.
+# The free plan works for testing (it sleeps when idle; first connection
+# after a nap takes ~30s to wake).
+services:
+  - type: web
+    name: interverse-relay
+    runtime: node
+    plan: free
+    branch: main
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter @interverse/relay build
+    startCommand: pnpm --filter @interverse/relay start
+    healthCheckPath: /health

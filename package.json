@@ -11,11 +11,14 @@
   "scripts": {
     "dev": "pnpm --filter @interverse/hello dev",
     "dev:room": "pnpm --filter @interverse/room dev",
+    "dev:taps": "pnpm --filter @interverse/taps dev",
+    "relay": "pnpm --filter @interverse/relay dev",
     "build": "pnpm -r --if-present build",
     "preview": "pnpm --filter @interverse/hello preview",
     "typecheck": "pnpm -r --if-present typecheck",
     "verify": "node scripts/verify.mjs",
     "verify:room": "node scripts/verify-room.mjs",
+    "verify:net": "node scripts/verify-net.mjs",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check ."

@@ -42,6 +42,7 @@ jobs:
           cp site/index.html dist-site/index.html
           cp -r games/hello/dist dist-site/blob-tap
           cp -r games/room/dist dist-site/room
+          cp -r games/taps/dist dist-site/taps
 
       - uses: actions/upload-pages-artifact@v3
         with:
