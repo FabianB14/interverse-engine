@@ -6,6 +6,8 @@ import { GAME_TAG, resolveRelayUrl } from '../config.js';
 import { GAME_TITLE } from '../game.js';
 import { makeText, playerName } from '../text.js';
 import { JoinScene } from './JoinScene.js';
+import { NameScene } from './NameScene.js';
+import { NAME_KEY, cleanName, savedName, store } from '../store.js';
 import { LobbyScene } from './LobbyScene.js';
 
 interface LobbyDebug {
@@ -25,6 +27,9 @@ interface LobbyDebug {
   myStats?: () => { hp: number; max: number; lvl: number; xp: number } | null;
   kills?: () => number;
   warp?: (x: number, y: number) => void;
+  names?: () => string[];
+  classes?: () => Record<string, string>;
+  pick?: (cls: string) => void;
 }
 
 declare global {
@@ -41,6 +46,7 @@ export class MenuScene extends Scene {
   private mascot: Entity | null = null;
   private hostBtn: UIButton | null = null;
   private joinBtn: UIButton | null = null;
+  private nameBtn: UIButton | null = null;
 
   protected override onResize(w: number, h: number): void {
     this.layout(w, h);
@@ -52,6 +58,7 @@ export class MenuScene extends Scene {
     this.hostBtn?.position.set(W / 2, H * 0.66);
     this.joinBtn?.position.set(W / 2, H * 0.66 + 124);
     this.status?.position.set(W / 2, H * 0.9);
+    this.nameBtn?.position.set(W / 2, H * 0.66 + 218);
   }
 
   protected override onEnter(): void {
@@ -59,6 +66,15 @@ export class MenuScene extends Scene {
     const H = this.game.viewHeight;
 
     window.__blobvale = { scene: () => 'menu', code: () => null, playerCount: () => 0 };
+
+    // Playtest lever ?name=Ana, and first-launch flow: pick a name first.
+    const params0 = new URLSearchParams(window.location.search);
+    const qName = params0.get('name');
+    if (qName && cleanName(qName)) store.set(NAME_KEY, cleanName(qName));
+    if (!savedName()) {
+      this.game.scenes.replace(new NameScene());
+      return;
+    }
 
     this.title = makeText(GAME_TITLE, 104, { color: partyPop.accent, letterSpacing: 4 });
     this.stage.addChild(this.title);
@@ -107,6 +123,20 @@ export class MenuScene extends Scene {
 
     this.status = makeText('', 28, { color: 0xff5470, weight: 'bold', wrapWidth: 620 });
     this.stage.addChild(this.status);
+
+    this.nameBtn = new UIButton(`playing as ${savedName() ?? '?'} Blob — tap to change`, {
+      width: 560,
+      height: 66,
+      fontSize: 22,
+      fill: 0x2c2150,
+      textColor: 0xb8a8e0,
+      onTap: () => {
+        if (this.busy || this.game.scenes.isTransitioning) return;
+        audio.blip();
+        this.game.scenes.replace(new NameScene());
+      },
+    });
+    this.add(this.nameBtn);
     this.layout(W, H);
 
     // Playtest levers: ?host=1 auto-hosts, ?join=CODE auto-joins.

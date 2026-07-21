@@ -26,6 +26,10 @@ export function makeText(content: string, size: number, opts: TextOptions = {}):
   return t;
 }
 
+import { savedName } from './store.js';
+
 export function playerName(): string {
+  const n = savedName();
+  if (n) return `${n} Blob`;
   return `Blob${Math.floor(Math.random() * 90 + 10)}`;
 }

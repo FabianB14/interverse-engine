@@ -93,6 +93,9 @@ export class LobbyScene extends Scene {
       scene: () => 'lobby',
       code: () => session.code,
       playerCount: () => this.roster.order.length,
+      names: () => this.roster.order.map((id) => this.roster.names[id] ?? '?'),
+      classes: () => ({ ...this.roster.classes }),
+      pick: (cls: string) => this.pickClass(cls),
       ...(session.isHost ? { start: () => this.startAdventure() } : {}),
     };
 
@@ -156,7 +159,7 @@ export class LobbyScene extends Scene {
     if (session.isHost) {
       session.onPlayerJoin((p) => {
         this.roster.order.push(p.id);
-        this.roster.names[p.id] = p.name;
+        this.roster.names[p.id] = this.uniqueName(p.name);
         this.shareRoster();
         this.refreshRoster();
         audio.chime();
@@ -227,6 +230,20 @@ export class LobbyScene extends Scene {
     const msg: StartMessage = { type: 'start', roster: this.roster };
     this.session.broadcast(msg);
     this.game.scenes.replace(new WorldScene(this.session, this.roster));
+  }
+
+  /** Keep display names unique in the room: Ana Blob, Ana2 Blob, ... */
+  private uniqueName(name: string): string {
+    const taken = new Set(Object.values(this.roster.names));
+    if (!taken.has(name)) return name;
+    const m = /^(.*?)( Blob)?$/.exec(name);
+    const base = m?.[1] ?? name;
+    const suffix = m?.[2] ?? '';
+    for (let n = 2; n < 99; n++) {
+      const candidate = `${base}${n}${suffix}`;
+      if (!taken.has(candidate)) return candidate;
+    }
+    return `${name}${Math.floor(Math.random() * 999)}`;
   }
 
   private shareRoster(): void {

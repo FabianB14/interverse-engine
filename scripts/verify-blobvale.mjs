@@ -68,15 +68,25 @@ async function phone(q, dpr = 1) {
 }
 
 // Host (knight) + two joiners with their own classes.
-const p1 = await phone('?host=1&class=knight');
+const p1 = await phone('?host=1&class=knight&name=Hosty');
 await p1.waitForFunction(() => window.__blobvale?.scene() === 'lobby', null, { timeout: 10_000 });
 const code = await p1.evaluate(() => window.__blobvale.code());
-const p2 = await phone(`?join=${code}&class=mage`, 3);
-const p3 = await phone(`?join=${code}&class=rogue`);
+const p2 = await phone(`?join=${code}&class=mage&name=Ana`, 3);
+const p3 = await phone(`?join=${code}&class=rogue&name=Ana`); // duplicate on purpose
 for (const p of [p1, p2, p3]) {
   await p.waitForFunction(() => window.__blobvale?.playerCount() === 3, null, { timeout: 8_000 });
 }
 await sleep(400);
+// BUGFIX checks: duplicate names deduped; late class re-pick propagates.
+const namesSeen = await p2.evaluate(() => window.__blobvale.names());
+const dedupeOk = namesSeen.includes('Ana Blob') && namesSeen.includes('Ana2 Blob');
+await p3.evaluate(() => window.__blobvale.pick('cleric')); // was rogue — re-pick
+await sleep(600);
+const p3IdOnP2 = await p2.evaluate(() => {
+  const c = window.__blobvale.classes();
+  return Object.values(c);
+});
+const classFixOk = p3IdOnP2.filter((x) => x === 'cleric').length >= 1;
 await p1.screenshot({ path: `${outDir}/bv-1-lobby.png` });
 
 // Host starts the adventure -> everyone lands in the world.
@@ -109,7 +119,7 @@ const hostChatsAfter = await p1.evaluate(() => window.__blobvale.chatsSeen());
 
 // LATE JOIN: a 4th phone joins AFTER the adventure started; picking a class
 // should drop it straight into the world, visible to everyone.
-const p4 = await phone(`?join=${code}&class=cleric`);
+const p4 = await phone(`?join=${code}&class=cleric&name=Remy`);
 await p4.waitForFunction(() => window.__blobvale?.scene() === 'world', null, { timeout: 12_000 });
 await sleep(900);
 const lateJoinerInWorld = await p4.evaluate(() => window.__blobvale.playerCount());
@@ -151,6 +161,8 @@ const ok =
   lateJoinerInWorld === 4 &&
   combatOk &&
   rotateOk &&
+  dedupeOk &&
+  classFixOk &&
   errors.length === 0;
 console.log(
   JSON.stringify(
@@ -167,6 +179,9 @@ console.log(
       killsJoiner,
       statsHost,
       rotateOk,
+      dedupeOk,
+      classFixOk,
+      namesSeen,
       errors: errors.slice(0, 5),
       hostId,
     },

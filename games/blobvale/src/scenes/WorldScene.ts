@@ -262,6 +262,8 @@ export class WorldScene extends Scene {
       scene: () => 'world',
       code: () => session.code,
       playerCount: () => this.roster.order.length,
+      names: () => this.roster.order.map((id) => this.roster.names[id] ?? '?'),
+      classes: () => ({ ...this.roster.classes }),
       myPos: () => ({ x: this.me.x, y: this.me.y }),
       remotePos: (id: string) => {
         const r = this.remotes.get(id);
@@ -390,12 +392,30 @@ export class WorldScene extends Scene {
       return;
     }
     if (msg?.type === 'roster' && !this.session.isHost) {
-      // Additions only — existing adventurers keep their identity.
       msg.order.forEach((id, i) => {
         this.roster.names[id] = msg.names[id] ?? '?';
-        this.roster.classes[id] ??= msg.classes[id] ?? 'knight';
+        const newCls = msg.classes[id];
+        const clsChanged = newCls !== undefined && this.roster.classes[id] !== newCls;
+        if (newCls !== undefined) this.roster.classes[id] = newCls;
         if (!this.roster.order.includes(id)) this.roster.order.push(id);
-        if (id !== this.session.id && !this.remotes.has(id)) this.spawnRemote(id, i);
+        if (id === this.session.id) return;
+        const existing = this.remotes.get(id);
+        if (!existing) {
+          this.spawnRemote(id, i);
+        } else if (clsChanged) {
+          // Class arrived late or changed — rebuild the character in place.
+          const x = existing.entity.x;
+          const y = existing.entity.y;
+          this.remove(existing.entity);
+          this.remotes.delete(id);
+          this.spawnRemote(id, i);
+          const rebuilt = this.remotes.get(id);
+          if (rebuilt) {
+            rebuilt.entity.position.set(x, y);
+            rebuilt.targetX = x;
+            rebuilt.targetY = y;
+          }
+        }
       });
       return;
     }
