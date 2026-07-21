@@ -128,6 +128,15 @@ const killsJoiner = await p2.evaluate(() => window.__blobvale.kills());
 const statsHost = await p1.evaluate(() => window.__blobvale.myStats());
 const combatOk =
   mobsOnP2 > 0 && killsHost >= 1 && killsJoiner >= 1 && (statsHost.xp > 0 || statsHost.lvl > 1);
+// LANDSCAPE: rotate p3 mid-game; UI must reflow and the game keeps running.
+const joyBefore = await p3.evaluate(() => window.__blobvale.joystickScreen());
+await p3.setViewportSize({ width: 844, height: 390 });
+await sleep(800);
+const joyAfter = await p3.evaluate(() => window.__blobvale.joystickScreen());
+const stillWorld = await p3.evaluate(() => window.__blobvale.scene());
+const rotateOk =
+  stillWorld === 'world' && Math.abs(joyAfter.y - joyBefore.y) > 40 && joyAfter.x > 0;
+await p3.screenshot({ path: `${outDir}/bv-5-landscape.png` });
 await p1.screenshot({ path: `${outDir}/bv-2-world-host.png` });
 await p2.screenshot({ path: `${outDir}/bv-3-world-joiner.png` });
 await p4.screenshot({ path: `${outDir}/bv-4-late-joiner.png` });
@@ -141,6 +150,7 @@ const ok =
   hostChatsAfter > hostChatsBefore &&
   lateJoinerInWorld === 4 &&
   combatOk &&
+  rotateOk &&
   errors.length === 0;
 console.log(
   JSON.stringify(
@@ -156,6 +166,7 @@ console.log(
       killsHost,
       killsJoiner,
       statsHost,
+      rotateOk,
       errors: errors.slice(0, 5),
       hostId,
     },

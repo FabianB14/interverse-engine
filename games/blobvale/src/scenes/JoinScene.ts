@@ -17,66 +17,88 @@ export class JoinScene extends Scene {
   private code = '';
   private busy = false;
   private slots: Text[] = [];
+  private slotBoxes: Graphics[] = [];
+  private keys: UIButton[] = [];
+  private backBtn!: UIButton;
+  private titleText!: Text;
   private status!: Text;
+
+  protected override onResize(w: number, h: number): void {
+    this.layout(w, h);
+  }
+
+  private layout(W: number, H: number): void {
+    const landscape = W > H;
+    this.titleText.position.set(W / 2, landscape ? 64 : 120);
+    const slotW = 110;
+    const gap = 22;
+    const total = 4 * slotW + 3 * gap;
+    const slotY = landscape ? 110 : 190;
+    this.slotBoxes.forEach((box, i) => {
+      const x = (W - total) / 2 + i * (slotW + gap);
+      box.clear();
+      box
+        .roundRect(x, slotY, slotW, 130, 18)
+        .fill({ color: 0xffffff, alpha: 0.08 })
+        .roundRect(x, slotY, slotW, 130, 18)
+        .stroke({ color: 0xffffff, alpha: 0.3, width: 3 });
+      const ch = this.slots[i];
+      if (ch) ch.position.set(x + slotW / 2, slotY + 65);
+    });
+    this.status.position.set(W / 2, slotY + 175);
+    const perRow = landscape ? 16 : 8;
+    const keyW = 76;
+    const keyH = landscape ? 78 : 84;
+    const keyGap = 10;
+    const rowW = perRow * keyW + (perRow - 1) * keyGap;
+    const startX = (W - rowW) / 2 + keyW / 2;
+    const startY = landscape ? 360 : 470;
+    this.keys.forEach((btn, i) => {
+      const row = Math.floor(i / perRow);
+      const col = i % perRow;
+      btn.position.set(startX + col * (keyW + keyGap), startY + row * (keyH + keyGap));
+    });
+    this.backBtn.position.set(W / 2, H - (landscape ? 70 : 110));
+  }
 
   constructor(private readonly prefill = '') {
     super();
   }
 
   protected override onEnter(): void {
-    const W = this.game.designWidth;
-    const H = this.game.designHeight;
+    const W = this.game.viewWidth;
+    const H = this.game.viewHeight;
 
     window.__blobvale = { scene: () => 'join', code: () => this.code, playerCount: () => 0 };
 
-    const title = makeText('ENTER ROOM CODE', 52, { color: partyPop.accent });
-    title.position.set(W / 2, 120);
-    this.stage.addChild(title);
+    this.titleText = makeText('ENTER ROOM CODE', 52, { color: partyPop.accent });
+    this.stage.addChild(this.titleText);
 
-    const slotW = 110;
-    const gap = 22;
-    const total = CODE_LENGTH * slotW + (CODE_LENGTH - 1) * gap;
     for (let i = 0; i < CODE_LENGTH; i++) {
-      const x = (W - total) / 2 + i * (slotW + gap);
-      const box = new Graphics()
-        .roundRect(x, 190, slotW, 130, 18)
-        .fill({ color: 0xffffff, alpha: 0.08 })
-        .roundRect(x, 190, slotW, 130, 18)
-        .stroke({ color: 0xffffff, alpha: 0.3, width: 3 });
+      const box = new Graphics();
       this.stage.addChild(box);
+      this.slotBoxes.push(box);
       const ch = makeText('', 72, { color: partyPop.ink });
-      ch.position.set(x + slotW / 2, 190 + 65);
       this.stage.addChild(ch);
       this.slots.push(ch);
     }
 
     this.status = makeText('', 28, { color: 0xff5470, weight: 'bold', wrapWidth: 620 });
-    this.status.position.set(W / 2, 380);
     this.stage.addChild(this.status);
 
-    const perRow = 8;
-    const keyW = 76;
-    const keyH = 84;
-    const keyGap = 10;
-    const rowW = perRow * keyW + (perRow - 1) * keyGap;
-    const startX = (W - rowW) / 2 + keyW / 2;
-    const startY = 470;
-    const keys = [...ALPHABET.split(''), '⌫'];
-    keys.forEach((key, i) => {
-      const row = Math.floor(i / perRow);
-      const col = i % perRow;
+    for (const key of [...ALPHABET.split(''), '⌫']) {
       const btn = new UIButton(key, {
-        width: keyW,
-        height: keyH,
+        width: 76,
+        height: 84,
         fontSize: 34,
         fill: key === '⌫' ? 0xff6f91 : 0xffffff,
         onTap: () => this.press(key),
       });
-      btn.position.set(startX + col * (keyW + keyGap), startY + row * (keyH + keyGap));
       this.add(btn);
-    });
+      this.keys.push(btn);
+    }
 
-    const back = new UIButton('BACK', {
+    this.backBtn = new UIButton('BACK', {
       width: 240,
       height: 84,
       fontSize: 30,
@@ -88,8 +110,8 @@ export class JoinScene extends Scene {
         this.game.scenes.replace(new MenuScene());
       },
     });
-    back.position.set(W / 2, H - 110);
-    this.add(back);
+    this.add(this.backBtn);
+    this.layout(W, H);
 
     if (this.prefill) {
       for (const ch of this.prefill.slice(0, CODE_LENGTH)) this.press(ch, true);

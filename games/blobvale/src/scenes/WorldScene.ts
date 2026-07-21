@@ -137,6 +137,22 @@ export class WorldScene extends Scene {
   private myBar!: Graphics;
   private nextMobId = 1;
   private killsSeen = 0;
+  private chatBtnRef: UIButton | null = null;
+  private codeHud: Text | null = null;
+
+  protected override onResize(w: number, h: number): void {
+    this.layoutUi(w, h);
+  }
+
+  private layoutUi(W: number, H: number): void {
+    this.joystick.position.set(170, H - 190);
+    this.chatBtnRef?.position.set(W - 110, H - 290);
+    this.castBtn.position.set(W - 120, H - 130);
+    this.codeHud?.position.set(W / 2, 40);
+    this.statusText.position.set(W / 2, H / 2);
+    this.camera.setViewSize(W, H);
+    if (this.chatOpen) this.closeChat();
+  }
 
   constructor(
     private readonly session: Session,
@@ -146,8 +162,8 @@ export class WorldScene extends Scene {
   }
 
   protected override onEnter(): void {
-    const W = this.game.designWidth;
-    const H = this.game.designHeight;
+    const W = this.game.viewWidth;
+    const H = this.game.viewHeight;
     const session = this.session;
 
     this.map = tileMapFromRows(valeRows, TILE_SIZE, valeLegend);
@@ -190,6 +206,7 @@ export class WorldScene extends Scene {
       fill: forestDeep.accent,
       onTap: () => this.toggleChat(),
     });
+    this.chatBtnRef = chatBtn;
     chatBtn.position.set(W - 110, H - 290);
     this.add(chatBtn, this.uiLayer);
 
@@ -234,6 +251,7 @@ export class WorldScene extends Scene {
       },
     );
     hud.position.set(W / 2, 40);
+    this.codeHud = hud;
     this.uiLayer.addChild(hud);
 
     this.statusText = makeText('', 30, { color: 0xff5470, weight: 'bold', wrapWidth: 620 });
@@ -413,7 +431,7 @@ export class WorldScene extends Scene {
       return;
     }
     audio.blip();
-    const W = this.game.designWidth;
+    const W = this.game.viewWidth;
     const panel = new Container();
     const bg = new Graphics();
     drawPanel(bg, 620, 250, { fill: 0x243a2a, stroke: forestDeep.ink, radius: 24 });
@@ -433,7 +451,7 @@ export class WorldScene extends Scene {
       btn.scale.set(0.55);
       panel.addChild(btn);
     });
-    panel.position.set((W - 620) / 2, this.game.designHeight - 480);
+    panel.position.set((W - 620) / 2, this.game.viewHeight - 480);
     this.uiLayer.addChild(panel);
     this.chatOpen = panel;
   }

@@ -40,14 +40,53 @@ export class LobbyScene extends Scene {
   private rosterRow!: Entity;
   private statusText!: Text;
   private waitText: Text | null = null;
+  private codeLabel!: Text;
+  private codeText!: Text;
+  private pickLabel!: Text;
+  private classBtns: UIButton[] = [];
+  private classBlurbs: Text[] = [];
+  private startBtn: UIButton | null = null;
+
+  protected override onResize(w: number, h: number): void {
+    this.layout(w, h);
+  }
+
+  private layout(W: number, H: number): void {
+    const landscape = W > H;
+    this.codeLabel.position.set(W / 2, landscape ? 40 : 64);
+    this.codeText.position.set(W / 2, landscape ? 96 : 128);
+    this.countText.position.set(W / 2, landscape ? 152 : 192);
+    this.rosterRow.position.set(W / 2, landscape ? 250 : 300);
+    this.pickLabel.position.set(W / 2, landscape ? 362 : 442);
+    this.classBtns.forEach((btn, i) => {
+      if (landscape) {
+        const cx = W / 2 + (i - 2) * 310;
+        btn.position.set(cx, 452);
+        this.classBlurbs[i]?.position.set(cx, 514);
+      } else {
+        const col = i % 2;
+        const row = Math.floor(i / 2);
+        const cx =
+          i === this.classBtns.length - 1 && this.classBtns.length % 2 === 1
+            ? W / 2
+            : W / 2 + (col === 0 ? -170 : 170);
+        const cy = 512 + row * 122;
+        btn.position.set(cx, cy);
+        this.classBlurbs[i]?.position.set(cx, cy + 62);
+      }
+    });
+    this.statusText.position.set(W / 2, landscape ? 580 : 900);
+    this.startBtn?.position.set(W / 2, H - (landscape ? 76 : 140));
+    this.waitText?.position.set(W / 2, H - (landscape ? 60 : 140));
+  }
 
   constructor(private readonly session: Session) {
     super();
   }
 
   protected override onEnter(): void {
-    const W = this.game.designWidth;
-    const H = this.game.designHeight;
+    const W = this.game.viewWidth;
+    const H = this.game.viewHeight;
     const session = this.session;
 
     window.__blobvale = {
@@ -57,25 +96,20 @@ export class LobbyScene extends Scene {
       ...(session.isHost ? { start: () => this.startAdventure() } : {}),
     };
 
-    const codeLabel = makeText('ROOM CODE', 26, { color: partyPop.inkSoft, weight: 'bold' });
-    codeLabel.position.set(W / 2, 64);
-    this.stage.addChild(codeLabel);
-    const code = makeText(session.code, 88, { color: partyPop.accent, letterSpacing: 16 });
-    code.position.set(W / 2, 128);
-    this.stage.addChild(code);
+    this.codeLabel = makeText('ROOM CODE', 26, { color: partyPop.inkSoft, weight: 'bold' });
+    this.stage.addChild(this.codeLabel);
+    this.codeText = makeText(session.code, 88, { color: partyPop.accent, letterSpacing: 16 });
+    this.stage.addChild(this.codeText);
     this.countText = makeText('', 28, { color: partyPop.ink, weight: 'bold' });
-    this.countText.position.set(W / 2, 192);
     this.stage.addChild(this.countText);
 
     this.rosterRow = new Entity();
-    this.rosterRow.position.set(W / 2, 300);
     this.add(this.rosterRow);
 
-    const pickLabel = makeText('CHOOSE YOUR CLASS', 34, { color: partyPop.ink });
-    pickLabel.position.set(W / 2, 442);
-    this.stage.addChild(pickLabel);
+    this.pickLabel = makeText('CHOOSE YOUR CLASS', 34, { color: partyPop.ink });
+    this.stage.addChild(this.pickLabel);
 
-    CLASSES.forEach((cls, i) => {
+    CLASSES.forEach((cls) => {
       const btn = new UIButton(`${cls.emoji}  ${cls.name}`, {
         width: 300,
         height: 88,
@@ -84,41 +118,32 @@ export class LobbyScene extends Scene {
         textColor: 0x1c1c28,
         onTap: () => this.pickClass(cls.id),
       });
-      const col = i % 2;
-      const row = Math.floor(i / 2);
-      const cx =
-        i === CLASSES.length - 1 && CLASSES.length % 2 === 1
-          ? W / 2
-          : W / 2 + (col === 0 ? -170 : 170);
-      const cy = 512 + row * 122;
-      btn.position.set(cx, cy);
       this.add(btn);
+      this.classBtns.push(btn);
       const blurb = makeText(cls.blurb, 18, { color: partyPop.inkSoft, weight: 'bold' });
-      blurb.position.set(cx, cy + 62);
       this.stage.addChild(blurb);
+      this.classBlurbs.push(blurb);
     });
 
     this.statusText = makeText('', 28, { color: partyPop.inkSoft, weight: 'bold', wrapWidth: 620 });
-    this.statusText.position.set(W / 2, 900);
     this.stage.addChild(this.statusText);
 
     if (session.isHost) {
-      const start = new UIButton('START ADVENTURE', {
+      this.startBtn = new UIButton('START ADVENTURE', {
         width: 480,
         height: 100,
         fontSize: 38,
         onTap: () => this.startAdventure(),
       });
-      start.position.set(W / 2, H - 140);
-      this.add(start);
+      this.add(this.startBtn);
     } else {
       this.waitText = makeText('the host starts the adventure', 28, {
         color: partyPop.inkSoft,
         weight: 'bold',
       });
-      this.waitText.position.set(W / 2, H - 140);
       this.stage.addChild(this.waitText);
     }
+    this.layout(W, H);
 
     this.roster.order = session.players.map((p) => p.id);
     for (const p of session.players) this.roster.names[p.id] = p.name;

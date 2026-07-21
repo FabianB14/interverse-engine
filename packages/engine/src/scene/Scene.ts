@@ -40,6 +40,13 @@ export abstract class Scene {
   protected onExit(): void {}
   /** Per-fixed-step scene logic. dt is the constant step in seconds. */
   protected onUpdate(_dt: number): void {}
+  /** Viewport changed (adaptive games) — re-layout using game.viewWidth/Height. */
+  protected onResize(_w: number, _h: number): void {}
+
+  /** @internal */
+  _resizeHook(w: number, h: number): void {
+    this.onResize(w, h);
+  }
 
   /** @internal Called by SceneManager. */
   _mount(game: Game): void {

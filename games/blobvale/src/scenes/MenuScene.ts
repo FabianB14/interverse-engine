@@ -37,21 +37,37 @@ export class MenuScene extends Scene {
   private t = 0;
   private busy = false;
   private status: Text | null = null;
+  private title: Text | null = null;
+  private mascot: Entity | null = null;
+  private hostBtn: UIButton | null = null;
+  private joinBtn: UIButton | null = null;
+
+  protected override onResize(w: number, h: number): void {
+    this.layout(w, h);
+  }
+
+  private layout(W: number, H: number): void {
+    this.title?.position.set(W / 2, H * 0.16);
+    this.mascot?.position.set(W / 2, H * 0.44);
+    this.hostBtn?.position.set(W / 2, H * 0.66);
+    this.joinBtn?.position.set(W / 2, H * 0.66 + 124);
+    this.status?.position.set(W / 2, H * 0.9);
+  }
 
   protected override onEnter(): void {
-    const W = this.game.designWidth;
-    const H = this.game.designHeight;
+    const W = this.game.viewWidth;
+    const H = this.game.viewHeight;
 
     window.__blobvale = { scene: () => 'menu', code: () => null, playerCount: () => 0 };
 
-    const title = makeText(GAME_TITLE, 104, { color: partyPop.accent, letterSpacing: 4 });
-    title.position.set(W / 2, H * 0.18);
-    this.stage.addChild(title);
+    this.title = makeText(GAME_TITLE, 104, { color: partyPop.accent, letterSpacing: 4 });
+    this.stage.addChild(this.title);
 
     const mascot = new Entity();
+    this.mascot = mascot;
     const char = blobCharacter({ radius: 110, color: partyPop.colors[0] ?? 0xff6f91, seed: 4 });
     mascot.addChild(char.view);
-    mascot.position.set(W / 2, H * 0.42);
+
     mascot.addBehavior(new Wobble({ target: char.body, amount: 0.04, speed: 2.3 }));
     this.add(mascot);
     popIn(mascot, { duration: 0.5 });
@@ -68,16 +84,15 @@ export class MenuScene extends Scene {
       return;
     }
 
-    const hostBtn = new UIButton('HOST A ROOM', {
+    this.hostBtn = new UIButton('HOST A ROOM', {
       width: 460,
       height: 96,
       fontSize: 36,
       onTap: () => void this.hostRoom(relayUrl),
     });
-    hostBtn.position.set(W / 2, H * 0.64);
-    this.add(hostBtn);
+    this.add(this.hostBtn);
 
-    const joinBtn = new UIButton('JOIN WITH CODE', {
+    this.joinBtn = new UIButton('JOIN WITH CODE', {
       width: 460,
       height: 96,
       fontSize: 36,
@@ -88,12 +103,11 @@ export class MenuScene extends Scene {
         this.game.scenes.replace(new JoinScene());
       },
     });
-    joinBtn.position.set(W / 2, H * 0.64 + 130);
-    this.add(joinBtn);
+    this.add(this.joinBtn);
 
     this.status = makeText('', 28, { color: 0xff5470, weight: 'bold', wrapWidth: 620 });
-    this.status.position.set(W / 2, H * 0.86);
     this.stage.addChild(this.status);
+    this.layout(W, H);
 
     // Playtest levers: ?host=1 auto-hosts, ?join=CODE auto-joins.
     const params = new URLSearchParams(window.location.search);

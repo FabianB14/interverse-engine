@@ -27,7 +27,12 @@ export class SceneManager {
   /** Latest request made mid-transition; runs once the current fade ends. */
   private pending: { action: () => void; opts: TransitionOptions } | null = null;
 
+  private viewW: number;
+  private viewH: number;
+
   constructor(width: number, height: number) {
+    this.viewW = width;
+    this.viewH = height;
     this.fadeOverlay.rect(0, 0, width, height).fill(0x000000);
     this.fadeOverlay.alpha = 0;
     this.fadeOverlay.visible = false;
@@ -67,6 +72,16 @@ export class SceneManager {
       const old = this.stack.pop();
       if (old) this.unmount(old);
     }, opts);
+  }
+
+  /** @internal Viewport changed (adaptive mode) — reflow the active scene. */
+  _resize(w: number, h: number): void {
+    if (w === this.viewW && h === this.viewH) return;
+    this.viewW = w;
+    this.viewH = h;
+    this.fadeOverlay.clear();
+    this.fadeOverlay.rect(0, 0, w, h).fill(0x000000);
+    this.current?._resizeHook(w, h);
   }
 
   /** @internal Fixed-timestep update from the game loop. */

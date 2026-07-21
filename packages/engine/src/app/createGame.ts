@@ -17,6 +17,12 @@ export interface GameConfig {
   /** Initial scene, mounted instantly (no transition). */
   scene?: Scene;
   /**
+   * Adaptive viewport: fill the screen edge-to-edge instead of letterboxing.
+   * The design's short side sets the scale; game.viewWidth/viewHeight report
+   * what is actually visible and scenes re-layout via onResize on rotation.
+   */
+  adaptive?: boolean;
+  /**
    * Extra fixed-timestep hook, called before the scene update. `dt` is the
    * constant step in seconds.
    */
@@ -41,6 +47,12 @@ export interface Game {
   /** Design resolution the world is authored against. */
   readonly designWidth: number;
   readonly designHeight: number;
+  /**
+   * Visible area in design units. Equals the design size in letterbox mode;
+   * in adaptive mode it tracks the screen (changes on rotation).
+   */
+  viewWidth: number;
+  viewHeight: number;
   /** Tear down the ticker, listeners, and canvas. */
   destroy: () => void;
 }
@@ -59,6 +71,7 @@ export async function createGame(config: GameConfig): Promise<Game> {
     background = 0x101018,
     mount = document.body,
     fixedFps = 60,
+    adaptive = false,
     update,
     render,
   } = config;
@@ -83,14 +96,22 @@ export async function createGame(config: GameConfig): Promise<Game> {
     // world into the top-left corner on high-DPR phone screens.
     const screenW = app.screen.width;
     const screenH = app.screen.height;
+    if (adaptive) {
+      // Fill: the design's short side sets the scale so UI keeps its
+      // physical size; the long side extends to whatever is on screen.
+      const scale = Math.min(screenW, screenH) / Math.min(width, height);
+      world.scale.set(scale);
+      world.position.set(0, 0);
+      game.viewWidth = screenW / scale;
+      game.viewHeight = screenH / scale;
+      scenes._resize(game.viewWidth, game.viewHeight);
+      return;
+    }
     // Contain: scale so the whole design area is visible, then center (letterbox).
     const scale = Math.min(screenW / width, screenH / height);
     world.scale.set(scale);
     world.position.set((screenW - width * scale) / 2, (screenH - height * scale) / 2);
   };
-
-  fitWorld();
-  app.renderer.on('resize', fitWorld);
 
   // Orientation hint (§4.1): a portrait-designed game held in phone
   // landscape becomes a tiny letterboxed strip — ask for a rotate instead.
@@ -106,7 +127,8 @@ export async function createGame(config: GameConfig): Promise<Game> {
   const updateRotateHint = (): void => {
     const landscapeScreen = window.innerWidth > window.innerHeight;
     const phoneish = Math.min(window.innerWidth, window.innerHeight) < 520;
-    rotateHint.style.display = portraitDesign && landscapeScreen && phoneish ? 'flex' : 'none';
+    rotateHint.style.display =
+      !adaptive && portraitDesign && landscapeScreen && phoneish ? 'flex' : 'none';
   };
   updateRotateHint();
   window.addEventListener('resize', updateRotateHint);
@@ -147,10 +169,14 @@ export async function createGame(config: GameConfig): Promise<Game> {
     scenes,
     designWidth: width,
     designHeight: height,
+    viewWidth: width,
+    viewHeight: height,
     destroy,
   };
 
   scenes._attach(world, game);
+  fitWorld();
+  app.renderer.on('resize', fitWorld);
   audio.installUnlock();
 
   if (config.scene) scenes.replace(config.scene);

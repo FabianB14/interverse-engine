@@ -24,8 +24,8 @@ export class Camera {
 
   constructor(
     private readonly target: Container,
-    private readonly viewWidth: number,
-    private readonly viewHeight: number,
+    private viewWidth: number,
+    private viewHeight: number,
     opts: CameraOptions = {},
   ) {
     this.x = viewWidth / 2;
@@ -44,6 +44,12 @@ export class Camera {
   /** Clamp the camera so it never shows outside this world rectangle. */
   setBounds(x: number, y: number, width: number, height: number): void {
     this.bounds = { x, y, width, height };
+  }
+
+  /** Adaptive games: tell the camera the visible area changed (rotation). */
+  setViewSize(width: number, height: number): void {
+    this.viewWidth = width;
+    this.viewHeight = height;
   }
 
   /** Kick a decaying screen shake. */

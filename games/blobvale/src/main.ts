@@ -11,6 +11,7 @@ async function main(): Promise<void> {
     width: DESIGN_W,
     height: DESIGN_H,
     background: partyPop.bg,
+    adaptive: true,
     scene: new MenuScene(),
   });
 
