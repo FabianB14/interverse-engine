@@ -138,6 +138,21 @@ const killsJoiner = await p2.evaluate(() => window.__blobvale.kills());
 const statsHost = await p1.evaluate(() => window.__blobvale.myStats());
 const combatOk =
   mobsOnP2 > 0 && killsHost >= 1 && killsJoiner >= 1 && (statsHost.xp > 0 || statsHost.lvl > 1);
+// BOSS: host warps to the lair; joiner must see the boss lose HP.
+await p1.evaluate(() => window.__blobvale.warp(770, 290));
+await sleep(600);
+const bossBefore = await p2.evaluate(() => window.__blobvale.bossHp());
+for (let i = 0; i < 10; i++) {
+  await p1.evaluate(() => window.__blobvale.cast());
+  await sleep(350);
+}
+await sleep(600);
+const bossAfter = await p2.evaluate(() => window.__blobvale.bossHp());
+const bossOk = bossBefore !== null && bossAfter !== null && bossAfter < bossBefore;
+await p1.screenshot({ path: `${outDir}/bv-6-boss.png` });
+// Retreat so slimes/boss stop chasing during rotation checks.
+await p1.evaluate(() => window.__blobvale.warp(800, 1400));
+
 // LANDSCAPE: rotate p3 mid-game; UI must reflow and the game keeps running.
 const joyBefore = await p3.evaluate(() => window.__blobvale.joystickScreen());
 await p3.setViewportSize({ width: 844, height: 390 });
@@ -163,6 +178,7 @@ const ok =
   rotateOk &&
   dedupeOk &&
   classFixOk &&
+  bossOk &&
   errors.length === 0;
 console.log(
   JSON.stringify(
@@ -181,6 +197,9 @@ console.log(
       rotateOk,
       dedupeOk,
       classFixOk,
+      bossOk,
+      bossBefore,
+      bossAfter,
       namesSeen,
       errors: errors.slice(0, 5),
       hostId,

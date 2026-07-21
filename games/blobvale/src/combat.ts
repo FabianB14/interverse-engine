@@ -72,6 +72,21 @@ export const MOB = {
   XP_RANGE: 700,
 };
 
+export const BOSS = {
+  ID: 9999,
+  MAX_HP: 400,
+  SPEED: 90,
+  ENRAGED_SPEED: 150,
+  ATTACK_RANGE: 100,
+  ATTACK_DAMAGE: 12,
+  ATTACK_EVERY: 1.6,
+  ENRAGED_EVERY: 1.0,
+  AGGRO_RANGE: 340,
+  XP: 100,
+  RESPAWN_SECONDS: 60,
+  MINIONS_ON_ENRAGE: 2,
+};
+
 export const PLAYER_BASE_HP = 120;
 export const RESPAWN_SECONDS = 5;
 

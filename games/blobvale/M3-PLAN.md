@@ -1,6 +1,6 @@
 # Blobvale Milestone 3 (working plan) — delete when shipped
 
-## Wave A: bug fixes + name entry (ship first)
+## Wave A: bug fixes + name entry — SHIPPED
 
 1. BUG duplicate names: replaced by real names (below); host also dedupes
    display names in the lobby (append 2/3… if taken).
@@ -14,7 +14,7 @@
    ('blobvale', key 'name'). playerName() uses it; relay still sanitizes.
    ?name= query lever for tests.
 
-## Wave B: M3 core
+## Wave B: M3 core — BOSS SHIPPED; upgrade cards + customization remain
 
 - BOSS: 'B' marker in map north end; big slime (radius 60, ~400hp, dmg 12,
   slow), phase 2 under 50% (faster, spawns 2 minions). Boss bar top of

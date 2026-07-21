@@ -30,6 +30,7 @@ interface LobbyDebug {
   names?: () => string[];
   classes?: () => Record<string, string>;
   pick?: (cls: string) => void;
+  bossHp?: () => number | null;
 }
 
 declare global {

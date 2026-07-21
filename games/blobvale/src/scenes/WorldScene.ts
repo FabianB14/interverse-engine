@@ -23,6 +23,7 @@ import { drawPanel } from '@interverse/ui';
 import { classById } from '../classes.js';
 import {
   ABILITIES,
+  BOSS,
   CLERIC_HEAL,
   MOB,
   RESPAWN_SECONDS,
@@ -123,11 +124,11 @@ export class WorldScene extends Scene {
   private spawnPoint = { x: 800, y: 1200 };
   // Combat (M2)
   private hostMobs = new Map<number, MobState>();
-  private mobRespawns: { at: number; homeX: number; homeY: number }[] = [];
+  private mobRespawns: { at: number; homeX: number; homeY: number; boss?: boolean }[] = [];
   private stats: Record<string, { hp: number; max: number; lvl: number; xp: number }> = {};
   private mobViews = new Map<
     string,
-    { e: Entity; bar: Graphics; body: Container; targetX: number; targetY: number }
+    { e: Entity; bar: Graphics; body: Container; targetX: number; targetY: number; hp: number }
   >();
   private cooldownLeft = 0;
   private castBtn!: UIButton;
@@ -240,6 +241,8 @@ export class WorldScene extends Scene {
       for (const camp of this.map.objects.filter((o) => o.name === 'camp')) {
         for (let i = 0; i < MOB.PER_CAMP; i++) this.hostSpawnMob(camp.x, camp.y);
       }
+      const lair = this.map.objects.find((o) => o.name === 'boss');
+      if (lair) this.hostSpawnBoss(lair.x, lair.y + 60);
     }
 
     const hud = makeText(
@@ -277,6 +280,11 @@ export class WorldScene extends Scene {
       mobCount: () => (this.session.isHost ? this.hostMobs.size : this.mobViews.size),
       myStats: () => this.stats[this.session.id] ?? null,
       kills: () => this.killsSeen,
+      bossHp: () => {
+        if (this.session.isHost) return this.hostMobs.get(BOSS.ID)?.hp ?? null;
+        const v = this.mobViews.get(String(BOSS.ID));
+        return v ? v.hp : null;
+      },
       warp: (x: number, y: number) => this.me.position.set(x, y),
       joystickScreen: () => {
         const p = this.joystick.getGlobalPosition();
@@ -655,11 +663,37 @@ export class WorldScene extends Scene {
     });
   }
 
+  private bossEnraged = false;
+
+  private hostSpawnBoss(x: number, y: number): void {
+    this.bossEnraged = false;
+    this.hostMobs.set(BOSS.ID, {
+      id: BOSS.ID,
+      x,
+      y,
+      hp: BOSS.MAX_HP,
+      max: BOSS.MAX_HP,
+      homeX: x,
+      homeY: y,
+      target: null,
+      attackIn: 0,
+    });
+  }
+
   private hostSimMobs(dt: number): void {
     for (const m of this.hostMobs.values()) {
+      const isBoss = m.id === BOSS.ID;
+      const speed = isBoss ? (this.bossEnraged ? BOSS.ENRAGED_SPEED : BOSS.SPEED) : MOB.SPEED;
+      const atkRange = isBoss ? BOSS.ATTACK_RANGE : MOB.ATTACK_RANGE;
+      const atkDmg = isBoss ? BOSS.ATTACK_DAMAGE : MOB.ATTACK_DAMAGE;
+      const atkEvery = isBoss
+        ? this.bossEnraged
+          ? BOSS.ENRAGED_EVERY
+          : BOSS.ATTACK_EVERY
+        : MOB.ATTACK_EVERY;
       // Acquire/drop target.
       let best: string | null = null;
-      let bestD = MOB.AGGRO_RANGE;
+      let bestD = isBoss ? BOSS.AGGRO_RANGE : MOB.AGGRO_RANGE;
       for (const [pid, p] of Object.entries(this.hostPositions)) {
         if ((this.stats[pid]?.hp ?? 0) <= 0) continue;
         const d = Math.hypot(p.x - m.x, p.y - m.y);
@@ -679,7 +713,7 @@ export class WorldScene extends Scene {
           };
       if (goal) {
         const d = Math.hypot(goal.x - m.x, goal.y - m.y);
-        const stop = best ? MOB.ATTACK_RANGE * 0.8 : 6;
+        const stop = best ? atkRange * 0.8 : 6;
         if (d > stop) {
           const moved = moveWithCollision(
             this.map,
@@ -687,8 +721,8 @@ export class WorldScene extends Scene {
             m.y,
             18,
             14,
-            ((goal.x - m.x) / d) * MOB.SPEED * dt,
-            ((goal.y - m.y) / d) * MOB.SPEED * dt,
+            ((goal.x - m.x) / d) * speed * dt,
+            ((goal.y - m.y) / d) * speed * dt,
           );
           m.x = moved.x;
           m.y = moved.y;
@@ -698,17 +732,17 @@ export class WorldScene extends Scene {
       m.attackIn -= dt;
       if (best && m.attackIn <= 0) {
         const p = this.hostPositions[best];
-        if (p && Math.hypot(p.x - m.x, p.y - m.y) <= MOB.ATTACK_RANGE) {
-          m.attackIn = MOB.ATTACK_EVERY;
+        if (p && Math.hypot(p.x - m.x, p.y - m.y) <= atkRange) {
+          m.attackIn = atkEvery;
           const st = this.stats[best];
           if (st && st.hp > 0) {
-            st.hp = Math.max(0, st.hp - MOB.ATTACK_DAMAGE);
+            st.hp = Math.max(0, st.hp - atkDmg);
             this.broadcastFx({
               type: 'fx',
               kind: 'hit',
               x: p.x,
               y: p.y,
-              amount: MOB.ATTACK_DAMAGE,
+              amount: atkDmg,
             });
             if (st.hp <= 0) {
               this.broadcastFx({ type: 'fx', kind: 'down', x: p.x, y: p.y, id: best });
@@ -730,7 +764,8 @@ export class WorldScene extends Scene {
     const now = this.t;
     this.mobRespawns = this.mobRespawns.filter((r) => {
       if (now >= r.at) {
-        this.hostSpawnMob(r.homeX, r.homeY);
+        if (r.boss) this.hostSpawnBoss(r.homeX, r.homeY);
+        else this.hostSpawnMob(r.homeX, r.homeY);
         return false;
       }
       return true;
@@ -786,20 +821,32 @@ export class WorldScene extends Scene {
     for (const m of victims) {
       m.hp -= dmg;
       this.broadcastFx({ type: 'fx', kind: 'hit', x: m.x, y: m.y - 30, amount: dmg });
+      if (m.id === BOSS.ID && !this.bossEnraged && m.hp <= m.max / 2 && m.hp > 0) {
+        // Phase 2: the boss speeds up and calls two minions.
+        this.bossEnraged = true;
+        for (let i = 0; i < BOSS.MINIONS_ON_ENRAGE; i++) this.hostSpawnMob(m.x, m.y);
+        this.broadcastFx({ type: 'fx', kind: 'levelup', x: m.x, y: m.y });
+      }
       if (m.hp <= 0) {
         this.hostMobs.delete(m.id);
-        this.mobRespawns.push({ at: this.t + MOB.RESPAWN_SECONDS, homeX: m.homeX, homeY: m.homeY });
+        const isBoss = m.id === BOSS.ID;
+        this.mobRespawns.push({
+          at: this.t + (isBoss ? BOSS.RESPAWN_SECONDS : MOB.RESPAWN_SECONDS),
+          homeX: m.homeX,
+          homeY: m.homeY,
+          ...(isBoss ? { boss: true } : {}),
+        });
         this.broadcastFx({ type: 'fx', kind: 'die', x: m.x, y: m.y });
-        this.hostGrantXp(m.x, m.y);
+        this.hostGrantXp(m.x, m.y, isBoss ? BOSS.XP : MOB.XP_PER_KILL);
       }
     }
   }
 
-  private hostGrantXp(x: number, y: number): void {
+  private hostGrantXp(x: number, y: number, amount = MOB.XP_PER_KILL): void {
     for (const [pid, p] of Object.entries(this.hostPositions)) {
       const st = this.stats[pid];
       if (!st || Math.hypot(p.x - x, p.y - y) > MOB.XP_RANGE) continue;
-      st.xp += MOB.XP_PER_KILL;
+      st.xp += amount;
       while (st.xp >= xpForLevel(st.lvl)) {
         st.xp -= xpForLevel(st.lvl);
         st.lvl += 1;
@@ -927,18 +974,24 @@ export class WorldScene extends Scene {
           new Wobble({ target: char.body, amount: 0.06, speed: 3.2, phase: Number(id) }),
         );
         const bar = new Graphics();
-        bar.position.set(0, -44);
+        bar.position.set(0, Number(id) === BOSS.ID ? -92 : -44);
         e.addChild(bar);
         e.position.set(m.x, m.y);
         this.add(e, this.mapLayer);
-        v = { e, bar, body: char.body, targetX: m.x, targetY: m.y };
+        v = { e, bar, body: char.body, targetX: m.x, targetY: m.y, hp: m.hp };
         this.mobViews.set(id, v);
       }
       v.targetX = m.x;
       v.targetY = m.y;
+      v.hp = m.hp;
+      const bw = Number(id) === BOSS.ID ? 130 : 52;
       v.bar.clear();
-      v.bar.rect(-26, 0, 52, 7).fill({ color: 0x000000, alpha: 0.4 });
-      v.bar.rect(-26, 0, 52 * Math.max(0, m.hp / m.max), 7).fill(0xff5470);
+      v.bar
+        .rect(-bw / 2, 0, bw, Number(id) === BOSS.ID ? 12 : 7)
+        .fill({ color: 0x000000, alpha: 0.4 });
+      v.bar
+        .rect(-bw / 2, 0, bw * Math.max(0, m.hp / m.max), Number(id) === BOSS.ID ? 12 : 7)
+        .fill(Number(id) === BOSS.ID ? 0xc77dff : 0xff5470);
     }
     for (const [id, v] of [...this.mobViews]) {
       if (!(id in mobs)) {

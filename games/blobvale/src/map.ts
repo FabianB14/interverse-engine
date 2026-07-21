@@ -9,7 +9,7 @@ export const TILE = { GRASS: 1, TREE: 2, WATER: 3, PATH: 4, FLOWER: 5 } as const
 // path north toward the future mob camps / boss arena (Milestones 2–3).
 export const valeRows: readonly string[] = [
   '##########################',
-  '#..........pp...........#'.padEnd(26, '#').slice(0, 26),
+  '#..........Bp...........#'.padEnd(26, '#').slice(0, 26),
   '#..f.......pp......f....#'.padEnd(26, '#').slice(0, 26),
   '#....m.....pp.....m.....#'.padEnd(26, '#').slice(0, 26),
   '#...##.....pp.....##....#'.padEnd(26, '#').slice(0, 26),
@@ -52,6 +52,7 @@ export const valeLegend: Record<string, TileLegendEntry> = {
   f: { tile: TILE.FLOWER },
   '@': { tile: TILE.GRASS, object: 'spawn' },
   m: { tile: TILE.GRASS, object: 'camp' },
+  B: { tile: TILE.GRASS, object: 'boss' },
 };
 
 const GRASS = 0x3d6b3a;
