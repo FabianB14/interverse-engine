@@ -36,9 +36,16 @@ jobs:
 
       - run: pnpm build
 
+      - name: Assemble site (hub + demos)
+        run: |
+          mkdir -p dist-site
+          cp site/index.html dist-site/index.html
+          cp -r games/hello/dist dist-site/blob-tap
+          cp -r games/room/dist dist-site/room
+
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: games/hello/dist
+          path: dist-site
 
   deploy:
     needs: build

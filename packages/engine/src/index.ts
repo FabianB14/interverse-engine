@@ -2,6 +2,7 @@
 // Phase 1: app shell (§4.1), scenes (§4.2), entities/behaviors (§4.3),
 // tap input (§4.4), vector art + palettes + juice (§4.5), audio (§4.8),
 // save (§4.9).
+// Phase 2: tilemaps + camera (§4.6), virtual joystick (§4.4), dialogue (§4.7).
 
 export { createGame } from './app/createGame.js';
 export type { Game, GameConfig } from './app/createGame.js';
@@ -17,12 +18,24 @@ export type { Ease, TweenOptions, WobbleOptions } from './entity/behaviors.js';
 
 export { makeTappable } from './input/tap.js';
 export type { TapOptions } from './input/tap.js';
+export { VirtualJoystick } from './input/VirtualJoystick.js';
+export type { VirtualJoystickOptions } from './input/VirtualJoystick.js';
+
+export { tileMapFromRows, solidAt, moveWithCollision } from './world/TileMap.js';
+export type { TileMapData, TileMapObject, TileLegendEntry } from './world/TileMap.js';
+export { buildTileMapView } from './world/TileMapView.js';
+export type { TilePainter } from './world/TileMapView.js';
+export { Camera } from './world/Camera.js';
+export type { CameraOptions } from './world/Camera.js';
+
+export { DialogueRunner } from './dialogue/runner.js';
+export type { DialogueData, DialogueNode, DialogueChoice } from './dialogue/runner.js';
 
 export { drawBlob, blobPoints } from './art/blob.js';
 export type { BlobOptions } from './art/blob.js';
 export { blobCharacter } from './art/character.js';
 export type { BlobCharacter, BlobCharacterOptions } from './art/character.js';
-export { palettes, partyPop, cozyAutumn, darken, pickColor } from './art/palettes.js';
+export { palettes, partyPop, cozyAutumn, darken, lighten, pickColor } from './art/palettes.js';
 export type { Palette } from './art/palettes.js';
 export { popIn, squash } from './art/juice.js';
 

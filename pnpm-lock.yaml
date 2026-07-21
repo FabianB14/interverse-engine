@@ -40,8 +40,33 @@ importers:
         specifier: ^6.0.7
         version: 6.4.3
 
+  games/room:
+    dependencies:
+      '@interverse/engine':
+        specifier: workspace:*
+        version: link:../../packages/engine
+      '@interverse/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui-kit
+      pixi.js:
+        specifier: ^8.6.6
+        version: 8.19.0
+    devDependencies:
+      vite:
+        specifier: ^6.0.7
+        version: 6.4.3
+
   packages/engine:
     dependencies:
+      pixi.js:
+        specifier: ^8.6.6
+        version: 8.19.0
+
+  packages/ui-kit:
+    dependencies:
+      '@interverse/engine':
+        specifier: workspace:*
+        version: link:../engine
       pixi.js:
         specifier: ^8.6.6
         version: 8.19.0

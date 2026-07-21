@@ -10,10 +10,12 @@
   },
   "scripts": {
     "dev": "pnpm --filter @interverse/hello dev",
-    "build": "pnpm --filter @interverse/hello build",
+    "dev:room": "pnpm --filter @interverse/room dev",
+    "build": "pnpm -r --if-present build",
     "preview": "pnpm --filter @interverse/hello preview",
     "typecheck": "pnpm -r --if-present typecheck",
     "verify": "node scripts/verify.mjs",
+    "verify:room": "node scripts/verify-room.mjs",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check ."

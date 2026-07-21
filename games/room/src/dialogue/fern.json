@@ -1,0 +1,36 @@
+{
+  "start": "intro",
+  "nodes": {
+    "intro": {
+      "speaker": "Fern",
+      "text": "Oh! A visitor! I don't get many of those. Welcome to my little room.",
+      "next": "ask"
+    },
+    "ask": {
+      "speaker": "Fern",
+      "text": "I've been rearranging all day. Be honest — how does the place look?",
+      "choices": [
+        { "text": "It's beautiful!", "next": "happy", "set": ["complimented"] },
+        { "text": "Bit dusty, honestly.", "next": "dusty" }
+      ]
+    },
+    "happy": {
+      "speaker": "Fern",
+      "text": "Aw, you're sweet! The rug really ties it together, doesn't it?",
+      "next": "bye"
+    },
+    "dusty": {
+      "speaker": "Fern",
+      "text": "Dusty?! ...Okay, fair. The broom and I aren't on speaking terms.",
+      "next": "bye"
+    },
+    "bye": {
+      "speaker": "Fern",
+      "text": "Come back any time. I'll put the kettle on!"
+    },
+    "again": {
+      "speaker": "Fern",
+      "text": "Back so soon? The kettle's still warm. Make yourself at home."
+    }
+  }
+}

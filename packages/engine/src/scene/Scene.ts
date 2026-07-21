@@ -13,10 +13,14 @@ export abstract class Scene {
   protected game!: Game;
   private readonly entities: Entity[] = [];
 
-  /** Add an entity: it joins the stage and the fixed-step update list. */
-  add<T extends Entity>(entity: T): T {
+  /**
+   * Add an entity: it joins the update list and a display parent (default
+   * the scene stage — pass a sub-layer to control draw order, e.g. a map
+   * layer under a UI layer).
+   */
+  add<T extends Entity>(entity: T, parent?: Container): T {
     this.entities.push(entity);
-    this.stage.addChild(entity);
+    (parent ?? this.stage).addChild(entity);
     return entity;
   }
 
@@ -25,7 +29,7 @@ export abstract class Scene {
     const i = this.entities.indexOf(entity);
     if (i >= 0) this.entities.splice(i, 1);
     if (!entity.destroyed) {
-      this.stage.removeChild(entity);
+      entity.parent?.removeChild(entity);
       entity.destroy({ children: true });
     }
   }

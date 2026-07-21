@@ -35,6 +35,15 @@ export const palettes: Record<string, Palette> = {
   'cozy-autumn': cozyAutumn,
 };
 
+/** Mix a 24-bit color toward white by `amount` (0..1). */
+export function lighten(color: number, amount: number): number {
+  const f = Math.min(1, Math.max(0, amount));
+  const r = Math.min(255, Math.round(((color >> 16) & 0xff) + (255 - ((color >> 16) & 0xff)) * f));
+  const g = Math.min(255, Math.round(((color >> 8) & 0xff) + (255 - ((color >> 8) & 0xff)) * f));
+  const b = Math.min(255, Math.round((color & 0xff) + (255 - (color & 0xff)) * f));
+  return (r << 16) | (g << 8) | b;
+}
+
 /** Multiply a 24-bit color's channels toward black by `amount` (0..1). */
 export function darken(color: number, amount: number): number {
   const f = Math.max(0, 1 - amount);
