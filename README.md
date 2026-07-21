@@ -3,13 +3,15 @@
 An AI-native 2D game framework for mobile party games, cozy games, and 2D RPGs.
 See [`interverse-engine-spec.md`](./interverse-engine-spec.md) for the master spec.
 
-> **Status: Phase 1 — Engine core.**
-> Scenes, entities/behaviors, tap input, vector art + palettes + juice,
-> procedural audio, and versioned saves — demoed by **Blob Tap**, a playable
-> single-device arcade toy.
+> **Status: Phase 2 — UI kit + tilemap + dialogue.**
+> Phase 1 delivered the engine core (scenes, entities/behaviors, tap input,
+> vector art, audio, saves) with **Blob Tap**. Phase 2 adds tilemaps with
+> collision, a camera, a virtual joystick, a JSON dialogue system, and the
+> `@interverse/ui` component kit — demoed by **Cozy Room**, a walkable room
+> with an NPC conversation.
 >
-> **Play it:** https://fabianb14.github.io/interverse-engine/ (auto-deployed
-> from `main`).
+> **Play them:** https://fabianb14.github.io/interverse-engine/ (hub with
+> both demos, auto-deployed from `main`).
 
 ## Layout
 
