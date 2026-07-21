@@ -27,7 +27,11 @@ interface StartMessage {
   roster: RosterState;
 }
 
-type LobbyMessage = RosterMessage | ClassMessage | StartMessage;
+interface InProgressMessage {
+  type: 'inprogress';
+}
+
+type LobbyMessage = RosterMessage | ClassMessage | StartMessage | InProgressMessage;
 
 /** Lobby: code + roster + class picker; host starts the adventure. */
 export class LobbyScene extends Scene {
@@ -35,6 +39,7 @@ export class LobbyScene extends Scene {
   private countText!: Text;
   private rosterRow!: Entity;
   private statusText!: Text;
+  private waitText: Text | null = null;
 
   constructor(private readonly session: Session) {
     super();
@@ -81,12 +86,16 @@ export class LobbyScene extends Scene {
       });
       const col = i % 2;
       const row = Math.floor(i / 2);
-      if (i === CLASSES.length - 1 && CLASSES.length % 2 === 1) {
-        btn.position.set(W / 2, 520 + row * 104);
-      } else {
-        btn.position.set(W / 2 + (col === 0 ? -160 : 160), 520 + row * 104);
-      }
+      const cx =
+        i === CLASSES.length - 1 && CLASSES.length % 2 === 1
+          ? W / 2
+          : W / 2 + (col === 0 ? -170 : 170);
+      const cy = 512 + row * 122;
+      btn.position.set(cx, cy);
       this.add(btn);
+      const blurb = makeText(cls.blurb, 18, { color: partyPop.inkSoft, weight: 'bold' });
+      blurb.position.set(cx, cy + 62);
+      this.stage.addChild(blurb);
     });
 
     this.statusText = makeText('', 28, { color: partyPop.inkSoft, weight: 'bold', wrapWidth: 620 });
@@ -103,12 +112,12 @@ export class LobbyScene extends Scene {
       start.position.set(W / 2, H - 140);
       this.add(start);
     } else {
-      const wait = makeText('the host starts the adventure', 28, {
+      this.waitText = makeText('the host starts the adventure', 28, {
         color: partyPop.inkSoft,
         weight: 'bold',
       });
-      wait.position.set(W / 2, H - 140);
-      this.stage.addChild(wait);
+      this.waitText.position.set(W / 2, H - 140);
+      this.stage.addChild(this.waitText);
     }
 
     this.roster.order = session.players.map((p) => p.id);
@@ -149,6 +158,9 @@ export class LobbyScene extends Scene {
           this.refreshRoster();
         } else if (msg?.type === 'start') {
           this.game.scenes.replace(new WorldScene(this.session, msg.roster));
+        } else if (msg?.type === 'inprogress' && this.waitText) {
+          this.waitText.text = 'adventure in progress — pick a class to jump in!';
+          this.waitText.style.fill = partyPop.accent;
         }
       });
     }

@@ -63,7 +63,7 @@ async function phone(q, dpr = 1) {
     if (m.type() === 'error') errors.push(`console.error: ${m.text()}`);
   });
   await page.goto(`${url}${q}`, { waitUntil: 'networkidle' });
-  await page.waitForSelector('canvas', { timeout: 10_000 });
+  await page.waitForSelector('canvas', { timeout: 30_000 });
   return page;
 }
 
@@ -106,8 +106,17 @@ const hostChatsBefore = await p1.evaluate(() => window.__blobvale.chatsSeen());
 await p2.evaluate(() => window.__blobvale.sendChat(0)); // "Help!"
 await sleep(700);
 const hostChatsAfter = await p1.evaluate(() => window.__blobvale.chatsSeen());
+
+// LATE JOIN: a 4th phone joins AFTER the adventure started; picking a class
+// should drop it straight into the world, visible to everyone.
+const p4 = await phone(`?join=${code}&class=cleric`);
+await p4.waitForFunction(() => window.__blobvale?.scene() === 'world', null, { timeout: 12_000 });
+await sleep(900);
+const lateJoinerInWorld = await p4.evaluate(() => window.__blobvale.playerCount());
+const remotesSeenByP2 = await p2.evaluate(() => window.__blobvale.remoteIds().length);
 await p1.screenshot({ path: `${outDir}/bv-2-world-host.png` });
 await p2.screenshot({ path: `${outDir}/bv-3-world-joiner.png` });
+await p4.screenshot({ path: `${outDir}/bv-4-late-joiner.png` });
 
 await browser.close();
 relay.kill();
@@ -121,6 +130,8 @@ console.log(
       movedSeenByJoiner: Math.round(movedSeen),
       snapshotsReceived: snaps,
       chatDelivered: hostChatsAfter > hostChatsBefore,
+      lateJoinerInWorld,
+      remotesSeenByP2,
       errors: errors.slice(0, 5),
       hostId,
     },

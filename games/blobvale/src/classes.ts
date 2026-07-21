@@ -13,6 +13,8 @@ export interface ClassDef {
   color: number;
   /** Movement speed, design units/sec. */
   speed: number;
+  /** One-line role note shown in the class picker. */
+  blurb: string;
   /** Code-drawn class accessory, positioned relative to a blob of `radius`. */
   accessory: (radius: number) => Container;
 }
@@ -80,18 +82,51 @@ function rogueBandana(r: number): Container {
 }
 
 export const CLASSES: ClassDef[] = [
-  { id: 'knight', name: 'Knight', emoji: '🛡️', color: 0x8fa3b8, speed: 220, accessory: knightHelm },
+  {
+    id: 'knight',
+    name: 'Knight',
+    emoji: '🛡️',
+    color: 0x8fa3b8,
+    speed: 220,
+    blurb: 'Tough shield-bearer. Slow but sturdy.',
+    accessory: knightHelm,
+  },
   {
     id: 'archer',
     name: 'Archer',
     emoji: '🏹',
     color: 0x8fbf6b,
     speed: 265,
+    blurb: 'Quick, strikes from afar.',
     accessory: archerQuiver,
   },
-  { id: 'mage', name: 'Mage', emoji: '🔮', color: 0xa98fe0, speed: 240, accessory: mageHat },
-  { id: 'cleric', name: 'Cleric', emoji: '💚', color: 0xf2cc8f, speed: 240, accessory: clericHalo },
-  { id: 'rogue', name: 'Rogue', emoji: '🗡️', color: 0xd98a9c, speed: 285, accessory: rogueBandana },
+  {
+    id: 'mage',
+    name: 'Mage',
+    emoji: '🔮',
+    color: 0xa98fe0,
+    speed: 240,
+    blurb: 'Big magic, big booms.',
+    accessory: mageHat,
+  },
+  {
+    id: 'cleric',
+    name: 'Cleric',
+    emoji: '💚',
+    color: 0xf2cc8f,
+    speed: 240,
+    blurb: 'Keeps the party healthy.',
+    accessory: clericHalo,
+  },
+  {
+    id: 'rogue',
+    name: 'Rogue',
+    emoji: '🗡️',
+    color: 0xd98a9c,
+    speed: 285,
+    blurb: 'Fastest blob alive. Sneaky.',
+    accessory: rogueBandana,
+  },
 ];
 
 export function classById(id: string | undefined): ClassDef {

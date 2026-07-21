@@ -44,7 +44,19 @@ interface ChatMessage {
   id?: string;
 }
 
-type WorldMessage = PosMessage | SnapMessage | ChatMessage;
+interface RosterMsg {
+  type: 'roster';
+  order: string[];
+  names: Record<string, string>;
+  classes: Record<string, string>;
+}
+
+interface ClassMsg {
+  type: 'class';
+  cls: string;
+}
+
+type WorldMessage = PosMessage | SnapMessage | ChatMessage | RosterMsg | ClassMsg;
 
 interface RemotePlayer {
   entity: Entity;
@@ -78,6 +90,7 @@ export class WorldScene extends Scene {
   private statusText!: Text;
   private snapsSeen = 0;
   private chatsSeen = 0;
+  private spawnPoint = { x: 800, y: 1200 };
 
   constructor(
     private readonly session: Session,
@@ -110,20 +123,10 @@ export class WorldScene extends Scene {
     this.hostPositions[session.id] = { x: this.me.x, y: this.me.y };
 
     // Everyone else.
+    this.spawnPoint = { x: spawn.x, y: spawn.y };
     this.roster.order.forEach((id, i) => {
       if (id === session.id) return;
-      const made = this.makeAdventurer(id, false);
-      const e = made.entity;
-      e.position.set(spawn.x + (i - 2) * 70, spawn.y + (i % 2) * 60);
-      this.add(e, this.mapLayer);
-      this.remotes.set(id, {
-        entity: e,
-        targetX: e.x,
-        targetY: e.y,
-        bubble: null,
-        bubbleUntil: 0,
-      });
-      this.hostPositions[id] = { x: e.x, y: e.y };
+      this.spawnRemote(id, i);
     });
 
     this.camera = new Camera(this.mapLayer, W, H, { deadzoneWidth: 120, deadzoneHeight: 160 });
@@ -179,6 +182,16 @@ export class WorldScene extends Scene {
     };
 
     session.onMessage((from, data) => this.onNet(from, data as WorldMessage));
+    if (session.isHost) {
+      // Late joiners: greet them in their lobby; they enter once they pick
+      // a class (their 'class' message is handled in onNet).
+      session.onPlayerJoin((p) => {
+        this.roster.names[p.id] = p.name;
+        session.sendTo(p.id, { type: 'inprogress' });
+        session.sendTo(p.id, { type: 'roster', ...this.roster });
+        audio.chime();
+      });
+    }
     session.onPlayerLeave((id) => {
       const r = this.remotes.get(id);
       if (r) {
@@ -202,6 +215,16 @@ export class WorldScene extends Scene {
 
   protected override onExit(): void {
     delete window.__blobvale;
+  }
+
+  private spawnRemote(id: string, index: number): void {
+    if (this.remotes.has(id) || id === this.session.id) return;
+    const made = this.makeAdventurer(id, false);
+    const e = made.entity;
+    e.position.set(this.spawnPoint.x + (index - 2) * 70, this.spawnPoint.y + (index % 2) * 60);
+    this.add(e, this.mapLayer);
+    this.remotes.set(id, { entity: e, targetX: e.x, targetY: e.y, bubble: null, bubbleUntil: 0 });
+    this.hostPositions[id] = { x: e.x, y: e.y };
   }
 
   private makeAdventurer(id: string, isMe: boolean): { entity: Entity; body: Container } {
@@ -244,6 +267,25 @@ export class WorldScene extends Scene {
           r.targetY = p.y;
         }
       }
+      return;
+    }
+    if (msg?.type === 'class' && this.session.isHost) {
+      // A late joiner picked a class -> add them to the world for everyone.
+      if (!this.roster.order.includes(from)) this.roster.order.push(from);
+      this.roster.classes[from] = msg.cls;
+      this.spawnRemote(from, this.roster.order.indexOf(from));
+      this.session.broadcast({ type: 'roster', ...this.roster });
+      this.session.sendTo(from, { type: 'start', roster: this.roster });
+      return;
+    }
+    if (msg?.type === 'roster' && !this.session.isHost) {
+      // Additions only — existing adventurers keep their identity.
+      msg.order.forEach((id, i) => {
+        this.roster.names[id] = msg.names[id] ?? '?';
+        this.roster.classes[id] ??= msg.classes[id] ?? 'knight';
+        if (!this.roster.order.includes(id)) this.roster.order.push(id);
+        if (id !== this.session.id && !this.remotes.has(id)) this.spawnRemote(id, i);
+      });
       return;
     }
     if (msg?.type === 'chat') {
