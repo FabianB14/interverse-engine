@@ -30,9 +30,18 @@ export const cozyAutumn: Palette = {
   colors: [0xe07a5f, 0xf2cc8f, 0x81b29a, 0xc98a4b, 0xa26769],
 };
 
+export const forestDeep: Palette = {
+  bg: 0x16281c,
+  ink: 0xf2ffe9,
+  inkSoft: 0xa8c8a0,
+  accent: 0xffd166,
+  colors: [0x8fbf6b, 0x5e9c76, 0x4d7ea8, 0xc98a4b, 0xa26769],
+};
+
 export const palettes: Record<string, Palette> = {
   'party-pop': partyPop,
   'cozy-autumn': cozyAutumn,
+  'forest-deep': forestDeep,
 };
 
 /** Mix a 24-bit color toward white by `amount` (0..1). */

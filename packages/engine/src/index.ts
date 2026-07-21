@@ -35,7 +35,15 @@ export { drawBlob, blobPoints } from './art/blob.js';
 export type { BlobOptions } from './art/blob.js';
 export { blobCharacter } from './art/character.js';
 export type { BlobCharacter, BlobCharacterOptions } from './art/character.js';
-export { palettes, partyPop, cozyAutumn, darken, lighten, pickColor } from './art/palettes.js';
+export {
+  palettes,
+  partyPop,
+  cozyAutumn,
+  forestDeep,
+  darken,
+  lighten,
+  pickColor,
+} from './art/palettes.js';
 export type { Palette } from './art/palettes.js';
 export { popIn, squash } from './art/juice.js';
 

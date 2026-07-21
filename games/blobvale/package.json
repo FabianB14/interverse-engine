@@ -1,0 +1,21 @@
+{
+  "name": "@interverse/blobvale",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@interverse/engine": "workspace:*",
+    "@interverse/net": "workspace:*",
+    "@interverse/ui": "workspace:*",
+    "pixi.js": "^8.6.6"
+  },
+  "devDependencies": {
+    "vite": "^6.0.7"
+  }
+}

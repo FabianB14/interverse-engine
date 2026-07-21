@@ -2,7 +2,7 @@
   "name": "interverse-engine",
   "version": "0.0.0",
   "private": true,
-  "description": "Interverse Engine — an AI-native 2D game framework for mobile party games, cozy games, and 2D RPGs",
+  "description": "Interverse Engine \u2014 an AI-native 2D game framework for mobile party games, cozy games, and 2D RPGs",
   "type": "module",
   "packageManager": "pnpm@10.33.0",
   "engines": {
@@ -21,7 +21,9 @@
     "verify:net": "node scripts/verify-net.mjs",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "dev:blobvale": "pnpm --filter @interverse/blobvale dev",
+    "verify:blobvale": "node scripts/verify-blobvale.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",
