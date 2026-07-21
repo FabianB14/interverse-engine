@@ -128,7 +128,10 @@ await sleep(900);
 const lateJoinerInWorld = await p4.evaluate(() => window.__blobvale.playerCount());
 const remotesSeenByP2 = await p2.evaluate(() => window.__blobvale.remoteIds().length);
 // COMBAT (M2): host warps to a mob camp and fights until a kill lands.
+// M4: the host owns the 'bomb' mod, so every attack also drops a bomb —
+// booms seen proves move-changing mods resolve host-side.
 await p1.evaluate(() => window.__blobvale.revive());
+await p1.evaluate(() => window.__blobvale.giveMod('bomb'));
 await p1.evaluate(() => window.__blobvale.warp(1248, 980));
 await sleep(500);
 const mobsOnP2 = await p2.evaluate(() => window.__blobvale.mobCount());
@@ -136,7 +139,10 @@ for (let i = 0; i < 16; i++) {
   await p1.evaluate(() => window.__blobvale.cast());
   await sleep(350);
 }
-await sleep(500);
+await sleep(1200);
+const boomsHost = await p1.evaluate(() => window.__blobvale.booms());
+const modsHost = await p1.evaluate(() => window.__blobvale.myStats()?.mods ?? []);
+const modOk = boomsHost >= 1 && modsHost.includes('bomb');
 const killsHost = await p1.evaluate(() => window.__blobvale.kills());
 const killsJoiner = await p2.evaluate(() => window.__blobvale.kills());
 const statsHost = await p1.evaluate(() => window.__blobvale.myStats());
@@ -152,13 +158,30 @@ const statsPost = await p1.evaluate(() => window.__blobvale.myStats());
 const upgradeOk =
   offerOpen &&
   offerClosed &&
-  ((statsPost.dmgMul ?? 1) > 1 || statsPost.max > statsPre.max || (statsPost.cdMul ?? 1) < 1);
-// BOSS: host warps to the lair; joiner must see the boss lose HP.
+  ((statsPost.dmgMul ?? 1) > 1 ||
+    statsPost.max > statsPre.max ||
+    (statsPost.cdMul ?? 1) < 1 ||
+    (statsPost.mods?.length ?? 0) > (statsPre.mods?.length ?? 0));
+// CAST ZONE (M4): tapping the right half of the screen casts. p2 first
+// closes any level-up offer that the shared camp XP opened.
+for (let i = 0; i < 3; i++) {
+  const open = await p2.evaluate(() => window.__blobvale.upgradeOpen());
+  if (!open) break;
+  await p2.evaluate(() => window.__blobvale.pickUpgrade(0));
+  await sleep(300);
+}
+const castsBefore = await p2.evaluate(() => window.__blobvale.casts());
+await p2.mouse.click(330, 500);
+await sleep(300);
+const castsAfter = await p2.evaluate(() => window.__blobvale.casts());
+const castZoneOk = castsAfter > castsBefore;
+// BOSS: host warps to the lair; joiner must see the boss lose HP. Kept to
+// 5 casts so the (now beefier) boss survives for the cleric check below.
 await p1.evaluate(() => window.__blobvale.revive());
 await p1.evaluate(() => window.__blobvale.warp(770, 290));
 await sleep(600);
 const bossBefore = await p2.evaluate(() => window.__blobvale.bossHp());
-for (let i = 0; i < 10; i++) {
+for (let i = 0; i < 5; i++) {
   await p1.evaluate(() => window.__blobvale.cast());
   await sleep(350);
 }
@@ -166,8 +189,22 @@ await sleep(600);
 const bossAfter = await p2.evaluate(() => window.__blobvale.bossHp());
 const bossOk = bossBefore !== null && bossAfter !== null && bossAfter < bossBefore;
 await p1.screenshot({ path: `${outDir}/bv-6-boss.png` });
-// Retreat so slimes/boss stop chasing during rotation checks.
+// CLERIC (M4): heal is an attack too — p4's smite must hurt the boss.
+await p1.evaluate(() => window.__blobvale.revive());
 await p1.evaluate(() => window.__blobvale.warp(800, 1400));
+await p4.evaluate(() => window.__blobvale.warp(770, 340));
+await sleep(600);
+const bossBeforeCleric = await p2.evaluate(() => window.__blobvale.bossHp());
+for (let i = 0; i < 10; i++) {
+  await p4.evaluate(() => window.__blobvale.cast());
+  await sleep(350);
+}
+await sleep(600);
+const bossAfterCleric = await p2.evaluate(() => window.__blobvale.bossHp());
+const clericOk =
+  bossBeforeCleric !== null && (bossAfterCleric === null || bossAfterCleric < bossBeforeCleric);
+// Retreat so slimes/boss stop chasing during rotation checks.
+await p4.evaluate(() => window.__blobvale.warp(900, 1400));
 
 // LANDSCAPE: rotate p3 mid-game; UI must reflow and the game keeps running.
 const joyBefore = await p3.evaluate(() => window.__blobvale.joystickScreen());
@@ -197,6 +234,9 @@ const ok =
   bossOk &&
   lookOk &&
   upgradeOk &&
+  modOk &&
+  castZoneOk &&
+  clericOk &&
   errors.length === 0;
 console.log(
   JSON.stringify(
@@ -218,8 +258,14 @@ console.log(
       bossOk,
       lookOk,
       upgradeOk,
+      modOk,
+      boomsHost,
+      castZoneOk,
+      clericOk,
       bossBefore,
       bossAfter,
+      bossBeforeCleric,
+      bossAfterCleric,
       namesSeen,
       errors: errors.slice(0, 5),
       hostId,

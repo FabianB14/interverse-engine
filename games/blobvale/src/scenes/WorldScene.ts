@@ -1,4 +1,4 @@
-import { Container, Graphics } from 'pixi.js';
+import { Container, Graphics, Rectangle } from 'pixi.js';
 import type { Text } from 'pixi.js';
 import {
   Camera,
@@ -24,9 +24,14 @@ import { classById, shadeFor } from '../classes.js';
 import {
   ABILITIES,
   BOSS,
+  BOSSES,
+  CLASS_MODS,
   CLERIC_HEAL,
   MOB,
+  MODS,
   RESPAWN_SECONDS,
+  STAT_CARDS,
+  cardLabel,
   damageAtLevel,
   maxHpAtLevel,
   xpForLevel,
@@ -46,10 +51,20 @@ interface PosMessage {
   y: number;
 }
 
+/** Mob wire state: k = boss kind, f = frozen. */
+interface MobSnap {
+  x: number;
+  y: number;
+  hp: number;
+  max: number;
+  k?: number;
+  f?: number;
+}
+
 interface SnapMessage {
   type: 'snap';
   players: Record<string, { x: number; y: number }>;
-  mobs?: Record<string, { x: number; y: number; hp: number; max: number }>;
+  mobs?: Record<string, MobSnap>;
   stats?: Record<string, PlayerStats>;
 }
 
@@ -59,13 +74,34 @@ interface CastMessage {
 
 interface FxMessage {
   type: 'fx';
-  kind: 'slash' | 'arrow' | 'fire' | 'heal' | 'dash' | 'hit' | 'die' | 'levelup' | 'down';
+  kind:
+    | 'slash'
+    | 'arrow'
+    | 'fire'
+    | 'heal'
+    | 'smite'
+    | 'dash'
+    | 'hit'
+    | 'die'
+    | 'levelup'
+    | 'down'
+    | 'bomb'
+    | 'boom'
+    | 'radial'
+    | 'freeze'
+    | 'telegraph'
+    | 'frostbolt'
+    | 'chill'
+    | 'roar';
   x: number;
   y: number;
   id?: string;
   amount?: number;
   tx?: number;
   ty?: number;
+  /** Radius for telegraph/bomb rings; boss kind for roar. */
+  r?: number;
+  k?: number;
 }
 
 interface ChatMessage {
@@ -94,13 +130,9 @@ interface PlayerStats {
   xp: number;
   dmgMul?: number;
   cdMul?: number;
+  /** Owned move-changing mods (M4): bomb / freeze / radial. */
+  mods?: string[];
 }
-
-const UPGRADE_CARDS: Record<string, string> = {
-  dmg: '💥 +20% damage',
-  hp: '❤️ +25% max HP (full heal)',
-  cd: '⚡ 20% faster cooldown',
-};
 
 interface OfferMsg {
   type: 'offer';
@@ -158,15 +190,33 @@ export class WorldScene extends Scene {
   private spawnPoint = { x: 800, y: 1200 };
   // Combat (M2)
   private hostMobs = new Map<number, MobState>();
-  private mobRespawns: { at: number; homeX: number; homeY: number; boss?: boolean }[] = [];
+  private mobRespawns: {
+    at: number;
+    homeX: number;
+    homeY: number;
+    boss?: boolean;
+    bossKind?: number;
+  }[] = [];
   private stats: Record<string, PlayerStats> = {};
   private upgradeOverlay: { root: Entity; buttons: UIButton[]; cards: string[] } | null = null;
   private mobViews = new Map<
     string,
-    { e: Entity; bar: Graphics; body: Container; targetX: number; targetY: number; hp: number }
+    {
+      e: Entity;
+      bar: Graphics;
+      body: Container;
+      targetX: number;
+      targetY: number;
+      hp: number;
+      kind: number;
+    }
   >();
   private cooldownLeft = 0;
   private castBtn!: UIButton;
+  private castZone!: Container;
+  private castsDone = 0;
+  private boomsSeen = 0;
+  private chilledUntil = 0;
   private downUntil = 0;
   private hudText!: Text;
   private hpBar!: Graphics;
@@ -181,6 +231,8 @@ export class WorldScene extends Scene {
   }
 
   private layoutUi(W: number, H: number): void {
+    // Comfort: the whole right half of the screen casts (buttons still win).
+    this.castZone.hitArea = new Rectangle(W / 2, 0, W / 2, H);
     this.joystick.position.set(170, H - 190);
     this.chatBtnRef?.position.set(W - 110, H - 290);
     this.castBtn.position.set(W - 120, H - 130);
@@ -230,6 +282,16 @@ export class WorldScene extends Scene {
     this.camera = new Camera(this.mapLayer, W, H, { deadzoneWidth: 120, deadzoneHeight: 160 });
     this.camera.setBounds(0, 0, this.map.width * TILE_SIZE, this.map.height * TILE_SIZE);
     this.camera.follow(this.me);
+
+    // Cast-anywhere zone sits at the bottom of the UI layer so real buttons
+    // (chat, cast, overlays) hit-test first.
+    this.castZone = new Container();
+    this.castZone.eventMode = 'static';
+    this.castZone.hitArea = new Rectangle(W / 2, 0, W / 2, H);
+    this.castZone.on('pointerdown', () => {
+      if (!this.chatOpen && !this.upgradeOverlay) this.tryCast();
+    });
+    this.uiLayer.addChild(this.castZone);
 
     this.joystick = new VirtualJoystick({ radius: 100 });
     this.joystick.position.set(170, H - 190);
@@ -321,6 +383,11 @@ export class WorldScene extends Scene {
         if (card) this.pickUpgrade(card);
       },
       dmgMul: () => this.stats[this.session.id]?.dmgMul ?? 1,
+      casts: () => this.castsDone,
+      booms: () => this.boomsSeen,
+      giveMod: (id: string) => {
+        if (this.session.isHost) this.applyUpgrade(this.session.id, id);
+      },
       bossHp: () => {
         if (this.session.isHost) return this.hostMobs.get(BOSS.ID)?.hp ?? null;
         const v = this.mobViews.get(String(BOSS.ID));
@@ -440,6 +507,9 @@ export class WorldScene extends Scene {
       // A late joiner picked a class -> add them to the world for everyone.
       if (!this.roster.order.includes(from)) this.roster.order.push(from);
       this.roster.classes[from] = msg.cls;
+      // Without stats the host ignores their casts and damage — the old
+      // "late-joining cleric does nothing" bug.
+      this.stats[from] ??= { hp: maxHpAtLevel(1), max: maxHpAtLevel(1), lvl: 1, xp: 0 };
       this.spawnRemote(from, this.roster.order.indexOf(from));
       this.session.broadcast({ type: 'roster', ...this.roster });
       this.session.sendTo(from, { type: 'start', roster: this.roster });
@@ -614,14 +684,16 @@ export class WorldScene extends Scene {
     const jy = down ? 0 : this.joystick.value.y;
     const moving = Math.hypot(jx, jy) > 0.12;
     if (moving) {
+      // Frost Wraith bolts chill: move at about half speed for a moment.
+      const speed = cls.speed * (this.t < this.chilledUntil ? MODS.CHILL_FACTOR : 1);
       const moved = moveWithCollision(
         this.map,
         this.me.x,
         this.me.y,
         20,
         14,
-        jx * cls.speed * dt,
-        jy * cls.speed * dt,
+        jx * speed * dt,
+        jy * speed * dt,
       );
       this.me.position.set(moved.x, moved.y);
       this.walkPhase += dt * 11;
@@ -651,7 +723,14 @@ export class WorldScene extends Scene {
         this.hostPositions[this.session.id] = { x: this.me.x, y: this.me.y };
         const mobs: NonNullable<SnapMessage['mobs']> = {};
         for (const m of this.hostMobs.values()) {
-          mobs[String(m.id)] = { x: m.x, y: m.y, hp: m.hp, max: m.max };
+          mobs[String(m.id)] = {
+            x: m.x,
+            y: m.y,
+            hp: m.hp,
+            max: m.max,
+            ...(m.kind !== undefined ? { k: m.kind } : {}),
+            ...(m.frozenUntil !== undefined && this.t < m.frozenUntil ? { f: 1 } : {}),
+          };
         }
         const snap: SnapMessage = {
           type: 'snap',
@@ -698,6 +777,7 @@ export class WorldScene extends Scene {
     const def = ABILITIES[this.roster.classes[this.session.id] ?? 'knight'];
     if (!def) return;
     this.cooldownLeft = def.cooldown * (this.stats[this.session.id]?.cdMul ?? 1);
+    this.castsDone += 1;
     audio.blip(1.6);
     if (this.session.isHost) {
       this.resolveCast(this.session.id);
@@ -723,35 +803,38 @@ export class WorldScene extends Scene {
 
   private bossEnraged = false;
 
-  private hostSpawnBoss(x: number, y: number): void {
+  private hostSpawnBoss(x: number, y: number, kind = 0): void {
+    const def = BOSSES[kind % BOSSES.length] ?? BOSSES[0];
+    if (!def) return;
     this.bossEnraged = false;
     this.hostMobs.set(BOSS.ID, {
       id: BOSS.ID,
       x,
       y,
-      hp: BOSS.MAX_HP,
-      max: BOSS.MAX_HP,
+      hp: def.hp,
+      max: def.hp,
       homeX: x,
       homeY: y,
       target: null,
       attackIn: 0,
+      kind: kind % BOSSES.length,
+      specialIn: def.specialEvery,
     });
   }
 
   private hostSimMobs(dt: number): void {
     for (const m of this.hostMobs.values()) {
-      const isBoss = m.id === BOSS.ID;
-      const speed = isBoss ? (this.bossEnraged ? BOSS.ENRAGED_SPEED : BOSS.SPEED) : MOB.SPEED;
-      const atkRange = isBoss ? BOSS.ATTACK_RANGE : MOB.ATTACK_RANGE;
-      const atkDmg = isBoss ? BOSS.ATTACK_DAMAGE : MOB.ATTACK_DAMAGE;
-      const atkEvery = isBoss
-        ? this.bossEnraged
-          ? BOSS.ENRAGED_EVERY
-          : BOSS.ATTACK_EVERY
-        : MOB.ATTACK_EVERY;
+      const bd = m.kind !== undefined ? BOSSES[m.kind] : undefined;
+      const speed = bd ? (this.bossEnraged ? bd.enragedSpeed : bd.speed) : MOB.SPEED;
+      const atkRange = bd ? bd.attackRange : MOB.ATTACK_RANGE;
+      const atkDmg = bd ? bd.attackDamage : MOB.ATTACK_DAMAGE;
+      const atkEvery =
+        (bd ? bd.attackEvery : MOB.ATTACK_EVERY) * (bd && this.bossEnraged ? 0.6 : 1);
+      // Frozen solid (❄️ mod): no thinking, no moving, no attacking.
+      if (m.frozenUntil !== undefined && this.t < m.frozenUntil) continue;
       // Acquire/drop target.
       let best: string | null = null;
-      let bestD = isBoss ? BOSS.AGGRO_RANGE : MOB.AGGRO_RANGE;
+      let bestD = bd ? BOSS.AGGRO_RANGE : MOB.AGGRO_RANGE;
       for (const [pid, p] of Object.entries(this.hostPositions)) {
         if ((this.stats[pid]?.hp ?? 0) <= 0) continue;
         const d = Math.hypot(p.x - m.x, p.y - m.y);
@@ -761,6 +844,11 @@ export class WorldScene extends Scene {
         }
       }
       if (Math.hypot(m.x - m.homeX, m.y - m.homeY) > MOB.LEASH_RANGE) best = null;
+      // Bosses announce themselves when they pick up fresh aggro.
+      if (bd && best && m.target === null && this.t - (m.roaredAt ?? -99) > 8) {
+        m.roaredAt = this.t;
+        this.broadcastFx({ type: 'fx', kind: 'roar', x: m.x, y: m.y, k: m.kind ?? 0 });
+      }
       m.target = best;
 
       const goal = best
@@ -792,42 +880,88 @@ export class WorldScene extends Scene {
         const p = this.hostPositions[best];
         if (p && Math.hypot(p.x - m.x, p.y - m.y) <= atkRange) {
           m.attackIn = atkEvery;
-          const st = this.stats[best];
-          if (st && st.hp > 0) {
-            st.hp = Math.max(0, st.hp - atkDmg);
-            this.broadcastFx({
-              type: 'fx',
-              kind: 'hit',
-              x: p.x,
-              y: p.y,
-              amount: atkDmg,
-            });
-            if (st.hp <= 0) {
-              this.broadcastFx({ type: 'fx', kind: 'down', x: p.x, y: p.y, id: best });
-              const downedId = best;
-              const revive = new Entity();
-              revive.addBehavior(
-                new Timer(RESPAWN_SECONDS, () => {
-                  const rst = this.stats[downedId];
-                  if (rst) rst.hp = rst.max;
-                }),
-              );
-              this.add(revive);
-            }
-          }
+          this.hostHurtPlayer(best, atkDmg);
         }
       }
+      if (bd && best) this.hostBossSpecial(m, bd, best, dt);
     }
     // Respawns.
     const now = this.t;
     this.mobRespawns = this.mobRespawns.filter((r) => {
       if (now >= r.at) {
-        if (r.boss) this.hostSpawnBoss(r.homeX, r.homeY);
+        if (r.boss) this.hostSpawnBoss(r.homeX, r.homeY, r.bossKind ?? 0);
         else this.hostSpawnMob(r.homeX, r.homeY);
         return false;
       }
       return true;
     });
+  }
+
+  /** Boss signature moves: telegraphed slam, chilling bolt, lobbed bomb. */
+  private hostBossSpecial(m: MobState, bd: (typeof BOSSES)[number], targetId: string, dt: number) {
+    m.specialIn = (m.specialIn ?? bd.specialEvery) - dt;
+    if (m.specialIn > 0) return;
+    const p = this.hostPositions[targetId];
+    if (!p || Math.hypot(p.x - m.x, p.y - m.y) > bd.specialRange) return;
+    m.specialIn = bd.specialEvery * (this.bossEnraged ? 0.6 : 1);
+    if (bd.special === 'slam') {
+      const bx = m.x;
+      const by = m.y;
+      this.broadcastFx({ type: 'fx', kind: 'telegraph', x: bx, y: by, r: bd.specialRadius });
+      const fuse = new Entity();
+      fuse.addBehavior(
+        new Timer(0.85, () => {
+          this.broadcastFx({ type: 'fx', kind: 'boom', x: bx, y: by, r: bd.specialRadius });
+          for (const [pid, pp] of Object.entries(this.hostPositions)) {
+            if (Math.hypot(pp.x - bx, pp.y - by) <= bd.specialRadius) {
+              this.hostHurtPlayer(pid, bd.specialDamage);
+            }
+          }
+        }),
+      );
+      this.add(fuse);
+    } else if (bd.special === 'frostbolt') {
+      this.broadcastFx({ type: 'fx', kind: 'frostbolt', x: m.x, y: m.y, tx: p.x, ty: p.y });
+      this.hostHurtPlayer(targetId, bd.specialDamage);
+      this.broadcastFx({ type: 'fx', kind: 'chill', x: p.x, y: p.y, id: targetId });
+    } else {
+      // Ember Titan lobs a bomb at where you're standing — move!
+      const bx = p.x;
+      const by = p.y;
+      this.broadcastFx({ type: 'fx', kind: 'bomb', x: bx, y: by, r: bd.specialRadius });
+      const fuse = new Entity();
+      fuse.addBehavior(
+        new Timer(1.0, () => {
+          this.broadcastFx({ type: 'fx', kind: 'boom', x: bx, y: by, r: bd.specialRadius });
+          for (const [pid, pp] of Object.entries(this.hostPositions)) {
+            if (Math.hypot(pp.x - bx, pp.y - by) <= bd.specialRadius) {
+              this.hostHurtPlayer(pid, bd.specialDamage);
+            }
+          }
+        }),
+      );
+      this.add(fuse);
+    }
+  }
+
+  /** Host-authoritative player damage + down/revive handling. */
+  private hostHurtPlayer(pid: string, dmg: number): void {
+    const st = this.stats[pid];
+    const p = pid === this.session.id ? this.me : this.hostPositions[pid];
+    if (!st || !p || st.hp <= 0) return;
+    st.hp = Math.max(0, st.hp - dmg);
+    this.broadcastFx({ type: 'fx', kind: 'hit', x: p.x, y: p.y, amount: dmg });
+    if (st.hp <= 0) {
+      this.broadcastFx({ type: 'fx', kind: 'down', x: p.x, y: p.y, id: pid });
+      const revive = new Entity();
+      revive.addBehavior(
+        new Timer(RESPAWN_SECONDS, () => {
+          const rst = this.stats[pid];
+          if (rst) rst.hp = rst.max;
+        }),
+      );
+      this.add(revive);
+    }
   }
 
   private resolveCast(casterId: string): void {
@@ -836,6 +970,7 @@ export class WorldScene extends Scene {
     const st = this.stats[casterId];
     if (!def || !caster || !st || st.hp <= 0) return;
     const dmg = Math.round(damageAtLevel(def.damage, st.lvl) * (st.dmgMul ?? 1));
+    const mods = st.mods ?? [];
 
     if (def.heals) {
       for (const [pid, p] of Object.entries(this.hostPositions)) {
@@ -858,16 +993,15 @@ export class WorldScene extends Scene {
         bestD = d;
       }
     }
-    if (!def.heals) {
-      this.broadcastFx({
-        type: 'fx',
-        kind: def.fx,
-        x: caster.x,
-        y: caster.y,
-        tx: target?.x ?? caster.x,
-        ty: target?.y ?? caster.y - 60,
-      });
-    }
+    // The attack is always visible — the cleric's smite included.
+    this.broadcastFx({
+      type: 'fx',
+      kind: def.fx,
+      x: caster.x,
+      y: caster.y,
+      tx: target?.x ?? caster.x,
+      ty: target?.y ?? caster.y - 60,
+    });
     if (!target) return;
 
     const victims =
@@ -876,27 +1010,64 @@ export class WorldScene extends Scene {
             (m) => Math.hypot(m.x - target.x, m.y - target.y) <= def.splash,
           )
         : [target];
-    for (const m of victims) {
-      m.hp -= dmg;
-      this.broadcastFx({ type: 'fx', kind: 'hit', x: m.x, y: m.y - 30, amount: dmg });
-      if (m.id === BOSS.ID && !this.bossEnraged && m.hp <= m.max / 2 && m.hp > 0) {
-        // Phase 2: the boss speeds up and calls two minions.
-        this.bossEnraged = true;
-        for (let i = 0; i < BOSS.MINIONS_ON_ENRAGE; i++) this.hostSpawnMob(m.x, m.y);
-        this.broadcastFx({ type: 'fx', kind: 'levelup', x: m.x, y: m.y });
-      }
-      if (m.hp <= 0) {
-        this.hostMobs.delete(m.id);
-        const isBoss = m.id === BOSS.ID;
-        this.mobRespawns.push({
-          at: this.t + (isBoss ? BOSS.RESPAWN_SECONDS : MOB.RESPAWN_SECONDS),
-          homeX: m.homeX,
-          homeY: m.homeY,
-          ...(isBoss ? { boss: true } : {}),
-        });
-        this.broadcastFx({ type: 'fx', kind: 'die', x: m.x, y: m.y });
-        this.hostGrantXp(m.x, m.y, isBoss ? BOSS.XP : MOB.XP_PER_KILL);
-      }
+    if (mods.includes('freeze')) {
+      for (const m of victims) m.frozenUntil = this.t + MODS.FREEZE_SECONDS;
+      this.broadcastFx({ type: 'fx', kind: 'freeze', x: target.x, y: target.y });
+    }
+    for (const m of victims) this.hostHitMob(m, dmg);
+
+    // Move-changing mods (M4) — extra bursts on top of the base attack.
+    if (mods.includes('radial')) {
+      const near = [...this.hostMobs.values()].filter(
+        (m) => Math.hypot(m.x - caster.x, m.y - caster.y) <= MODS.RADIAL_RADIUS,
+      );
+      this.broadcastFx({ type: 'fx', kind: 'radial', x: caster.x, y: caster.y });
+      const rDmg = Math.max(1, Math.round(dmg * MODS.RADIAL_FACTOR));
+      for (const m of near) this.hostHitMob(m, rDmg);
+    }
+    if (mods.includes('bomb')) {
+      const bx = target.x;
+      const by = target.y;
+      this.broadcastFx({ type: 'fx', kind: 'bomb', x: bx, y: by, r: MODS.BOMB_RADIUS });
+      const bDmg = Math.max(1, Math.round(dmg * MODS.BOMB_FACTOR));
+      const fuse = new Entity();
+      fuse.addBehavior(
+        new Timer(MODS.BOMB_FUSE, () => {
+          this.broadcastFx({ type: 'fx', kind: 'boom', x: bx, y: by, r: MODS.BOMB_RADIUS });
+          const caught = [...this.hostMobs.values()].filter(
+            (m) => Math.hypot(m.x - bx, m.y - by) <= MODS.BOMB_RADIUS,
+          );
+          for (const m of caught) this.hostHitMob(m, bDmg);
+        }),
+      );
+      this.add(fuse);
+    }
+  }
+
+  /** Damage one mob: hit fx, boss enrage phase, death/respawn/XP. */
+  private hostHitMob(m: MobState, dmg: number): void {
+    if (!this.hostMobs.has(m.id)) return;
+    m.hp -= dmg;
+    this.broadcastFx({ type: 'fx', kind: 'hit', x: m.x, y: m.y - 30, amount: dmg });
+    if (m.id === BOSS.ID && !this.bossEnraged && m.hp <= m.max / 2 && m.hp > 0) {
+      // Phase 2: the boss speeds up and calls minions.
+      this.bossEnraged = true;
+      for (let i = 0; i < BOSS.MINIONS_ON_ENRAGE; i++) this.hostSpawnMob(m.x, m.y);
+      this.broadcastFx({ type: 'fx', kind: 'levelup', x: m.x, y: m.y });
+    }
+    if (m.hp <= 0) {
+      this.hostMobs.delete(m.id);
+      const isBoss = m.id === BOSS.ID;
+      const bd = m.kind !== undefined ? BOSSES[m.kind] : undefined;
+      this.mobRespawns.push({
+        at: this.t + (isBoss ? BOSS.RESPAWN_SECONDS : MOB.RESPAWN_SECONDS),
+        homeX: m.homeX,
+        homeY: m.homeY,
+        // Each defeated boss summons the NEXT one in the roster.
+        ...(isBoss ? { boss: true, bossKind: ((m.kind ?? 0) + 1) % BOSSES.length } : {}),
+      });
+      this.broadcastFx({ type: 'fx', kind: 'die', x: m.x, y: m.y });
+      this.hostGrantXp(m.x, m.y, bd ? bd.xp : MOB.XP_PER_KILL);
     }
   }
 
@@ -911,7 +1082,13 @@ export class WorldScene extends Scene {
         st.max = maxHpAtLevel(st.lvl);
         st.hp = st.max;
         this.broadcastFx({ type: 'fx', kind: 'levelup', x: p.x, y: p.y, id: pid });
-        const pool = Object.keys(UPGRADE_CARDS);
+        // Pool: stat cards + this class's move-changing mods not yet owned.
+        const owned = st.mods ?? [];
+        const cls = this.roster.classes[pid] ?? 'knight';
+        const pool = [
+          ...Object.keys(STAT_CARDS),
+          ...(CLASS_MODS[cls] ?? []).filter((m) => !owned.includes(m)),
+        ];
         const a = pool.splice(Math.floor(Math.random() * pool.length), 1)[0] ?? 'dmg';
         const b = pool.splice(Math.floor(Math.random() * pool.length), 1)[0] ?? 'hp';
         if (pid === this.session.id) {
@@ -968,6 +1145,117 @@ export class WorldScene extends Scene {
         audio.chime();
         life = 0.5;
         break;
+      case 'smite': {
+        // Cleric's holy strike: golden rays crashing onto the target.
+        e.position.set(fx.tx ?? fx.x, fx.ty ?? fx.y);
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * Math.PI * 2 + 0.3;
+          g.moveTo(0, 0)
+            .lineTo(Math.cos(a) * 70, Math.sin(a) * 70)
+            .stroke({ color: 0xffd166, width: 10, alpha: 0.9 });
+        }
+        g.circle(0, 0, 34).fill({ color: 0xfff3c4, alpha: 0.9 });
+        e.addBehavior(new Tween(e.scale, { x: 1.5, y: 1.5 }, 0.3, { ease: easings.outQuad }));
+        e.addBehavior(new Tween(e, { alpha: 0 }, 0.35, { ease: easings.inQuad }));
+        audio.pop(1.8);
+        life = 0.4;
+        break;
+      }
+      case 'bomb': {
+        // Fuse phase: bomb + danger ring where it will blow.
+        const r = fx.r ?? 150;
+        g.circle(0, 0, r).stroke({ color: 0xff5470, width: 6, alpha: 0.55 });
+        g.circle(0, 0, 22).fill(0x2b2b33);
+        g.circle(8, -20, 6).fill(0xffd166);
+        e.addBehavior(new Wobble({ target: e, amount: 0.12, speed: 14 }));
+        audio.blip(0.6);
+        life = 1.05;
+        break;
+      }
+      case 'boom': {
+        const r = fx.r ?? 150;
+        g.circle(0, 0, r).fill({ color: 0xff8c42, alpha: 0.5 });
+        g.circle(0, 0, r * 0.55).fill({ color: 0xffd166, alpha: 0.85 });
+        g.circle(0, 0, r * 0.25).fill({ color: 0xfff3c4, alpha: 0.95 });
+        e.addBehavior(new Tween(e, { alpha: 0 }, 0.4, { ease: easings.outQuad }));
+        this.camera.shake(14, 0.35);
+        audio.buzz();
+        this.boomsSeen += 1;
+        life = 0.45;
+        break;
+      }
+      case 'radial': {
+        // Burst in all directions around the caster.
+        for (let i = 0; i < 10; i++) {
+          const a = (i / 10) * Math.PI * 2;
+          g.moveTo(Math.cos(a) * 30, Math.sin(a) * 30)
+            .lineTo(Math.cos(a) * 110, Math.sin(a) * 110)
+            .stroke({ color: 0xf2ffe9, width: 7, alpha: 0.9 });
+        }
+        e.addBehavior(new Tween(e.scale, { x: 2.1, y: 2.1 }, 0.3, { ease: easings.outQuad }));
+        e.addBehavior(new Tween(e, { alpha: 0 }, 0.3, { ease: easings.outQuad }));
+        audio.pop(1.1);
+        life = 0.35;
+        break;
+      }
+      case 'freeze': {
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * Math.PI * 2;
+          g.poly([
+            Math.cos(a) * 16,
+            Math.sin(a) * 16,
+            Math.cos(a) * 52,
+            Math.sin(a) * 52,
+            Math.cos(a + 0.5) * 28,
+            Math.sin(a + 0.5) * 28,
+          ]).fill({ color: 0xbdf0ff, alpha: 0.9 });
+        }
+        audio.blip(0.5);
+        life = 0.6;
+        break;
+      }
+      case 'telegraph': {
+        // Red warning ring: get OUT of the circle.
+        const r = fx.r ?? 180;
+        g.circle(0, 0, r).stroke({ color: 0xff5470, width: 8, alpha: 0.8 });
+        g.circle(0, 0, r).fill({ color: 0xff5470, alpha: 0.16 });
+        e.addBehavior(new Wobble({ target: e, amount: 0.05, speed: 16 }));
+        audio.buzz();
+        life = 0.85;
+        break;
+      }
+      case 'frostbolt': {
+        const tx = (fx.tx ?? fx.x) - fx.x;
+        const ty = (fx.ty ?? fx.y) - fx.y;
+        g.moveTo(0, 0).lineTo(tx, ty).stroke({ color: 0xbdf0ff, width: 10, alpha: 0.9 });
+        g.circle(tx, ty, 20).fill({ color: 0xdff6ff, alpha: 0.9 });
+        audio.blip(0.4);
+        life = 0.25;
+        break;
+      }
+      case 'chill': {
+        const flake = makeText('❄️', 34, { color: 0xffffff });
+        e.addChild(flake);
+        e.addBehavior(new Tween(e, { y: fx.y - 50, alpha: 0 }, 0.8, { ease: easings.outQuad }));
+        if (fx.id === this.session.id) this.chilledUntil = this.t + MODS.CHILL_SECONDS;
+        life = 0.85;
+        break;
+      }
+      case 'roar': {
+        const bd = BOSSES[fx.k ?? 0];
+        const cry = makeText(`${bd?.emoji ?? '👹'} ${bd?.name ?? 'BOSS'}!`, 34, {
+          color: 0xff5470,
+          weight: '800',
+        });
+        cry.position.set(0, -120);
+        e.addChild(cry);
+        e.addBehavior(new Tween(e.scale, { x: 1.25, y: 1.25 }, 0.5, { ease: easings.outBack }));
+        e.addBehavior(new Tween(e, { alpha: 0 }, 1.1, { ease: easings.inQuad }));
+        this.camera.shake(10, 0.3);
+        audio.buzz();
+        life = 1.15;
+        break;
+      }
       case 'hit': {
         const n = makeText(`-${fx.amount ?? 0}`, 30, { color: 0xffd166 });
         e.addChild(n);
@@ -1022,42 +1310,110 @@ export class WorldScene extends Scene {
     this.add(e, this.mapLayer);
   }
 
-  private syncMobViews(
-    mobs: Record<string, { x: number; y: number; hp: number; max: number }>,
-  ): void {
+  /** Code-drawn menace: crown / ice shards / horns per boss kind. */
+  private bossAdornment(kind: number, r: number): Graphics {
+    const g = new Graphics();
+    if (kind === 0) {
+      // King Slime: golden crown + angry brows.
+      g.poly([
+        -r * 0.5,
+        -r * 0.85,
+        -r * 0.5,
+        -r * 1.25,
+        -r * 0.25,
+        -r * 1.0,
+        0,
+        -r * 1.3,
+        r * 0.25,
+        -r * 1.0,
+        r * 0.5,
+        -r * 1.25,
+        r * 0.5,
+        -r * 0.85,
+      ]).fill(0xffd166);
+      g.moveTo(-r * 0.5, -r * 0.42)
+        .lineTo(-r * 0.15, -r * 0.28)
+        .moveTo(r * 0.5, -r * 0.42)
+        .lineTo(r * 0.15, -r * 0.28)
+        .stroke({ color: 0x2b2b33, width: Math.max(4, r * 0.09) });
+    } else if (kind === 1) {
+      // Frost Wraith: jagged ice shards jutting out of the body.
+      for (let i = 0; i < 7; i++) {
+        const a = (i / 7) * Math.PI * 2 + 0.4;
+        g.poly([
+          Math.cos(a) * r * 0.6,
+          Math.sin(a) * r * 0.6,
+          Math.cos(a + 0.22) * r * 0.6,
+          Math.sin(a + 0.22) * r * 0.6,
+          Math.cos(a + 0.11) * r * 1.25,
+          Math.sin(a + 0.11) * r * 1.25,
+        ]).fill({ color: 0xdff6ff, alpha: 0.85 });
+      }
+    } else {
+      // Ember Titan: dark horns + glowing cracks.
+      g.poly([-r * 0.55, -r * 0.7, -r * 0.95, -r * 1.3, -r * 0.25, -r * 0.85]).fill(0x3b2b2b);
+      g.poly([r * 0.55, -r * 0.7, r * 0.95, -r * 1.3, r * 0.25, -r * 0.85]).fill(0x3b2b2b);
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2 + 0.9;
+        g.moveTo(Math.cos(a) * r * 0.25, Math.sin(a) * r * 0.25)
+          .lineTo(Math.cos(a + 0.35) * r * 0.75, Math.sin(a + 0.35) * r * 0.75)
+          .stroke({ color: 0xffd166, width: Math.max(3, r * 0.07), alpha: 0.9 });
+      }
+    }
+    return g;
+  }
+
+  private syncMobViews(mobs: Record<string, MobSnap>): void {
     for (const [id, m] of Object.entries(mobs)) {
       let v = this.mobViews.get(id);
+      const isBoss = Number(id) === BOSS.ID;
+      const bd = isBoss ? BOSSES[m.k ?? 0] : undefined;
+      // Boss kind changed (next boss in the cycle) — rebuild the view.
+      if (v && isBoss && v.kind !== (m.k ?? 0)) {
+        this.remove(v.e);
+        this.mobViews.delete(id);
+        v = undefined;
+      }
       if (!v) {
         const e = new Entity();
+        const radius = bd ? 66 : 26;
         const char = blobCharacter({
-          radius: 26,
-          color: 0x8fbf6b,
-          seed: 100 + Number(id),
+          radius,
+          color: bd?.color ?? 0x8fbf6b,
+          seed: 100 + Number(id) + (m.k ?? 0),
           shadow: false,
         });
+        if (bd) char.body.addChild(this.bossAdornment(m.k ?? 0, radius));
         e.addChild(char.view);
         e.addBehavior(
           new Wobble({ target: char.body, amount: 0.06, speed: 3.2, phase: Number(id) }),
         );
+        if (bd) {
+          const banner = makeText(`${bd.emoji} ${bd.name}`, 26, {
+            color: 0xffd166,
+            weight: '800',
+          });
+          banner.position.set(0, -radius * 2.1);
+          e.addChild(banner);
+        }
         const bar = new Graphics();
-        bar.position.set(0, Number(id) === BOSS.ID ? -92 : -44);
+        bar.position.set(0, bd ? -102 : -44);
         e.addChild(bar);
         e.position.set(m.x, m.y);
         this.add(e, this.mapLayer);
-        v = { e, bar, body: char.body, targetX: m.x, targetY: m.y, hp: m.hp };
+        v = { e, bar, body: char.body, targetX: m.x, targetY: m.y, hp: m.hp, kind: m.k ?? 0 };
         this.mobViews.set(id, v);
       }
       v.targetX = m.x;
       v.targetY = m.y;
       v.hp = m.hp;
-      const bw = Number(id) === BOSS.ID ? 130 : 52;
+      // Frozen mobs go ice-blue and hold still.
+      v.body.tint = m.f ? 0x9adcff : 0xffffff;
+      const bw = isBoss ? 150 : 52;
+      const bh = isBoss ? 12 : 7;
       v.bar.clear();
-      v.bar
-        .rect(-bw / 2, 0, bw, Number(id) === BOSS.ID ? 12 : 7)
-        .fill({ color: 0x000000, alpha: 0.4 });
-      v.bar
-        .rect(-bw / 2, 0, bw * Math.max(0, m.hp / m.max), Number(id) === BOSS.ID ? 12 : 7)
-        .fill(Number(id) === BOSS.ID ? 0xc77dff : 0xff5470);
+      v.bar.rect(-bw / 2, 0, bw, bh).fill({ color: 0x000000, alpha: 0.4 });
+      v.bar.rect(-bw / 2, 0, bw * Math.max(0, m.hp / m.max), bh).fill(bd ? bd.color : 0xff5470);
     }
     for (const [id, v] of [...this.mobViews]) {
       if (!(id in mobs)) {
@@ -1092,9 +1448,10 @@ export class WorldScene extends Scene {
     const title = makeText('LEVEL UP! choose one', 30, { color: forestDeep.accent });
     title.position.set(280, 44);
     root.addChild(title);
+    const myClass = this.roster.classes[this.session.id] ?? 'knight';
     const buttons: UIButton[] = [];
     cards.slice(0, 2).forEach((cardId, i) => {
-      const btn = new UIButton(UPGRADE_CARDS[cardId] ?? cardId, {
+      const btn = new UIButton(cardLabel(myClass, cardId), {
         width: 500,
         height: 86,
         fontSize: 26,
@@ -1137,6 +1494,10 @@ export class WorldScene extends Scene {
       st.max = Math.round(st.max * 1.25);
       st.hp = st.max;
     } else if (pick === 'cd') st.cdMul = (st.cdMul ?? 1) * 0.8;
+    else if (!(st.mods ?? []).includes(pick)) {
+      // A move-changing mod — owned once, resolved host-side on every cast.
+      st.mods = [...(st.mods ?? []), pick];
+    }
   }
 
   private rosterIdOf(r: RemotePlayer): string {

@@ -24,7 +24,7 @@ interface LobbyDebug {
   start?: () => void;
   cast?: () => void;
   mobCount?: () => number;
-  myStats?: () => { hp: number; max: number; lvl: number; xp: number } | null;
+  myStats?: () => { hp: number; max: number; lvl: number; xp: number; mods?: string[] } | null;
   kills?: () => number;
   warp?: (x: number, y: number) => void;
   names?: () => string[];
@@ -37,6 +37,9 @@ interface LobbyDebug {
   upgradeOpen?: () => boolean;
   pickUpgrade?: (i: number) => void;
   dmgMul?: () => number;
+  casts?: () => number;
+  booms?: () => number;
+  giveMod?: (id: string) => void;
 }
 
 declare global {
