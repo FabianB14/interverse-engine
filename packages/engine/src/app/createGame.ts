@@ -92,6 +92,25 @@ export async function createGame(config: GameConfig): Promise<Game> {
   fitWorld();
   app.renderer.on('resize', fitWorld);
 
+  // Orientation hint (§4.1): a portrait-designed game held in phone
+  // landscape becomes a tiny letterboxed strip — ask for a rotate instead.
+  // Desktop windows (tall enough on their short side) are left alone.
+  const portraitDesign = height >= width;
+  const rotateHint = document.createElement('div');
+  rotateHint.textContent = '🔄 please rotate your phone';
+  rotateHint.style.cssText =
+    'position:fixed;inset:0;z-index:10;display:none;align-items:center;' +
+    'justify-content:center;background:rgba(10,8,20,0.94);color:#fff;' +
+    'font:700 26px system-ui,sans-serif;text-align:center;';
+  document.body.appendChild(rotateHint);
+  const updateRotateHint = (): void => {
+    const landscapeScreen = window.innerWidth > window.innerHeight;
+    const phoneish = Math.min(window.innerWidth, window.innerHeight) < 520;
+    rotateHint.style.display = portraitDesign && landscapeScreen && phoneish ? 'flex' : 'none';
+  };
+  updateRotateHint();
+  window.addEventListener('resize', updateRotateHint);
+
   const scenes = new SceneManager(width, height);
 
   // Fixed-timestep loop with an accumulator and interpolation alpha.
@@ -114,6 +133,8 @@ export async function createGame(config: GameConfig): Promise<Game> {
   app.ticker.add(onTick);
 
   const destroy = (): void => {
+    window.removeEventListener('resize', updateRotateHint);
+    rotateHint.remove();
     scenes._destroy();
     app.ticker.remove(onTick);
     app.renderer.off('resize', fitWorld);
