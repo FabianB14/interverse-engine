@@ -11,7 +11,7 @@ export const valeRows: readonly string[] = [
   '##########################',
   '#..........pp...........#'.padEnd(26, '#').slice(0, 26),
   '#..f.......pp......f....#'.padEnd(26, '#').slice(0, 26),
-  '#..........pp...........#'.padEnd(26, '#').slice(0, 26),
+  '#....m.....pp.....m.....#'.padEnd(26, '#').slice(0, 26),
   '#...##.....pp.....##....#'.padEnd(26, '#').slice(0, 26),
   '#...##.....pp.....##....#'.padEnd(26, '#').slice(0, 26),
   '#..........pp...........#'.padEnd(26, '#').slice(0, 26),
@@ -22,9 +22,9 @@ export const valeRows: readonly string[] = [
   '#....wwwwww..pp.....##..#'.padEnd(26, '#').slice(0, 26),
   '#.....wwww....pp........#'.padEnd(26, '#').slice(0, 26),
   '#..............pp.......#'.padEnd(26, '#').slice(0, 26),
-  '#......f.......pp...f...#'.padEnd(26, '#').slice(0, 26),
+  '#......f...m...pp...f...#'.padEnd(26, '#').slice(0, 26),
   '#..............pp.......#'.padEnd(26, '#').slice(0, 26),
-  '#....##........pp.......#'.padEnd(26, '#').slice(0, 26),
+  '#....##........pp..m....#'.padEnd(26, '#').slice(0, 26),
   '#....##........pp.......#'.padEnd(26, '#').slice(0, 26),
   '#..............pp.......#'.padEnd(26, '#').slice(0, 26),
   '#...........@..pp.......#'.padEnd(26, '#').slice(0, 26),
@@ -51,6 +51,7 @@ export const valeLegend: Record<string, TileLegendEntry> = {
   p: { tile: TILE.PATH },
   f: { tile: TILE.FLOWER },
   '@': { tile: TILE.GRASS, object: 'spawn' },
+  m: { tile: TILE.GRASS, object: 'camp' },
 };
 
 const GRASS = 0x3d6b3a;
