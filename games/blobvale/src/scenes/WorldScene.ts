@@ -20,7 +20,7 @@ import type { TileMapData } from '@interverse/engine';
 import type { Session } from '@interverse/net';
 import { UIButton } from '@interverse/ui';
 import { drawPanel } from '@interverse/ui';
-import { classById } from '../classes.js';
+import { classById, shadeFor } from '../classes.js';
 import {
   ABILITIES,
   BOSS,
@@ -50,7 +50,7 @@ interface SnapMessage {
   type: 'snap';
   players: Record<string, { x: number; y: number }>;
   mobs?: Record<string, { x: number; y: number; hp: number; max: number }>;
-  stats?: Record<string, { hp: number; max: number; lvl: number; xp: number }>;
+  stats?: Record<string, PlayerStats>;
 }
 
 interface CastMessage {
@@ -79,6 +79,7 @@ interface RosterMsg {
   order: string[];
   names: Record<string, string>;
   classes: Record<string, string>;
+  looks?: Record<string, number>;
 }
 
 interface ClassMsg {
@@ -86,8 +87,41 @@ interface ClassMsg {
   cls: string;
 }
 
+interface PlayerStats {
+  hp: number;
+  max: number;
+  lvl: number;
+  xp: number;
+  dmgMul?: number;
+  cdMul?: number;
+}
+
+const UPGRADE_CARDS: Record<string, string> = {
+  dmg: '💥 +20% damage',
+  hp: '❤️ +25% max HP (full heal)',
+  cd: '⚡ 20% faster cooldown',
+};
+
+interface OfferMsg {
+  type: 'offer';
+  cards: string[];
+}
+
+interface UpgradeMsg {
+  type: 'upgrade';
+  pick: string;
+}
+
 type WorldMessage =
-  PosMessage | SnapMessage | ChatMessage | RosterMsg | ClassMsg | CastMessage | FxMessage;
+  | PosMessage
+  | SnapMessage
+  | ChatMessage
+  | RosterMsg
+  | ClassMsg
+  | CastMessage
+  | FxMessage
+  | OfferMsg
+  | UpgradeMsg;
 
 interface RemotePlayer {
   entity: Entity;
@@ -125,7 +159,8 @@ export class WorldScene extends Scene {
   // Combat (M2)
   private hostMobs = new Map<number, MobState>();
   private mobRespawns: { at: number; homeX: number; homeY: number; boss?: boolean }[] = [];
-  private stats: Record<string, { hp: number; max: number; lvl: number; xp: number }> = {};
+  private stats: Record<string, PlayerStats> = {};
+  private upgradeOverlay: { root: Entity; buttons: UIButton[]; cards: string[] } | null = null;
   private mobViews = new Map<
     string,
     { e: Entity; bar: Graphics; body: Container; targetX: number; targetY: number; hp: number }
@@ -280,6 +315,12 @@ export class WorldScene extends Scene {
       mobCount: () => (this.session.isHost ? this.hostMobs.size : this.mobViews.size),
       myStats: () => this.stats[this.session.id] ?? null,
       kills: () => this.killsSeen,
+      upgradeOpen: () => this.upgradeOverlay !== null,
+      pickUpgrade: (i: number) => {
+        const card = this.upgradeOverlay?.cards[i];
+        if (card) this.pickUpgrade(card);
+      },
+      dmgMul: () => this.stats[this.session.id]?.dmgMul ?? 1,
       bossHp: () => {
         if (this.session.isHost) return this.hostMobs.get(BOSS.ID)?.hp ?? null;
         const v = this.mobViews.get(String(BOSS.ID));
@@ -348,7 +389,7 @@ export class WorldScene extends Scene {
     const e = new Entity();
     const char = blobCharacter({
       radius: 30,
-      color: cls.color,
+      color: shadeFor(cls.color, this.roster.looks?.[id] ?? 2),
       seed: 5 + this.roster.order.indexOf(id),
       strokeWidth: isMe ? 5 : 3,
     });
@@ -408,8 +449,12 @@ export class WorldScene extends Scene {
       msg.order.forEach((id, i) => {
         this.roster.names[id] = msg.names[id] ?? '?';
         const newCls = msg.classes[id];
-        const clsChanged = newCls !== undefined && this.roster.classes[id] !== newCls;
+        const newLook = msg.looks?.[id];
+        const lookChanged = newLook !== undefined && (this.roster.looks?.[id] ?? 2) !== newLook;
+        const clsChanged =
+          (newCls !== undefined && this.roster.classes[id] !== newCls) || lookChanged;
         if (newCls !== undefined) this.roster.classes[id] = newCls;
+        if (newLook !== undefined) (this.roster.looks ??= {})[id] = newLook;
         if (!this.roster.order.includes(id)) this.roster.order.push(id);
         if (id === this.session.id) return;
         const existing = this.remotes.get(id);
@@ -430,6 +475,14 @@ export class WorldScene extends Scene {
           }
         }
       });
+      return;
+    }
+    if (msg?.type === 'offer' && !this.session.isHost) {
+      this.showOffer(msg.cards);
+      return;
+    }
+    if (msg?.type === 'upgrade' && this.session.isHost) {
+      this.applyUpgrade(from, msg.pick);
       return;
     }
     if (msg?.type === 'chat') {
@@ -644,7 +697,7 @@ export class WorldScene extends Scene {
     if (this.cooldownLeft > 0 || this.t < this.downUntil) return;
     const def = ABILITIES[this.roster.classes[this.session.id] ?? 'knight'];
     if (!def) return;
-    this.cooldownLeft = def.cooldown;
+    this.cooldownLeft = def.cooldown * (this.stats[this.session.id]?.cdMul ?? 1);
     audio.blip(1.6);
     if (this.session.isHost) {
       this.resolveCast(this.session.id);
@@ -782,7 +835,7 @@ export class WorldScene extends Scene {
     const caster = casterId === this.session.id ? this.me : this.hostPositions[casterId];
     const st = this.stats[casterId];
     if (!def || !caster || !st || st.hp <= 0) return;
-    const dmg = damageAtLevel(def.damage, st.lvl);
+    const dmg = Math.round(damageAtLevel(def.damage, st.lvl) * (st.dmgMul ?? 1));
 
     if (def.heals) {
       for (const [pid, p] of Object.entries(this.hostPositions)) {
@@ -858,6 +911,14 @@ export class WorldScene extends Scene {
         st.max = maxHpAtLevel(st.lvl);
         st.hp = st.max;
         this.broadcastFx({ type: 'fx', kind: 'levelup', x: p.x, y: p.y, id: pid });
+        const pool = Object.keys(UPGRADE_CARDS);
+        const a = pool.splice(Math.floor(Math.random() * pool.length), 1)[0] ?? 'dmg';
+        const b = pool.splice(Math.floor(Math.random() * pool.length), 1)[0] ?? 'hp';
+        if (pid === this.session.id) {
+          this.showOffer([a, b]);
+        } else {
+          this.session.sendTo(pid, { type: 'offer', cards: [a, b] });
+        }
       }
     }
   }
@@ -1016,6 +1077,66 @@ export class WorldScene extends Scene {
     this.myBar.clear();
     this.myBar.rect(-26, 0, 52, 6).fill({ color: 0x000000, alpha: 0.4 });
     this.myBar.rect(-26, 0, 52 * Math.max(0, st.hp / st.max), 6).fill(0x8affc1);
+  }
+
+  // -------------------------------------------------- upgrade cards (M3)
+
+  private showOffer(cards: string[]): void {
+    this.closeOffer();
+    const W = this.game.viewWidth;
+    const H = this.game.viewHeight;
+    const root = new Entity();
+    const bg = new Graphics();
+    drawPanel(bg, 560, 300, { fill: 0x243a2a, stroke: forestDeep.ink, radius: 28 });
+    root.addChild(bg);
+    const title = makeText('LEVEL UP! choose one', 30, { color: forestDeep.accent });
+    title.position.set(280, 44);
+    root.addChild(title);
+    const buttons: UIButton[] = [];
+    cards.slice(0, 2).forEach((cardId, i) => {
+      const btn = new UIButton(UPGRADE_CARDS[cardId] ?? cardId, {
+        width: 500,
+        height: 86,
+        fontSize: 26,
+        fill: i === 0 ? 0xffd166 : 0x8affc1,
+        onTap: () => this.pickUpgrade(cardId),
+      });
+      btn.position.set(280, 116 + i * 104);
+      this.add(btn, root);
+      buttons.push(btn);
+    });
+    root.position.set((W - 560) / 2, Math.max(60, H / 2 - 320));
+    this.add(root, this.uiLayer);
+    this.upgradeOverlay = { root, buttons, cards: cards.slice(0, 2) };
+    audio.chime();
+  }
+
+  private closeOffer(): void {
+    if (!this.upgradeOverlay) return;
+    for (const b of this.upgradeOverlay.buttons) this.remove(b);
+    this.remove(this.upgradeOverlay.root);
+    this.upgradeOverlay = null;
+  }
+
+  private pickUpgrade(cardId: string): void {
+    audio.blip(1.5);
+    if (this.session.isHost) {
+      this.applyUpgrade(this.session.id, cardId);
+    } else {
+      this.session.send({ type: 'upgrade', pick: cardId });
+    }
+    this.closeOffer();
+  }
+
+  /** Host-authoritative upgrade application. */
+  private applyUpgrade(pid: string, pick: string): void {
+    const st = this.stats[pid];
+    if (!st) return;
+    if (pick === 'dmg') st.dmgMul = (st.dmgMul ?? 1) * 1.2;
+    else if (pick === 'hp') {
+      st.max = Math.round(st.max * 1.25);
+      st.hp = st.max;
+    } else if (pick === 'cd') st.cdMul = (st.cdMul ?? 1) * 0.8;
   }
 
   private rosterIdOf(r: RemotePlayer): string {

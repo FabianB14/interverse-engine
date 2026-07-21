@@ -32,6 +32,11 @@ interface LobbyDebug {
   pick?: (cls: string) => void;
   bossHp?: () => number | null;
   revive?: () => void;
+  looks?: () => Record<string, number>;
+  setLook?: (i: number) => void;
+  upgradeOpen?: () => boolean;
+  pickUpgrade?: (i: number) => void;
+  dmgMul?: () => number;
 }
 
 declare global {

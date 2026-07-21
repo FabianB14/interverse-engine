@@ -71,7 +71,7 @@ async function phone(q, dpr = 1) {
 const p1 = await phone('?host=1&class=knight&name=Hosty');
 await p1.waitForFunction(() => window.__blobvale?.scene() === 'lobby', null, { timeout: 10_000 });
 const code = await p1.evaluate(() => window.__blobvale.code());
-const p2 = await phone(`?join=${code}&class=mage&name=Ana`, 3);
+const p2 = await phone(`?join=${code}&class=mage&name=Ana&look=4`, 3);
 const p3 = await phone(`?join=${code}&class=rogue&name=Ana`); // duplicate on purpose
 for (const p of [p1, p2, p3]) {
   await p.waitForFunction(() => window.__blobvale?.playerCount() === 3, null, { timeout: 8_000 });
@@ -87,6 +87,9 @@ const p3IdOnP2 = await p2.evaluate(() => {
   return Object.values(c);
 });
 const classFixOk = p3IdOnP2.filter((x) => x === 'cleric').length >= 1;
+// CUSTOMIZATION: p2 chose shade 4 — the host's roster must carry it.
+const looksOnHost = await p1.evaluate(() => window.__blobvale.looks());
+const lookOk = Object.values(looksOnHost).includes(4);
 await p1.screenshot({ path: `${outDir}/bv-1-lobby.png` });
 
 // Host starts the adventure -> everyone lands in the world.
@@ -139,6 +142,17 @@ const killsJoiner = await p2.evaluate(() => window.__blobvale.kills());
 const statsHost = await p1.evaluate(() => window.__blobvale.myStats());
 const combatOk =
   mobsOnP2 > 0 && killsHost >= 1 && killsJoiner >= 1 && (statsHost.xp > 0 || statsHost.lvl > 1);
+// UPGRADE CARDS: leveling opened an offer for the host; picking applies.
+const offerOpen = await p1.evaluate(() => window.__blobvale.upgradeOpen());
+const statsPre = await p1.evaluate(() => window.__blobvale.myStats());
+await p1.evaluate(() => window.__blobvale.pickUpgrade(0));
+await sleep(400);
+const offerClosed = !(await p1.evaluate(() => window.__blobvale.upgradeOpen()));
+const statsPost = await p1.evaluate(() => window.__blobvale.myStats());
+const upgradeOk =
+  offerOpen &&
+  offerClosed &&
+  ((statsPost.dmgMul ?? 1) > 1 || statsPost.max > statsPre.max || (statsPost.cdMul ?? 1) < 1);
 // BOSS: host warps to the lair; joiner must see the boss lose HP.
 await p1.evaluate(() => window.__blobvale.revive());
 await p1.evaluate(() => window.__blobvale.warp(770, 290));
@@ -181,6 +195,8 @@ const ok =
   dedupeOk &&
   classFixOk &&
   bossOk &&
+  lookOk &&
+  upgradeOk &&
   errors.length === 0;
 console.log(
   JSON.stringify(
@@ -200,6 +216,8 @@ console.log(
       dedupeOk,
       classFixOk,
       bossOk,
+      lookOk,
+      upgradeOk,
       bossBefore,
       bossAfter,
       namesSeen,

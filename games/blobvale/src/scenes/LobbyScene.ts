@@ -2,7 +2,10 @@ import type { Text } from 'pixi.js';
 import { Entity, Scene, Timer, Wobble, audio, blobCharacter, partyPop } from '@interverse/engine';
 import type { Session } from '@interverse/net';
 import { UIButton } from '@interverse/ui';
-import { CLASSES, classById } from '../classes.js';
+import { CLASSES, classById, shadeFor } from '../classes.js';
+import { Graphics } from 'pixi.js';
+import { makeTappable } from '@interverse/engine';
+import { store } from '../store.js';
 import { makeText } from '../text.js';
 import { MenuScene } from './MenuScene.js';
 import { WorldScene } from './WorldScene.js';
@@ -11,6 +14,7 @@ export interface RosterState {
   order: string[];
   names: Record<string, string>;
   classes: Record<string, string>;
+  looks?: Record<string, number>;
 }
 
 interface RosterMessage extends RosterState {
@@ -22,6 +26,11 @@ interface ClassMessage {
   cls: string;
 }
 
+interface LookMessage {
+  type: 'look';
+  look: number;
+}
+
 interface StartMessage {
   type: 'start';
   roster: RosterState;
@@ -31,11 +40,11 @@ interface InProgressMessage {
   type: 'inprogress';
 }
 
-type LobbyMessage = RosterMessage | ClassMessage | StartMessage | InProgressMessage;
+type LobbyMessage = RosterMessage | ClassMessage | LookMessage | StartMessage | InProgressMessage;
 
 /** Lobby: code + roster + class picker; host starts the adventure. */
 export class LobbyScene extends Scene {
-  private roster: RosterState = { order: [], names: {}, classes: {} };
+  private roster: RosterState = { order: [], names: {}, classes: {}, looks: {} };
   private countText!: Text;
   private rosterRow!: Entity;
   private statusText!: Text;
@@ -46,6 +55,8 @@ export class LobbyScene extends Scene {
   private classBtns: UIButton[] = [];
   private classBlurbs: Text[] = [];
   private startBtn: UIButton | null = null;
+  private styleLabel!: Text;
+  private swatchRow!: Entity;
 
   protected override onResize(w: number, h: number): void {
     this.layout(w, h);
@@ -75,7 +86,9 @@ export class LobbyScene extends Scene {
         this.classBlurbs[i]?.position.set(cx, cy + 62);
       }
     });
-    this.statusText.position.set(W / 2, landscape ? 580 : 900);
+    this.styleLabel.position.set(W / 2, landscape ? 566 : 812);
+    this.swatchRow.position.set(W / 2, landscape ? 622 : 872);
+    this.statusText.position.set(W / 2, landscape ? 668 : 950);
     this.startBtn?.position.set(W / 2, H - (landscape ? 76 : 140));
     this.waitText?.position.set(W / 2, H - (landscape ? 60 : 140));
   }
@@ -96,6 +109,8 @@ export class LobbyScene extends Scene {
       names: () => this.roster.order.map((id) => this.roster.names[id] ?? '?'),
       classes: () => ({ ...this.roster.classes }),
       pick: (cls: string) => this.pickClass(cls),
+      looks: () => ({ ...(this.roster.looks ?? {}) }),
+      setLook: (i: number) => this.pickLook(i),
       ...(session.isHost ? { start: () => this.startAdventure() } : {}),
     };
 
@@ -128,6 +143,11 @@ export class LobbyScene extends Scene {
       this.classBlurbs.push(blurb);
     });
 
+    this.styleLabel = makeText('STYLE', 24, { color: partyPop.inkSoft, weight: 'bold' });
+    this.stage.addChild(this.styleLabel);
+    this.swatchRow = new Entity();
+    this.add(this.swatchRow);
+
     this.statusText = makeText('', 28, { color: partyPop.inkSoft, weight: 'bold', wrapWidth: 620 });
     this.stage.addChild(this.statusText);
 
@@ -152,9 +172,16 @@ export class LobbyScene extends Scene {
     for (const p of session.players) this.roster.names[p.id] = p.name;
     this.refreshRoster();
 
-    // Playtest lever: ?class=knight auto-picks.
-    const auto = new URLSearchParams(window.location.search).get('class');
+    // Playtest levers: ?class=knight auto-picks; ?look=0..4 sets the shade.
+    const params = new URLSearchParams(window.location.search);
+    const auto = params.get('class');
     if (auto && CLASSES.some((c) => c.id === auto)) this.pickClass(auto, true);
+    const savedLook = store.get<number>('look', 2);
+    const lookParam = Number(params.get('look'));
+    const initialLook =
+      Number.isInteger(lookParam) && lookParam >= 0 && lookParam <= 4 ? lookParam : savedLook;
+    if (initialLook !== 2) this.pickLook(initialLook, true);
+    this.redrawSwatches();
 
     if (session.isHost) {
       session.onPlayerJoin((p) => {
@@ -174,6 +201,10 @@ export class LobbyScene extends Scene {
         const msg = data as LobbyMessage;
         if (msg?.type === 'class') {
           this.roster.classes[from] = msg.cls;
+          this.shareRoster();
+          this.refreshRoster();
+        } else if (msg?.type === 'look') {
+          (this.roster.looks ??= {})[from] = msg.look;
           this.shareRoster();
           this.refreshRoster();
         }
@@ -220,6 +251,41 @@ export class LobbyScene extends Scene {
       const msg: ClassMessage = { type: 'class', cls: id };
       this.session.send(msg);
     }
+    this.redrawSwatches();
+  }
+
+  private pickLook(i: number, silent = false): void {
+    if (!silent) audio.blip(1.3);
+    store.set('look', i);
+    if (this.session.isHost) {
+      (this.roster.looks ??= {})[this.session.id] = i;
+      this.shareRoster();
+      this.refreshRoster();
+    } else {
+      const msg: LookMessage = { type: 'look', look: i };
+      this.session.send(msg);
+    }
+    this.redrawSwatches();
+  }
+
+  /** Five tappable shade dots of my current class color. */
+  private redrawSwatches(): void {
+    for (const old of this.swatchRow.removeChildren()) old.destroy({ children: true });
+    const myClass = classById(
+      this.roster.classes[this.session.id] ??
+        new URLSearchParams(window.location.search).get('class') ??
+        undefined,
+    );
+    const myLook = this.roster.looks?.[this.session.id] ?? store.get<number>('look', 2);
+    for (let i = 0; i < 5; i++) {
+      const dot = new Entity();
+      const g = new Graphics().circle(0, 0, 30).fill(shadeFor(myClass.color, i));
+      if (i === myLook) g.circle(0, 0, 36).stroke({ color: 0xffffff, width: 4 });
+      dot.addChild(g);
+      dot.position.set((i - 2) * 86, 0);
+      makeTappable(dot, () => this.pickLook(i), { hitRadius: 42 });
+      this.swatchRow.addChild(dot);
+    }
   }
 
   private startAdventure(): void {
@@ -263,7 +329,7 @@ export class LobbyScene extends Scene {
       const chip = new Entity();
       const char = blobCharacter({
         radius: 34,
-        color: clsId ? cls.color : 0x8a8a9a,
+        color: clsId ? shadeFor(cls.color, this.roster.looks?.[id] ?? 2) : 0x8a8a9a,
         seed: 3 + i,
         shadow: false,
       });
@@ -285,6 +351,7 @@ export class LobbyScene extends Scene {
       chip.addChild(clsName);
       this.rosterRow.addChild(chip);
     });
+    this.redrawSwatches();
   }
 
   protected override onUpdate(dt: number): void {

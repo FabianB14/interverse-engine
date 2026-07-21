@@ -4,7 +4,7 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['**/dist/**', '**/build/**', '**/node_modules/**'],
+    ignores: ['**/dist/**', '**/build/**', '**/node_modules/**', '**/public/**'],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
@@ -28,6 +28,7 @@ export default tseslint.config(
         console: 'readonly',
         process: 'readonly',
         window: 'readonly',
+        document: 'readonly',
         performance: 'readonly',
         requestAnimationFrame: 'readonly',
         setTimeout: 'readonly',

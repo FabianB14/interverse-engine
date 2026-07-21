@@ -133,6 +133,22 @@ export function classById(id: string | undefined): ClassDef {
   return CLASSES.find((c) => c.id === id) ?? (CLASSES[0] as ClassDef);
 }
 
+/** Customization: 5 shades of a class color (0 lightest .. 4 darkest, 2 = base). */
+export function shadeFor(color: number, shade: number): number {
+  switch (shade) {
+    case 0:
+      return lighten(color, 0.3);
+    case 1:
+      return lighten(color, 0.15);
+    case 3:
+      return darken(color, 0.16);
+    case 4:
+      return darken(color, 0.32);
+    default:
+      return color;
+  }
+}
+
 export function lighterClassColor(id: string): number {
   return lighten(classById(id).color, 0.25);
 }
