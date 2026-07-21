@@ -7,9 +7,9 @@
  *   5. ws://<host>:8787 during local dev
  */
 
-// Once the relay is deployed (e.g. Render), put its URL here and redeploy:
-// e.g. 'wss://interverse-relay.onrender.com'
-const DEFAULT_RELAY_URL = '';
+// The deployed relay (Render, free plan — it naps when idle and takes
+// ~30s to wake on the first connection).
+const DEFAULT_RELAY_URL = 'wss://interverse-engine.onrender.com';
 
 const STORAGE_KEY = 'interverse-relay-url';
 
@@ -38,9 +38,11 @@ export function resolveRelayUrl(): string | null {
   }
   const env = import.meta.env.VITE_RELAY_URL as string | undefined;
   if (env) return normalize(env);
-  if (DEFAULT_RELAY_URL) return normalize(DEFAULT_RELAY_URL);
+  // Local dev always talks to the local relay (pnpm relay), even when a
+  // production default is configured below.
   const h = window.location.hostname;
   if (h === 'localhost' || h === '127.0.0.1') return `ws://${h}:8787`;
+  if (DEFAULT_RELAY_URL) return normalize(DEFAULT_RELAY_URL);
   return null;
 }
 

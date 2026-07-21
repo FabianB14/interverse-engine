@@ -31,7 +31,9 @@ type PlayerHandler = (player: PlayerInfo) => void;
 type LeaveHandler = (id: string) => void;
 type CloseHandler = (reason: string) => void;
 
-const CONNECT_TIMEOUT_MS = 8000;
+// Generous: free-tier relays (e.g. Render) sleep when idle and can take
+// ~30s to wake for the first connection.
+const CONNECT_TIMEOUT_MS = 45_000;
 
 export class Session {
   /** Live roster, host first. */

@@ -109,12 +109,17 @@ export class MenuScene extends Scene {
     if (this.busy) return;
     this.busy = true;
     audio.blip();
+    if (this.status) {
+      this.status.style.fill = partyPop.inkSoft;
+      this.status.text = 'connecting…\n(a sleeping relay can take ~30s to wake)';
+    }
     try {
       const session = await host({ url: relayUrl, game: GAME_TAG, name: playerName() });
       this.game.scenes.replace(new PartyScene(session));
     } catch (err) {
       this.busy = false;
       if (this.status) {
+        this.status.style.fill = 0xff5470;
         this.status.text = `Could not reach the relay:\n${err instanceof Error ? err.message : String(err)}`;
       }
     }
