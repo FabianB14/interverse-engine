@@ -23,8 +23,24 @@ export const ABILITIES: Record<string, AbilityDef> = {
   knight: { range: 140, splash: 110, damage: 26, cooldown: 1.1, fx: 'slash', label: '⚔️' },
   archer: { range: 480, splash: 0, damage: 18, cooldown: 0.8, fx: 'arrow', label: '🏹' },
   mage: { range: 360, splash: 130, damage: 22, cooldown: 1.4, fx: 'fire', label: '🔥' },
-  cleric: { range: 260, splash: 220, damage: 10, heals: true, cooldown: 1.2, fx: 'heal', label: '💚' },
-  rogue: { range: 300, splash: 0, damage: 30, dashes: true, cooldown: 1.0, fx: 'dash', label: '🗡️' },
+  cleric: {
+    range: 260,
+    splash: 220,
+    damage: 10,
+    heals: true,
+    cooldown: 1.2,
+    fx: 'heal',
+    label: '💚',
+  },
+  rogue: {
+    range: 300,
+    splash: 0,
+    damage: 30,
+    dashes: true,
+    cooldown: 1.0,
+    fx: 'dash',
+    label: '🗡️',
+  },
 };
 
 export const CLERIC_HEAL = 22;
@@ -43,12 +59,12 @@ export interface MobState {
 }
 
 export const MOB = {
-  MAX_HP: 60,
+  MAX_HP: 45,
   SPEED: 130,
   AGGRO_RANGE: 260,
   LEASH_RANGE: 520,
   ATTACK_RANGE: 70,
-  ATTACK_DAMAGE: 8,
+  ATTACK_DAMAGE: 5,
   ATTACK_EVERY: 1.2,
   PER_CAMP: 3,
   RESPAWN_SECONDS: 12,
@@ -56,7 +72,7 @@ export const MOB = {
   XP_RANGE: 700,
 };
 
-export const PLAYER_BASE_HP = 100;
+export const PLAYER_BASE_HP = 120;
 export const RESPAWN_SECONDS = 5;
 
 export function xpForLevel(level: number): number {

@@ -20,6 +20,11 @@ interface LobbyDebug {
   sendChat?: (i: number) => void;
   joystickScreen?: () => { x: number; y: number };
   start?: () => void;
+  cast?: () => void;
+  mobCount?: () => number;
+  myStats?: () => { hp: number; max: number; lvl: number; xp: number } | null;
+  kills?: () => number;
+  warp?: (x: number, y: number) => void;
 }
 
 declare global {

@@ -114,6 +114,20 @@ await p4.waitForFunction(() => window.__blobvale?.scene() === 'world', null, { t
 await sleep(900);
 const lateJoinerInWorld = await p4.evaluate(() => window.__blobvale.playerCount());
 const remotesSeenByP2 = await p2.evaluate(() => window.__blobvale.remoteIds().length);
+// COMBAT (M2): host warps to a mob camp and fights until a kill lands.
+await p1.evaluate(() => window.__blobvale.warp(1248, 980));
+await sleep(500);
+const mobsOnP2 = await p2.evaluate(() => window.__blobvale.mobCount());
+for (let i = 0; i < 16; i++) {
+  await p1.evaluate(() => window.__blobvale.cast());
+  await sleep(350);
+}
+await sleep(500);
+const killsHost = await p1.evaluate(() => window.__blobvale.kills());
+const killsJoiner = await p2.evaluate(() => window.__blobvale.kills());
+const statsHost = await p1.evaluate(() => window.__blobvale.myStats());
+const combatOk =
+  mobsOnP2 > 0 && killsHost >= 1 && killsJoiner >= 1 && (statsHost.xp > 0 || statsHost.lvl > 1);
 await p1.screenshot({ path: `${outDir}/bv-2-world-host.png` });
 await p2.screenshot({ path: `${outDir}/bv-3-world-joiner.png` });
 await p4.screenshot({ path: `${outDir}/bv-4-late-joiner.png` });
@@ -121,7 +135,13 @@ await p4.screenshot({ path: `${outDir}/bv-4-late-joiner.png` });
 await browser.close();
 relay.kill();
 
-const ok = movedSeen > 30 && snaps > 5 && hostChatsAfter > hostChatsBefore && errors.length === 0;
+const ok =
+  movedSeen > 30 &&
+  snaps > 5 &&
+  hostChatsAfter > hostChatsBefore &&
+  lateJoinerInWorld === 4 &&
+  combatOk &&
+  errors.length === 0;
 console.log(
   JSON.stringify(
     {
@@ -132,6 +152,10 @@ console.log(
       chatDelivered: hostChatsAfter > hostChatsBefore,
       lateJoinerInWorld,
       remotesSeenByP2,
+      mobsOnP2,
+      killsHost,
+      killsJoiner,
+      statsHost,
       errors: errors.slice(0, 5),
       hostId,
     },

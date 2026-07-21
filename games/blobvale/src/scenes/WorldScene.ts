@@ -5,6 +5,8 @@ import {
   Entity,
   Scene,
   Timer,
+  Tween,
+  easings,
   VirtualJoystick,
   Wobble,
   audio,
@@ -19,6 +21,16 @@ import type { Session } from '@interverse/net';
 import { UIButton } from '@interverse/ui';
 import { drawPanel } from '@interverse/ui';
 import { classById } from '../classes.js';
+import {
+  ABILITIES,
+  CLERIC_HEAL,
+  MOB,
+  RESPAWN_SECONDS,
+  damageAtLevel,
+  maxHpAtLevel,
+  xpForLevel,
+} from '../combat.js';
+import type { MobState } from '../combat.js';
 import { TILE_SIZE, valeLegend, valePainters, valeRows } from '../map.js';
 import { makeText } from '../text.js';
 import { MenuScene } from './MenuScene.js';
@@ -36,6 +48,23 @@ interface PosMessage {
 interface SnapMessage {
   type: 'snap';
   players: Record<string, { x: number; y: number }>;
+  mobs?: Record<string, { x: number; y: number; hp: number; max: number }>;
+  stats?: Record<string, { hp: number; max: number; lvl: number; xp: number }>;
+}
+
+interface CastMessage {
+  type: 'cast';
+}
+
+interface FxMessage {
+  type: 'fx';
+  kind: 'slash' | 'arrow' | 'fire' | 'heal' | 'dash' | 'hit' | 'die' | 'levelup' | 'down';
+  x: number;
+  y: number;
+  id?: string;
+  amount?: number;
+  tx?: number;
+  ty?: number;
 }
 
 interface ChatMessage {
@@ -56,7 +85,8 @@ interface ClassMsg {
   cls: string;
 }
 
-type WorldMessage = PosMessage | SnapMessage | ChatMessage | RosterMsg | ClassMsg;
+type WorldMessage =
+  PosMessage | SnapMessage | ChatMessage | RosterMsg | ClassMsg | CastMessage | FxMessage;
 
 interface RemotePlayer {
   entity: Entity;
@@ -91,6 +121,22 @@ export class WorldScene extends Scene {
   private snapsSeen = 0;
   private chatsSeen = 0;
   private spawnPoint = { x: 800, y: 1200 };
+  // Combat (M2)
+  private hostMobs = new Map<number, MobState>();
+  private mobRespawns: { at: number; homeX: number; homeY: number }[] = [];
+  private stats: Record<string, { hp: number; max: number; lvl: number; xp: number }> = {};
+  private mobViews = new Map<
+    string,
+    { e: Entity; bar: Graphics; body: Container; targetX: number; targetY: number }
+  >();
+  private cooldownLeft = 0;
+  private castBtn!: UIButton;
+  private downUntil = 0;
+  private hudText!: Text;
+  private hpBar!: Graphics;
+  private myBar!: Graphics;
+  private nextMobId = 1;
+  private killsSeen = 0;
 
   constructor(
     private readonly session: Session,
@@ -144,8 +190,40 @@ export class WorldScene extends Scene {
       fill: forestDeep.accent,
       onTap: () => this.toggleChat(),
     });
-    chatBtn.position.set(W - 110, H - 170);
+    chatBtn.position.set(W - 110, H - 290);
     this.add(chatBtn, this.uiLayer);
+
+    const myAbility = ABILITIES[this.roster.classes[session.id] ?? 'knight'];
+    this.castBtn = new UIButton(myAbility?.label ?? '⚔️', {
+      width: 150,
+      height: 150,
+      fontSize: 60,
+      fill: 0xffffff,
+      onTap: () => this.tryCast(),
+    });
+    this.castBtn.position.set(W - 120, H - 130);
+    this.add(this.castBtn, this.uiLayer);
+
+    // My HP bar rides under my blob; HUD text top-left.
+    this.myBar = new Graphics();
+    this.myBar.position.set(0, 62);
+    this.me.addChild(this.myBar);
+    this.hudText = makeText('', 24, { color: forestDeep.ink, weight: '800' });
+    this.hudText.anchor.set(0, 0.5);
+    this.hudText.position.set(16, 76);
+    this.uiLayer.addChild(this.hudText);
+    this.hpBar = new Graphics();
+    this.hpBar.position.set(16, 96);
+    this.uiLayer.addChild(this.hpBar);
+
+    for (const id of this.roster.order) {
+      this.stats[id] = { hp: maxHpAtLevel(1), max: maxHpAtLevel(1), lvl: 1, xp: 0 };
+    }
+    if (session.isHost) {
+      for (const camp of this.map.objects.filter((o) => o.name === 'camp')) {
+        for (let i = 0; i < MOB.PER_CAMP; i++) this.hostSpawnMob(camp.x, camp.y);
+      }
+    }
 
     const hud = makeText(
       `${session.code}  ·  ${classById(this.roster.classes[session.id]).name}`,
@@ -175,6 +253,11 @@ export class WorldScene extends Scene {
       snapsSeen: () => this.snapsSeen,
       chatsSeen: () => this.chatsSeen,
       sendChat: (i: number) => this.sendChat(i),
+      cast: () => this.tryCast(),
+      mobCount: () => (this.session.isHost ? this.hostMobs.size : this.mobViews.size),
+      myStats: () => this.stats[this.session.id] ?? null,
+      kills: () => this.killsSeen,
+      warp: (x: number, y: number) => this.me.position.set(x, y),
       joystickScreen: () => {
         const p = this.joystick.getGlobalPosition();
         return { x: p.x, y: p.y };
@@ -267,6 +350,16 @@ export class WorldScene extends Scene {
           r.targetY = p.y;
         }
       }
+      if (msg.stats) this.stats = msg.stats;
+      if (msg.mobs) this.syncMobViews(msg.mobs);
+      return;
+    }
+    if (msg?.type === 'cast' && this.session.isHost) {
+      this.resolveCast(from);
+      return;
+    }
+    if (msg?.type === 'fx' && !this.session.isHost) {
+      this.playFx(msg);
       return;
     }
     if (msg?.type === 'class' && this.session.isHost) {
@@ -400,9 +493,21 @@ export class WorldScene extends Scene {
     this.t += dt;
     const cls = classById(this.roster.classes[this.session.id]);
 
-    // Move me.
-    const jx = this.joystick.value.x;
-    const jy = this.joystick.value.y;
+    this.cooldownLeft = Math.max(0, this.cooldownLeft - dt);
+    this.castBtn.alpha = this.cooldownLeft > 0 || this.t < this.downUntil ? 0.35 : 1;
+    if (this.session.isHost) this.hostSimMobs(dt);
+    for (const v of this.mobViews.values()) {
+      const k = Math.min(1, dt * 12);
+      v.e.x += (v.targetX - v.e.x) * k;
+      v.e.y += (v.targetY - v.e.y) * k;
+      v.e.update(dt);
+    }
+    this.updateHud();
+
+    // Move me (frozen briefly while downed).
+    const down = this.t < this.downUntil;
+    const jx = down ? 0 : this.joystick.value.x;
+    const jy = down ? 0 : this.joystick.value.y;
     const moving = Math.hypot(jx, jy) > 0.12;
     if (moving) {
       const moved = moveWithCollision(
@@ -440,8 +545,18 @@ export class WorldScene extends Scene {
       // Host fans the world snapshot out on the same cadence.
       if (this.session.isHost) {
         this.hostPositions[this.session.id] = { x: this.me.x, y: this.me.y };
-        const snap: SnapMessage = { type: 'snap', players: this.hostPositions };
+        const mobs: NonNullable<SnapMessage['mobs']> = {};
+        for (const m of this.hostMobs.values()) {
+          mobs[String(m.id)] = { x: m.x, y: m.y, hp: m.hp, max: m.max };
+        }
+        const snap: SnapMessage = {
+          type: 'snap',
+          players: this.hostPositions,
+          mobs,
+          stats: this.stats,
+        };
         this.session.broadcast(snap);
+        this.syncMobViews(mobs);
       }
     }
 
@@ -470,6 +585,341 @@ export class WorldScene extends Scene {
     }
 
     this.camera.update(dt);
+  }
+
+  // ------------------------------------------------------------ combat (M2)
+
+  private tryCast(): void {
+    if (this.cooldownLeft > 0 || this.t < this.downUntil) return;
+    const def = ABILITIES[this.roster.classes[this.session.id] ?? 'knight'];
+    if (!def) return;
+    this.cooldownLeft = def.cooldown;
+    audio.blip(1.6);
+    if (this.session.isHost) {
+      this.resolveCast(this.session.id);
+    } else {
+      this.session.send({ type: 'cast' });
+    }
+  }
+
+  private hostSpawnMob(homeX: number, homeY: number): void {
+    const id = this.nextMobId++;
+    this.hostMobs.set(id, {
+      id,
+      x: homeX + (Math.random() * 2 - 1) * 60,
+      y: homeY + (Math.random() * 2 - 1) * 60,
+      hp: MOB.MAX_HP,
+      max: MOB.MAX_HP,
+      homeX,
+      homeY,
+      target: null,
+      attackIn: 0,
+    });
+  }
+
+  private hostSimMobs(dt: number): void {
+    for (const m of this.hostMobs.values()) {
+      // Acquire/drop target.
+      let best: string | null = null;
+      let bestD = MOB.AGGRO_RANGE;
+      for (const [pid, p] of Object.entries(this.hostPositions)) {
+        if ((this.stats[pid]?.hp ?? 0) <= 0) continue;
+        const d = Math.hypot(p.x - m.x, p.y - m.y);
+        if (d < bestD) {
+          best = pid;
+          bestD = d;
+        }
+      }
+      if (Math.hypot(m.x - m.homeX, m.y - m.homeY) > MOB.LEASH_RANGE) best = null;
+      m.target = best;
+
+      const goal = best
+        ? this.hostPositions[best]
+        : {
+            x: m.homeX + Math.sin(this.t * 0.7 + m.id) * 50,
+            y: m.homeY + Math.cos(this.t * 0.5 + m.id) * 50,
+          };
+      if (goal) {
+        const d = Math.hypot(goal.x - m.x, goal.y - m.y);
+        const stop = best ? MOB.ATTACK_RANGE * 0.8 : 6;
+        if (d > stop) {
+          const moved = moveWithCollision(
+            this.map,
+            m.x,
+            m.y,
+            18,
+            14,
+            ((goal.x - m.x) / d) * MOB.SPEED * dt,
+            ((goal.y - m.y) / d) * MOB.SPEED * dt,
+          );
+          m.x = moved.x;
+          m.y = moved.y;
+        }
+      }
+
+      m.attackIn -= dt;
+      if (best && m.attackIn <= 0) {
+        const p = this.hostPositions[best];
+        if (p && Math.hypot(p.x - m.x, p.y - m.y) <= MOB.ATTACK_RANGE) {
+          m.attackIn = MOB.ATTACK_EVERY;
+          const st = this.stats[best];
+          if (st && st.hp > 0) {
+            st.hp = Math.max(0, st.hp - MOB.ATTACK_DAMAGE);
+            this.broadcastFx({
+              type: 'fx',
+              kind: 'hit',
+              x: p.x,
+              y: p.y,
+              amount: MOB.ATTACK_DAMAGE,
+            });
+            if (st.hp <= 0) {
+              this.broadcastFx({ type: 'fx', kind: 'down', x: p.x, y: p.y, id: best });
+              const downedId = best;
+              const revive = new Entity();
+              revive.addBehavior(
+                new Timer(RESPAWN_SECONDS, () => {
+                  const rst = this.stats[downedId];
+                  if (rst) rst.hp = rst.max;
+                }),
+              );
+              this.add(revive);
+            }
+          }
+        }
+      }
+    }
+    // Respawns.
+    const now = this.t;
+    this.mobRespawns = this.mobRespawns.filter((r) => {
+      if (now >= r.at) {
+        this.hostSpawnMob(r.homeX, r.homeY);
+        return false;
+      }
+      return true;
+    });
+  }
+
+  private resolveCast(casterId: string): void {
+    const def = ABILITIES[this.roster.classes[casterId] ?? 'knight'];
+    const caster = casterId === this.session.id ? this.me : this.hostPositions[casterId];
+    const st = this.stats[casterId];
+    if (!def || !caster || !st || st.hp <= 0) return;
+    const dmg = damageAtLevel(def.damage, st.lvl);
+
+    if (def.heals) {
+      for (const [pid, p] of Object.entries(this.hostPositions)) {
+        const target = this.stats[pid];
+        if (!target || target.hp <= 0) continue;
+        if (Math.hypot(p.x - caster.x, p.y - caster.y) <= def.splash) {
+          target.hp = Math.min(target.max, target.hp + CLERIC_HEAL);
+        }
+      }
+      this.broadcastFx({ type: 'fx', kind: 'heal', x: caster.x, y: caster.y });
+    }
+
+    // Nearest living mob in range.
+    let target: MobState | null = null;
+    let bestD = def.range;
+    for (const m of this.hostMobs.values()) {
+      const d = Math.hypot(m.x - caster.x, m.y - caster.y);
+      if (d < bestD) {
+        target = m;
+        bestD = d;
+      }
+    }
+    if (!def.heals) {
+      this.broadcastFx({
+        type: 'fx',
+        kind: def.fx,
+        x: caster.x,
+        y: caster.y,
+        tx: target?.x ?? caster.x,
+        ty: target?.y ?? caster.y - 60,
+      });
+    }
+    if (!target) return;
+
+    const victims =
+      def.splash > 0
+        ? [...this.hostMobs.values()].filter(
+            (m) => Math.hypot(m.x - target.x, m.y - target.y) <= def.splash,
+          )
+        : [target];
+    for (const m of victims) {
+      m.hp -= dmg;
+      this.broadcastFx({ type: 'fx', kind: 'hit', x: m.x, y: m.y - 30, amount: dmg });
+      if (m.hp <= 0) {
+        this.hostMobs.delete(m.id);
+        this.mobRespawns.push({ at: this.t + MOB.RESPAWN_SECONDS, homeX: m.homeX, homeY: m.homeY });
+        this.broadcastFx({ type: 'fx', kind: 'die', x: m.x, y: m.y });
+        this.hostGrantXp(m.x, m.y);
+      }
+    }
+  }
+
+  private hostGrantXp(x: number, y: number): void {
+    for (const [pid, p] of Object.entries(this.hostPositions)) {
+      const st = this.stats[pid];
+      if (!st || Math.hypot(p.x - x, p.y - y) > MOB.XP_RANGE) continue;
+      st.xp += MOB.XP_PER_KILL;
+      while (st.xp >= xpForLevel(st.lvl)) {
+        st.xp -= xpForLevel(st.lvl);
+        st.lvl += 1;
+        st.max = maxHpAtLevel(st.lvl);
+        st.hp = st.max;
+        this.broadcastFx({ type: 'fx', kind: 'levelup', x: p.x, y: p.y, id: pid });
+      }
+    }
+  }
+
+  private broadcastFx(fx: FxMessage): void {
+    this.session.broadcast(fx);
+    this.playFx(fx);
+  }
+
+  private worldFor(id: string | undefined): { x: number; y: number } | null {
+    if (!id) return null;
+    if (id === this.session.id) return { x: this.me.x, y: this.me.y };
+    const r = this.remotes.get(id);
+    return r ? { x: r.entity.x, y: r.entity.y } : null;
+  }
+
+  private playFx(fx: FxMessage): void {
+    const e = new Entity();
+    e.position.set(fx.x, fx.y);
+    const g = new Graphics();
+    e.addChild(g);
+    let life = 0.5;
+    switch (fx.kind) {
+      case 'slash':
+        g.arc(0, 0, 90, -0.8, 1.6).stroke({ color: 0xffffff, width: 12, alpha: 0.9 });
+        life = 0.25;
+        break;
+      case 'arrow':
+      case 'dash': {
+        const tx = (fx.tx ?? fx.x) - fx.x;
+        const ty = (fx.ty ?? fx.y) - fx.y;
+        g.moveTo(0, 0)
+          .lineTo(tx, ty)
+          .stroke({ color: fx.kind === 'arrow' ? 0xf2ffe9 : 0xd98a9c, width: 8, alpha: 0.9 });
+        life = 0.2;
+        break;
+      }
+      case 'fire':
+        e.position.set(fx.tx ?? fx.x, fx.ty ?? fx.y);
+        g.circle(0, 0, 90).fill({ color: 0xff8c42, alpha: 0.55 });
+        g.circle(0, 0, 45).fill({ color: 0xffd166, alpha: 0.8 });
+        audio.buzz();
+        life = 0.35;
+        break;
+      case 'heal':
+        g.circle(0, 0, 160).stroke({ color: 0x8affc1, width: 10, alpha: 0.8 });
+        audio.chime();
+        life = 0.5;
+        break;
+      case 'hit': {
+        const n = makeText(`-${fx.amount ?? 0}`, 30, { color: 0xffd166 });
+        e.addChild(n);
+        e.addBehavior(new Tween(e, { y: fx.y - 60, alpha: 0 }, 0.7, { ease: easings.outQuad }));
+        audio.pop(1.3);
+        life = 0.75;
+        break;
+      }
+      case 'die':
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * Math.PI * 2;
+          g.circle(Math.cos(a) * 30, Math.sin(a) * 30, 8).fill(0x8fbf6b);
+        }
+        e.addBehavior(new Tween(e.scale, { x: 2, y: 2 }, 0.4, { ease: easings.outQuad }));
+        e.addBehavior(new Tween(e, { alpha: 0 }, 0.4, { ease: easings.outQuad }));
+        audio.pop(0.6);
+        this.killsSeen += 1;
+        life = 0.45;
+        break;
+      case 'levelup': {
+        const who = this.worldFor(fx.id);
+        if (who) e.position.set(who.x, who.y);
+        g.circle(0, 0, 70).stroke({ color: 0xffd166, width: 8 });
+        const lu = makeText('LEVEL UP!', 26, { color: 0xffd166 });
+        lu.position.set(0, -80);
+        e.addChild(lu);
+        e.addBehavior(new Tween(e.scale, { x: 1.6, y: 1.6 }, 0.6, { ease: easings.outBack }));
+        e.addBehavior(new Tween(e, { alpha: 0 }, 0.8, { ease: easings.inQuad }));
+        audio.chime();
+        life = 0.85;
+        break;
+      }
+      case 'down': {
+        const skull = makeText('💫', 40, { color: 0xffffff });
+        e.addChild(skull);
+        audio.buzz();
+        if (fx.id === this.session.id) {
+          this.downUntil = this.t + RESPAWN_SECONDS;
+          const back = new Entity();
+          back.addBehavior(
+            new Timer(RESPAWN_SECONDS, () => {
+              this.me.position.set(this.spawnPoint.x, this.spawnPoint.y);
+            }),
+          );
+          this.add(back);
+        }
+        life = 1.2;
+        break;
+      }
+    }
+    e.addBehavior(new Timer(life, () => this.remove(e)));
+    this.add(e, this.mapLayer);
+  }
+
+  private syncMobViews(
+    mobs: Record<string, { x: number; y: number; hp: number; max: number }>,
+  ): void {
+    for (const [id, m] of Object.entries(mobs)) {
+      let v = this.mobViews.get(id);
+      if (!v) {
+        const e = new Entity();
+        const char = blobCharacter({
+          radius: 26,
+          color: 0x8fbf6b,
+          seed: 100 + Number(id),
+          shadow: false,
+        });
+        e.addChild(char.view);
+        e.addBehavior(
+          new Wobble({ target: char.body, amount: 0.06, speed: 3.2, phase: Number(id) }),
+        );
+        const bar = new Graphics();
+        bar.position.set(0, -44);
+        e.addChild(bar);
+        e.position.set(m.x, m.y);
+        this.add(e, this.mapLayer);
+        v = { e, bar, body: char.body, targetX: m.x, targetY: m.y };
+        this.mobViews.set(id, v);
+      }
+      v.targetX = m.x;
+      v.targetY = m.y;
+      v.bar.clear();
+      v.bar.rect(-26, 0, 52, 7).fill({ color: 0x000000, alpha: 0.4 });
+      v.bar.rect(-26, 0, 52 * Math.max(0, m.hp / m.max), 7).fill(0xff5470);
+    }
+    for (const [id, v] of [...this.mobViews]) {
+      if (!(id in mobs)) {
+        this.remove(v.e);
+        this.mobViews.delete(id);
+      }
+    }
+  }
+
+  private updateHud(): void {
+    const st = this.stats[this.session.id];
+    if (!st) return;
+    this.hudText.text = `Lv ${st.lvl}   ${st.hp}/${st.max} HP   ${st.xp}/${xpForLevel(st.lvl)} XP`;
+    this.hpBar.clear();
+    this.hpBar.rect(0, 0, 220, 10).fill({ color: 0x000000, alpha: 0.4 });
+    this.hpBar.rect(0, 0, 220 * Math.max(0, st.hp / st.max), 10).fill(0x8affc1);
+    this.myBar.clear();
+    this.myBar.rect(-26, 0, 52, 6).fill({ color: 0x000000, alpha: 0.4 });
+    this.myBar.rect(-26, 0, 52 * Math.max(0, st.hp / st.max), 6).fill(0x8affc1);
   }
 
   private rosterIdOf(r: RemotePlayer): string {
