@@ -71,7 +71,7 @@ async function phone(q, dpr = 1) {
 const p1 = await phone('?host=1&class=knight&name=Hosty');
 await p1.waitForFunction(() => window.__blobvale?.scene() === 'lobby', null, { timeout: 10_000 });
 const code = await p1.evaluate(() => window.__blobvale.code());
-const p2 = await phone(`?join=${code}&class=mage&name=Ana&look=4`, 3);
+const p2 = await phone(`?join=${code}&class=mage&name=Ana&look=4&acc=3&voice=5`, 3);
 const p3 = await phone(`?join=${code}&class=rogue&name=Ana`); // duplicate on purpose
 for (const p of [p1, p2, p3]) {
   await p.waitForFunction(() => window.__blobvale?.playerCount() === 3, null, { timeout: 8_000 });
@@ -87,9 +87,14 @@ const p3IdOnP2 = await p2.evaluate(() => {
   return Object.values(c);
 });
 const classFixOk = p3IdOnP2.filter((x) => x === 'cleric').length >= 1;
-// CUSTOMIZATION: p2 chose shade 4 — the host's roster must carry it.
+// CUSTOMIZATION: p2 chose shade 4, accessory 3, voice 5 — the host's roster
+// must carry all three (M3 looks + M5 accessories/sounds).
 const looksOnHost = await p1.evaluate(() => window.__blobvale.looks());
 const lookOk = Object.values(looksOnHost).includes(4);
+const accsOnHost = await p1.evaluate(() => window.__blobvale.accs());
+const accOk = Object.values(accsOnHost).includes(3);
+const voicesOnHost = await p1.evaluate(() => window.__blobvale.voices());
+const voiceOk = Object.values(voicesOnHost).includes(5);
 await p1.screenshot({ path: `${outDir}/bv-1-lobby.png` });
 
 // Host starts the adventure -> everyone lands in the world.
@@ -233,6 +238,8 @@ const ok =
   classFixOk &&
   bossOk &&
   lookOk &&
+  accOk &&
+  voiceOk &&
   upgradeOk &&
   modOk &&
   castZoneOk &&
@@ -257,6 +264,8 @@ console.log(
       classFixOk,
       bossOk,
       lookOk,
+      accOk,
+      voiceOk,
       upgradeOk,
       modOk,
       boomsHost,

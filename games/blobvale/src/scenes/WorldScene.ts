@@ -21,6 +21,8 @@ import type { Session } from '@interverse/net';
 import { UIButton } from '@interverse/ui';
 import { drawPanel } from '@interverse/ui';
 import { classById, shadeFor } from '../classes.js';
+import { accessoryView } from '../accessories.js';
+import { playVoice } from '../voice.js';
 import {
   ABILITIES,
   BOSS,
@@ -117,6 +119,8 @@ interface RosterMsg {
   names: Record<string, string>;
   classes: Record<string, string>;
   looks?: Record<string, number>;
+  accs?: Record<string, number>;
+  voices?: Record<string, number>;
 }
 
 interface ClassMsg {
@@ -471,6 +475,7 @@ export class WorldScene extends Scene {
       strokeWidth: isMe ? 5 : 3,
     });
     char.body.addChild(cls.accessory(30));
+    char.body.addChild(accessoryView(this.roster.accs?.[id], 30));
     e.addChild(char.view);
     if (!isMe) {
       e.addBehavior(new Wobble({ target: char.body, amount: 0.03, speed: 2.4 }));
@@ -530,11 +535,16 @@ export class WorldScene extends Scene {
         this.roster.names[id] = msg.names[id] ?? '?';
         const newCls = msg.classes[id];
         const newLook = msg.looks?.[id];
+        const newAcc = msg.accs?.[id];
+        const newVoice = msg.voices?.[id];
         const lookChanged = newLook !== undefined && (this.roster.looks?.[id] ?? 2) !== newLook;
+        const accChanged = newAcc !== undefined && (this.roster.accs?.[id] ?? 0) !== newAcc;
         const clsChanged =
-          (newCls !== undefined && this.roster.classes[id] !== newCls) || lookChanged;
+          (newCls !== undefined && this.roster.classes[id] !== newCls) || lookChanged || accChanged;
         if (newCls !== undefined) this.roster.classes[id] = newCls;
         if (newLook !== undefined) (this.roster.looks ??= {})[id] = newLook;
+        if (newAcc !== undefined) (this.roster.accs ??= {})[id] = newAcc;
+        if (newVoice !== undefined) (this.roster.voices ??= {})[id] = newVoice;
         if (!this.roster.order.includes(id)) this.roster.order.push(id);
         if (id === this.session.id) return;
         const existing = this.remotes.get(id);
@@ -578,7 +588,7 @@ export class WorldScene extends Scene {
   private sendChat(i: number): void {
     const text = QUICK_CHAT[i];
     if (text === undefined) return;
-    audio.blip(1.4);
+    playVoice(this.roster.voices?.[this.session.id]);
     this.chatsSeen += 1;
     this.showMyBubble(text);
     if (this.session.isHost) {
@@ -659,7 +669,7 @@ export class WorldScene extends Scene {
     const text = QUICK_CHAT[msgIndex];
     if (!r || text === undefined) return;
     this.chatsSeen += 1;
-    audio.blip(0.9);
+    playVoice(this.roster.voices?.[id]);
     if (r.bubble) {
       r.bubble.parent?.removeChild(r.bubble);
       r.bubble.destroy({ children: true });

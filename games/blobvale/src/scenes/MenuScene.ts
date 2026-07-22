@@ -34,6 +34,10 @@ interface LobbyDebug {
   revive?: () => void;
   looks?: () => Record<string, number>;
   setLook?: (i: number) => void;
+  accs?: () => Record<string, number>;
+  setAcc?: (i: number) => void;
+  voices?: () => Record<string, number>;
+  setVoice?: (i: number) => void;
   upgradeOpen?: () => boolean;
   pickUpgrade?: (i: number) => void;
   dmgMul?: () => number;
