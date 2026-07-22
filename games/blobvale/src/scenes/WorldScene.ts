@@ -49,6 +49,7 @@ import {
 import type { MobState, MobVariant, MobVariantDef, StatusKind } from '../combat.js';
 import { TILE_SIZE, ZONES, valeLegend, valeRows } from '../map.js';
 import { makeText } from '../text.js';
+import { clearLastRoom, saveLastRoom } from '../store.js';
 import { MenuScene } from './MenuScene.js';
 import type { RosterState } from './LobbyScene.js';
 
@@ -298,6 +299,10 @@ export class WorldScene extends Scene {
     const W = this.game.viewWidth;
     const H = this.game.viewHeight;
     const session = this.session;
+
+    // Remember this room so a knocked-out joiner can rejoin from the menu.
+    // (Hosts can't rejoin — their room dies with them.)
+    if (!session.isHost) saveLastRoom(session.code);
 
     this.map = tileMapFromRows(valeRows, TILE_SIZE, valeLegend);
     this.mapLayer = new Container();
@@ -551,6 +556,8 @@ export class WorldScene extends Scene {
   private goHome(): void {
     if (this.game.scenes.isTransitioning) return;
     this.leaving = true;
+    // Leaving on purpose — don't offer to rejoin this room.
+    clearLastRoom();
     audio.blip(0.9);
     this.session.leave();
     window.history.replaceState(null, '', window.location.pathname);

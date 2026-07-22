@@ -42,6 +42,39 @@
   <body>
     <script type="module" src="/src/main.ts"></script>
     <script>
+      // Immersive play: go fullscreen on the first tap (hides the browser
+      // chrome and Android nav bar) and trap the back gesture so an accidental
+      // swipe/back button doesn't knock you out of a live match. The in-game
+      // 🏠 button is the intended way to leave.
+      (function () {
+        const el = document.documentElement;
+        window.addEventListener(
+          'pointerdown',
+          function goFull() {
+            if (document.fullscreenElement) return;
+            const req = el.requestFullscreen || el.webkitRequestFullscreen;
+            if (req) {
+              try {
+                const r = req.call(el, { navigationUI: 'hide' });
+                if (r && r.catch) r.catch(() => {});
+              } catch (e) {
+                void e;
+              }
+            }
+          },
+          { once: true },
+        );
+        try {
+          history.pushState(null, '', location.href);
+          window.addEventListener('popstate', () => {
+            history.pushState(null, '', location.href);
+          });
+        } catch (e) {
+          void e;
+        }
+      })();
+    </script>
+    <script>
       // PWA: cache the app shell (not during local dev) and surface an
       // Install button when the browser offers one (Android/desktop Chrome).
       if ('serviceWorker' in navigator && location.hostname !== 'localhost') {

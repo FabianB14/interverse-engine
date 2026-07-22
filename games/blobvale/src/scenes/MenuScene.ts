@@ -7,7 +7,7 @@ import { GAME_TITLE } from '../game.js';
 import { makeText, playerName } from '../text.js';
 import { JoinScene } from './JoinScene.js';
 import { NameScene } from './NameScene.js';
-import { NAME_KEY, cleanName, savedName, store } from '../store.js';
+import { NAME_KEY, cleanName, lastRoom, savedName, store } from '../store.js';
 import { LobbyScene } from './LobbyScene.js';
 
 interface LobbyDebug {
@@ -84,6 +84,7 @@ export class MenuScene extends Scene {
   private status: Text | null = null;
   private title: Text | null = null;
   private mascot: Entity | null = null;
+  private rejoinBtn: UIButton | null = null;
   private hostBtn: UIButton | null = null;
   private joinBtn: UIButton | null = null;
   private nameBtn: UIButton | null = null;
@@ -95,6 +96,7 @@ export class MenuScene extends Scene {
   private layout(W: number, H: number): void {
     this.title?.position.set(W / 2, H * 0.16);
     this.mascot?.position.set(W / 2, H * 0.44);
+    this.rejoinBtn?.position.set(W / 2, H * 0.58);
     this.hostBtn?.position.set(W / 2, H * 0.66);
     this.joinBtn?.position.set(W / 2, H * 0.66 + 124);
     this.status?.position.set(W / 2, H * 0.9);
@@ -138,6 +140,24 @@ export class MenuScene extends Scene {
       warn.position.set(W / 2, H * 0.68);
       this.stage.addChild(warn);
       return;
+    }
+
+    // Rejoin: if we were knocked out of a room, offer a one-tap way back in.
+    const rejoinCode = lastRoom();
+    if (rejoinCode) {
+      this.rejoinBtn = new UIButton(`🔄 REJOIN ${rejoinCode}`, {
+        width: 460,
+        height: 82,
+        fontSize: 32,
+        fill: 0xffd166,
+        textColor: 0x1c1c28,
+        onTap: () => {
+          if (this.busy || this.game.scenes.isTransitioning) return;
+          audio.blip();
+          this.game.scenes.replace(new JoinScene(rejoinCode));
+        },
+      });
+      this.add(this.rejoinBtn);
     }
 
     this.hostBtn = new UIButton('HOST A ROOM', {
