@@ -333,7 +333,9 @@ export class WorldScene extends Scene {
     this.castZone.eventMode = 'static';
     this.castZone.hitArea = new Rectangle(W / 2, 0, W / 2, H);
     this.castZone.on('pointerdown', () => {
-      if (!this.chatOpen && !this.upgradeOverlay) this.tryCast();
+      // The level-up card is docked on the LEFT edge and its buttons hit-test
+      // first, so a right-side tap should still attack while an offer is up.
+      if (!this.chatOpen) this.tryCast();
     });
     this.uiLayer.addChild(this.castZone);
 
@@ -480,7 +482,9 @@ export class WorldScene extends Scene {
         const v = this.mobViews.get(String(BOSS.ID));
         return v ? v.hp : null;
       },
-      warp: (x: number, y: number) => this.me.position.set(x, y),
+      warp: (x: number, y: number) => {
+        this.me.position.set(x, y);
+      },
       revive: () => {
         if (!this.session.isHost) return;
         this.downUntil = 0;

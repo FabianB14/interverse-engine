@@ -131,6 +131,9 @@ export class LobbyScene extends Scene {
   private storeVeriumText!: Text;
   private storeNote!: Text;
   private doneBtn!: UIButton;
+  private buyConfirmBtn!: UIButton;
+  /** Store item being previewed on the blob (null = showing equipped). */
+  private previewAcc: number | null = null;
   private previewBody: Container | null = null;
   private t = 0;
 
@@ -193,7 +196,8 @@ export class LobbyScene extends Scene {
     this.storeLabel.position.set(W / 2 - 150, 668);
     this.storeVeriumText.position.set(W / 2 + 150, 668);
     this.storeNote.position.set(W / 2, 700);
-    this.storeRow.position.set(W / 2, 776);
+    this.storeRow.position.set(W / 2, 772);
+    this.buyConfirmBtn.position.set(W / 2, H - 178);
     this.doneBtn.position.set(W / 2, H - 80);
   }
 
@@ -223,6 +227,8 @@ export class LobbyScene extends Scene {
       grantVerium: (n: number) => verium.add(n),
       owned: () => [...this.ownedAccessories()],
       buyAcc: (i: number) => this.buyAccessory(i),
+      previewStore: (i: number) => this.previewStoreItem(i),
+      previewingAcc: () => this.previewAcc,
       openCustomize: () => this.openCustomize(),
       customizeOpen: () => this.customizeRoot.visible,
       setReady: (r: boolean) => {
@@ -297,6 +303,14 @@ export class LobbyScene extends Scene {
       weight: 'bold',
     });
     this.storeRow = new Entity();
+    this.buyConfirmBtn = new UIButton('BUY', {
+      width: 520,
+      height: 84,
+      fontSize: 28,
+      fill: 0xffd166,
+      onTap: () => this.confirmBuy(),
+    });
+    this.buyConfirmBtn.visible = false;
     this.doneBtn = new UIButton('DONE', {
       width: 300,
       height: 90,
@@ -317,6 +331,7 @@ export class LobbyScene extends Scene {
       this.storeVeriumText,
       this.storeNote,
       this.storeRow,
+      this.buyConfirmBtn,
       this.doneBtn,
     );
     this.stage.addChild(this.customizeRoot);
@@ -504,7 +519,11 @@ export class LobbyScene extends Scene {
       this.session.send(msg);
     }
     this.redrawAccs();
-    if (this.customizeRoot?.visible) this.redrawPreview();
+    if (this.customizeRoot?.visible) {
+      this.clearPreview();
+      this.redrawPreview();
+      this.redrawStore();
+    }
   }
 
   private pickVoice(i: number, silent = false): void {
@@ -571,25 +590,27 @@ export class LobbyScene extends Scene {
     const locked = ACCESSORIES.map((a, i) => ({ a, i })).filter(
       ({ a, i }) => a.price !== undefined && !owned.has(i),
     );
-    const cols = 4;
-    const dx = 156;
-    const dy = 120;
+    const cols = 5;
+    const dx = 132;
+    const dy = 100;
     locked.forEach(({ a, i }, k) => {
       const col = k % cols;
       const row = Math.floor(k / cols);
       const chip = new Entity();
+      const previewing = this.previewAcc === i;
       const g = new Graphics()
-        .circle(0, 0, 34)
-        .fill(0x243a2a)
-        .circle(0, 0, 34)
-        .stroke({ color: 0x4a4a5a, width: 2 });
+        .circle(0, 0, 30)
+        .fill(previewing ? 0x3a5a3a : 0x243a2a)
+        .circle(0, 0, 30)
+        .stroke({ color: previewing ? 0xffd166 : 0x4a4a5a, width: previewing ? 4 : 2 });
       chip.addChild(g);
-      chip.addChild(makeText(a.emoji, 30));
-      const price = makeText(`⬡${a.price}`, 18, { color: 0x9ad8ff, weight: '800' });
-      price.position.set(0, 48);
+      chip.addChild(makeText(a.emoji, 28));
+      const price = makeText(`⬡${a.price}`, 16, { color: 0x9ad8ff, weight: '800' });
+      price.position.set(0, 42);
       chip.addChild(price);
       chip.position.set((col - (cols - 1) / 2) * dx, row * dy);
-      makeTappable(chip, () => this.buyAccessory(i), { hitRadius: 42 });
+      // Tap to PREVIEW on the blob; a separate Buy button confirms.
+      makeTappable(chip, () => this.previewStoreItem(i), { hitRadius: 36 });
       this.storeRow.addChild(chip);
     });
     if (locked.length === 0) {
@@ -599,10 +620,34 @@ export class LobbyScene extends Scene {
     this.updateVerium();
   }
 
+  /** Try it on: show the accessory on the blob and offer a Buy button. */
+  private previewStoreItem(i: number): void {
+    const def = ACCESSORIES[i];
+    if (!def || def.price === undefined) return;
+    audio.blip(1.2);
+    this.previewAcc = i;
+    this.buyConfirmBtn.setLabel(`Buy ${def.emoji} ${def.name} · ⬡${def.price}`);
+    this.buyConfirmBtn.visible = true;
+    this.storeNote.text = 'previewing — tap Buy to unlock';
+    this.storeNote.style.fill = partyPop.inkSoft;
+    this.redrawPreview();
+    this.redrawStore();
+  }
+
+  private confirmBuy(): void {
+    if (this.previewAcc !== null) this.buyAccessory(this.previewAcc);
+  }
+
+  private clearPreview(): void {
+    this.previewAcc = null;
+    this.buyConfirmBtn.visible = false;
+  }
+
   private buyAccessory(i: number): void {
     const def = ACCESSORIES[i];
     if (!def) return;
     if (this.ownedAccessories().has(i)) {
+      this.clearPreview();
       this.pickAcc(i); // already owned — just equip it
       return;
     }
@@ -619,6 +664,7 @@ export class LobbyScene extends Scene {
     audio.chime();
     this.storeNote.text = `unlocked ${def.name}!`;
     this.storeNote.style.fill = partyPop.accent;
+    this.clearPreview();
     this.pickAcc(i); // auto-equip the new one
     this.redrawStore();
     this.redrawAccs();
@@ -642,7 +688,9 @@ export class LobbyScene extends Scene {
       strokeWidth: 6,
     });
     char.body.addChild(cls.accessory(92));
-    char.body.addChild(accessoryView(this.roster.accs?.[this.session.id], 92));
+    // Show the store item being tried on, else the equipped accessory.
+    const shownAcc = this.previewAcc ?? this.roster.accs?.[this.session.id];
+    char.body.addChild(accessoryView(shownAcc, 92));
     this.previewEntity.addChild(char.view);
     this.previewBody = char.body;
   }
@@ -651,6 +699,7 @@ export class LobbyScene extends Scene {
     audio.blip();
     this.customizeRoot.visible = true;
     this.stage.addChild(this.customizeRoot); // bring the overlay to the front
+    this.clearPreview();
     this.redrawPreview();
     this.redrawSwatches();
     this.redrawAccs();
@@ -660,6 +709,7 @@ export class LobbyScene extends Scene {
 
   private closeCustomize(): void {
     audio.blip(0.9);
+    this.clearPreview();
     this.customizeRoot.visible = false;
   }
 

@@ -262,6 +262,145 @@ function wizardStars(r: number): Container {
   return (c.addChild(g), c);
 }
 
+function devilHorns(r: number): Container {
+  const c = new Container();
+  const red = 0xcc3344;
+  c.addChild(
+    new Graphics()
+      .poly([-r * 0.5, -r * 0.6, -r * 0.78, -r * 1.18, -r * 0.28, -r * 0.76])
+      .fill(red)
+      .poly([r * 0.5, -r * 0.6, r * 0.78, -r * 1.18, r * 0.28, -r * 0.76])
+      .fill(red),
+  );
+  return c;
+}
+
+function catEars(r: number): Container {
+  const c = new Container();
+  const fur = 0x4a4a55;
+  const g = new Graphics();
+  for (const s of [-1, 1]) {
+    g.poly([s * r * 0.55, -r * 0.5, s * r * 0.72, -r * 1.16, s * r * 0.18, -r * 0.7]).fill(fur);
+    g.poly([s * r * 0.5, -r * 0.58, s * r * 0.62, -r * 0.98, s * r * 0.32, -r * 0.72]).fill(
+      0xff9fb2,
+    );
+  }
+  return (c.addChild(g), c);
+}
+
+function bunnyEars(r: number): Container {
+  const c = new Container();
+  const g = new Graphics();
+  for (const s of [-1, 1]) {
+    g.ellipse(s * r * 0.3, -r * 1.02, r * 0.16, r * 0.5).fill(0xf2f2ee);
+    g.ellipse(s * r * 0.3, -r * 1.02, r * 0.08, r * 0.36).fill(0xff9fb2);
+  }
+  return (c.addChild(g), c);
+}
+
+function vikingHelm(r: number): Container {
+  const c = new Container();
+  const steel = 0x9aa4b0;
+  c.addChild(
+    new Graphics()
+      .arc(0, -r * 0.52, r * 0.64, Math.PI, 0)
+      .fill(steel)
+      .roundRect(-r * 0.68, -r * 0.6, r * 1.36, r * 0.18, r * 0.06)
+      .fill(darken(steel, 0.2))
+      .poly([-r * 0.52, -r * 0.72, -r * 1.0, -r * 0.98, -r * 0.58, -r * 0.5])
+      .fill(0xf2ffe9)
+      .poly([r * 0.52, -r * 0.72, r * 1.0, -r * 0.98, r * 0.58, -r * 0.5])
+      .fill(0xf2ffe9),
+  );
+  return c;
+}
+
+function gradCap(r: number): Container {
+  const c = new Container();
+  const black = 0x2b2b33;
+  const g = new Graphics();
+  g.rect(-r * 0.32, -r * 0.82, r * 0.64, r * 0.22).fill(black);
+  g.poly([0, -r * 1.08, r * 0.78, -r * 0.8, 0, -r * 0.56, -r * 0.78, -r * 0.8]).fill(black);
+  g.moveTo(0, -r * 0.82)
+    .lineTo(r * 0.5, -r * 0.8)
+    .lineTo(r * 0.5, -r * 0.42)
+    .stroke({ color: 0xffd166, width: Math.max(3, r * 0.06) });
+  g.circle(r * 0.5, -r * 0.4, r * 0.09).fill(0xffd166);
+  return (c.addChild(g), c);
+}
+
+function beret(r: number): Container {
+  const c = new Container();
+  const red = 0x9c2f3f;
+  c.addChild(
+    new Graphics()
+      .ellipse(-r * 0.05, -r * 0.68, r * 0.62, r * 0.34)
+      .fill(red)
+      .ellipse(r * 0.16, -r * 0.78, r * 0.5, r * 0.24)
+      .fill(darken(red, 0.12))
+      .circle(r * 0.38, -r * 0.98, r * 0.08)
+      .fill(darken(red, 0.2)),
+  );
+  return c;
+}
+
+function ninjaBand(r: number): Container {
+  const c = new Container();
+  const cloth = 0x2b3a55;
+  c.addChild(
+    new Graphics()
+      .roundRect(-r * 0.64, -r * 0.52, r * 1.28, r * 0.22, r * 0.06)
+      .fill(cloth)
+      .circle(-r * 0.36, -r * 0.41, r * 0.13)
+      .fill(0xd94f6a)
+      .poly([r * 0.55, -r * 0.48, r * 1.12, -r * 0.34, r * 1.06, -r * 0.12, r * 0.55, -r * 0.26])
+      .fill(cloth),
+  );
+  return c;
+}
+
+function santaHat(r: number): Container {
+  const c = new Container();
+  c.addChild(
+    new Graphics()
+      .poly([-r * 0.5, -r * 0.58, r * 0.5, -r * 0.58, r * 0.82, -r * 1.4])
+      .fill(0xcc3344)
+      .roundRect(-r * 0.56, -r * 0.7, r * 1.12, r * 0.2, r * 0.1)
+      .fill(0xf2f2ee)
+      .circle(r * 0.82, -r * 1.4, r * 0.15)
+      .fill(0xf2f2ee),
+  );
+  return c;
+}
+
+function iceCream(r: number): Container {
+  const c = new Container();
+  const g = new Graphics();
+  g.poly([-r * 0.26, -r * 0.55, r * 0.26, -r * 0.55, 0, -r * 0.88]).fill(0xd9a441);
+  g.circle(0, -r * 0.78, r * 0.3).fill(0xfff0d0);
+  g.circle(0, -r * 1.04, r * 0.24).fill(0xffd9e0);
+  g.circle(0, -r * 1.26, r * 0.16).fill(0xffb0c0);
+  g.circle(0, -r * 1.4, r * 0.07).fill(0xcc3344);
+  return (c.addChild(g), c);
+}
+
+function halo(r: number): Container {
+  const c = new Container();
+  c.addChild(
+    new Graphics()
+      .ellipse(0, -r * 1.08, r * 0.5, r * 0.16)
+      .stroke({ color: 0xffe08a, width: Math.max(4, r * 0.13) })
+      .ellipse(0, -r * 1.08, r * 0.5, r * 0.16)
+      .stroke({ color: 0xffffff, width: Math.max(1, r * 0.04), alpha: 0.8 }),
+  );
+  return c;
+}
+
+/**
+ * Order: free starters first, then the store's purchasable accessories.
+ * Store prices are steep on purpose — they're a Verium money-sink to grind
+ * toward.
+ */
 export const ACCESSORIES: AccessoryDef[] = [
   { id: 'none', name: 'None', emoji: '🚫', draw: none },
   { id: 'bow', name: 'Bow', emoji: '🎀', draw: bow },
@@ -272,14 +411,24 @@ export const ACCESSORIES: AccessoryDef[] = [
   { id: 'shades', name: 'Shades', emoji: '🕶️', draw: shades },
   { id: 'headphones', name: 'Headphones', emoji: '🎧', draw: headphones },
   { id: 'party', name: 'Party Hat', emoji: '🎉', draw: partyHat },
-  { id: 'tiara', name: 'Tiara', emoji: '👸', price: 30, draw: tiara },
-  { id: 'beanie', name: 'Beanie', emoji: '🧶', price: 30, draw: beanie },
-  { id: 'star', name: 'Star Hat', emoji: '🌟', price: 40, draw: wizardStars },
-  { id: 'cowboy', name: 'Cowboy Hat', emoji: '🤠', price: 45, draw: cowboyHat },
-  { id: 'chef', name: 'Chef Hat', emoji: '🧑‍🍳', price: 45, draw: chefHat },
-  { id: 'antlers', name: 'Antlers', emoji: '🦌', price: 55, draw: antlers },
-  { id: 'propeller', name: 'Propeller Cap', emoji: '🚁', price: 70, draw: propellerCap },
-  { id: 'pirate', name: 'Pirate Hat', emoji: '🏴‍☠️', price: 80, draw: pirateHat },
+  { id: 'beanie', name: 'Beanie', emoji: '🧶', price: 100, draw: beanie },
+  { id: 'tiara', name: 'Tiara', emoji: '👸', price: 120, draw: tiara },
+  { id: 'beret', name: 'Beret', emoji: '🎨', price: 130, draw: beret },
+  { id: 'catears', name: 'Cat Ears', emoji: '🐱', price: 140, draw: catEars },
+  { id: 'bunnyears', name: 'Bunny Ears', emoji: '🐰', price: 150, draw: bunnyEars },
+  { id: 'star', name: 'Star Hat', emoji: '🌟', price: 160, draw: wizardStars },
+  { id: 'chef', name: 'Chef Hat', emoji: '🧑‍🍳', price: 170, draw: chefHat },
+  { id: 'cowboy', name: 'Cowboy Hat', emoji: '🤠', price: 180, draw: cowboyHat },
+  { id: 'icecream', name: 'Ice Cream', emoji: '🍦', price: 200, draw: iceCream },
+  { id: 'grad', name: 'Grad Cap', emoji: '🎓', price: 210, draw: gradCap },
+  { id: 'antlers', name: 'Antlers', emoji: '🦌', price: 220, draw: antlers },
+  { id: 'ninja', name: 'Ninja Band', emoji: '🥷', price: 240, draw: ninjaBand },
+  { id: 'viking', name: 'Viking Helm', emoji: '🪖', price: 260, draw: vikingHelm },
+  { id: 'devil', name: 'Devil Horns', emoji: '😈', price: 280, draw: devilHorns },
+  { id: 'propeller', name: 'Propeller Cap', emoji: '🚁', price: 300, draw: propellerCap },
+  { id: 'santa', name: 'Santa Hat', emoji: '🎅', price: 320, draw: santaHat },
+  { id: 'pirate', name: 'Pirate Hat', emoji: '🏴‍☠️', price: 380, draw: pirateHat },
+  { id: 'halo', name: 'Halo', emoji: '😇', price: 500, draw: halo },
 ];
 
 /** Indices of the free starter accessories (no price). */

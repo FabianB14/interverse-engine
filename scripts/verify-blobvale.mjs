@@ -96,25 +96,34 @@ const accOk = Object.values(accsOnHost).includes(3);
 const voicesOnHost = await p1.evaluate(() => window.__blobvale.voices());
 const voiceOk = Object.values(voicesOnHost).includes(5);
 await p1.screenshot({ path: `${outDir}/bv-1-lobby.png` });
-// STORE (economy): grant Verium, open the customize close-up, buy a locked
-// accessory — it deducts, persists to owned, and auto-equips.
-await p1.evaluate(() => window.__blobvale.grantVerium(200));
+// STORE (economy): grant Verium, open the customize close-up, PREVIEW a
+// locked accessory (try-on, not bought), then buy it — deducts, persists to
+// owned, auto-equips, and clears the preview. Index 9 = beanie, price 100.
+await p1.evaluate(() => window.__blobvale.grantVerium(300));
 const custOpened = await p1.evaluate(() => {
   window.__blobvale.openCustomize();
   return window.__blobvale.customizeOpen();
 });
-await p1.screenshot({ path: `${outDir}/bv-8-customize.png` });
 const veriumPreBuy = await p1.evaluate(() => window.__blobvale.verium());
-await p1.evaluate(() => window.__blobvale.buyAcc(9)); // tiara, price 30
+await p1.evaluate(() => window.__blobvale.previewStore(9)); // try it on
+await sleep(150);
+const previewingBefore = await p1.evaluate(() => window.__blobvale.previewingAcc());
+const ownedBeforeBuy = await p1.evaluate(() => window.__blobvale.owned());
+await p1.screenshot({ path: `${outDir}/bv-8-customize.png` });
+await p1.evaluate(() => window.__blobvale.buyAcc(9)); // confirm the purchase
 await sleep(200);
 const ownedHost = await p1.evaluate(() => window.__blobvale.owned());
 const accsAfterBuy = await p1.evaluate(() => window.__blobvale.accs());
 const veriumPostBuy = await p1.evaluate(() => window.__blobvale.verium());
+const previewingAfter = await p1.evaluate(() => window.__blobvale.previewingAcc());
 const storeOk =
   custOpened &&
+  previewingBefore === 9 &&
+  !ownedBeforeBuy.includes(9) &&
   ownedHost.includes(9) &&
   Object.values(accsAfterBuy).includes(9) &&
-  veriumPostBuy === veriumPreBuy - 30;
+  veriumPostBuy === veriumPreBuy - 100 &&
+  previewingAfter === null;
 
 // READY + COUNTDOWN: both non-hosts ready -> the host begins a countdown;
 // un-readying one cancels it (so no auto-start and we can drive start()).
@@ -233,15 +242,18 @@ await p2.mouse.click(330, 500);
 await sleep(300);
 const castsAfter = await p2.evaluate(() => window.__blobvale.casts());
 const castZoneOk = castsAfter > castsBefore;
-// BOSS: host warps to the lair; joiner must see the boss lose HP. Kept to
-// 5 casts so the (now beefier) boss survives for the cleric check below.
+// BOSS: host warps to the lair and fights; the joiner must see the boss lose
+// HP. The boss aggros and closes on the host (short knight range), so give it
+// time to approach and cast enough to land hits — it still survives its huge
+// HP pool for the cleric check below.
 await p1.evaluate(() => window.__blobvale.revive());
 await p1.evaluate(() => window.__blobvale.warp(770, 290));
 await sleep(600);
 const bossBefore = await p2.evaluate(() => window.__blobvale.bossHp());
-for (let i = 0; i < 5; i++) {
+for (let i = 0; i < 16; i++) {
+  await p1.evaluate(() => window.__blobvale.warp(770, 290)); // hold the lair
   await p1.evaluate(() => window.__blobvale.cast());
-  await sleep(350);
+  await sleep(320);
 }
 await sleep(600);
 const bossAfter = await p2.evaluate(() => window.__blobvale.bossHp());
@@ -359,6 +371,8 @@ console.log(
       veriumHost,
       veriumJoiner,
       storeOk,
+      previewingBefore,
+      previewingAfter,
       ownedHost,
       readyOk,
       cdStarted,

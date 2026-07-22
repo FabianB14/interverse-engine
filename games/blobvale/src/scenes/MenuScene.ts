@@ -63,6 +63,8 @@ interface LobbyDebug {
   grantVerium?: (n: number) => number;
   owned?: () => number[];
   buyAcc?: (i: number) => void;
+  previewStore?: (i: number) => void;
+  previewingAcc?: () => number | null;
   openCustomize?: () => void;
   customizeOpen?: () => boolean;
   setReady?: (r: boolean) => void;
