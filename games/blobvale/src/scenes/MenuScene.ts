@@ -51,6 +51,15 @@ interface LobbyDebug {
   verium?: () => number;
   veriumEarned?: () => number;
   partySize?: () => number;
+  mobInfo?: () => Array<{
+    v: string;
+    fz: boolean;
+    ci: boolean;
+    po: boolean;
+    bu: boolean;
+    sh: boolean;
+  }>;
+  zapNearest?: (kind: 'freeze' | 'poison' | 'burn' | 'shock') => boolean | null;
   grantVerium?: (n: number) => number;
   owned?: () => number[];
   buyAcc?: (i: number) => void;

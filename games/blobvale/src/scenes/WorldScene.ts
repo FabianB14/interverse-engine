@@ -30,10 +30,14 @@ import {
   BOSSES,
   CLASS_MODS,
   CLERIC_HEAL,
+  CAMP_VARIANTS,
   MOB,
+  MOB_VARIANTS,
   MODS,
   RESPAWN_SECONDS,
   STAT_CARDS,
+  STATUS,
+  STATUS_KINDS,
   VERIUM_PER_BOSS,
   VERIUM_PER_MOB,
   bossHpFor,
@@ -42,7 +46,7 @@ import {
   maxHpAtLevel,
   xpForLevel,
 } from '../combat.js';
-import type { MobState } from '../combat.js';
+import type { MobState, MobVariant, MobVariantDef, StatusKind } from '../combat.js';
 import { TILE_SIZE, ZONES, valeLegend, valeRows } from '../map.js';
 import { makeText } from '../text.js';
 import { MenuScene } from './MenuScene.js';
@@ -57,14 +61,18 @@ interface PosMessage {
   y: number;
 }
 
-/** Mob wire state: k = boss kind, f = frozen. */
+/** Mob wire state: k = boss kind, vr = variant, f/p/b/sh = status flags. */
 interface MobSnap {
   x: number;
   y: number;
   hp: number;
   max: number;
   k?: number;
+  vr?: MobVariant;
   f?: number;
+  p?: number;
+  b?: number;
+  sh?: number;
 }
 
 interface SnapMessage {
@@ -107,7 +115,11 @@ interface FxMessage {
     | 'telegraph'
     | 'frostbolt'
     | 'chill'
-    | 'roar';
+    | 'roar'
+    | 'poison'
+    | 'burn'
+    | 'shock'
+    | 'mobshot';
   x: number;
   y: number;
   id?: string;
@@ -374,7 +386,7 @@ export class WorldScene extends Scene {
     }
     if (session.isHost) {
       for (const camp of this.map.objects.filter((o) => o.name === 'camp')) {
-        for (let i = 0; i < MOB.PER_CAMP; i++) this.hostSpawnMob(camp.x, camp.y);
+        CAMP_VARIANTS.forEach((v) => this.hostSpawnMob(camp.x, camp.y, v));
       }
       const lair = this.map.objects.find((o) => o.name === 'boss');
       if (lair) this.hostSpawnBoss(lair.x, lair.y + 60, this.zone);
@@ -418,6 +430,30 @@ export class WorldScene extends Scene {
       verium: () => verium.balance(),
       veriumEarned: () => this.veriumEarned,
       partySize: () => this.partyRows.size,
+      mobInfo: () =>
+        this.session.isHost
+          ? [...this.hostMobs.values()].map((m) => ({
+              v: m.variant ?? 'melee',
+              fz: (m.frozenUntil ?? 0) > this.t,
+              ci: (m.ccImmuneUntil ?? 0) > this.t,
+              po: (m.poisonUntil ?? 0) > this.t,
+              bu: (m.burnUntil ?? 0) > this.t,
+              sh: (m.shockUntil ?? 0) > this.t,
+            }))
+          : [],
+      zapNearest: (kind: StatusKind) => {
+        if (!this.session.isHost) return null;
+        let nearest: MobState | null = null;
+        let bestD = Infinity;
+        for (const m of this.hostMobs.values()) {
+          const d = Math.hypot(m.x - this.me.x, m.y - this.me.y);
+          if (d < bestD) {
+            bestD = d;
+            nearest = m;
+          }
+        }
+        return nearest ? this.applyStatus(nearest, kind) : null;
+      },
       upgradeOpen: () => this.upgradeOverlay !== null,
       pickUpgrade: (i: number) => {
         const card = this.upgradeOverlay?.cards[i];
@@ -799,7 +835,11 @@ export class WorldScene extends Scene {
             hp: m.hp,
             max: m.max,
             ...(m.kind !== undefined ? { k: m.kind } : {}),
+            ...(m.variant ? { vr: m.variant } : {}),
             ...(m.frozenUntil !== undefined && this.t < m.frozenUntil ? { f: 1 } : {}),
+            ...(m.poisonUntil !== undefined && this.t < m.poisonUntil ? { p: 1 } : {}),
+            ...(m.burnUntil !== undefined && this.t < m.burnUntil ? { b: 1 } : {}),
+            ...(m.shockUntil !== undefined && this.t < m.shockUntil ? { sh: 1 } : {}),
           };
         }
         const snap: SnapMessage = {
@@ -860,18 +900,20 @@ export class WorldScene extends Scene {
     }
   }
 
-  private hostSpawnMob(homeX: number, homeY: number): void {
+  private hostSpawnMob(homeX: number, homeY: number, variant: MobVariant = 'melee'): void {
     const id = this.nextMobId++;
+    const def = MOB_VARIANTS[variant];
     this.hostMobs.set(id, {
       id,
       x: homeX + (Math.random() * 2 - 1) * 60,
       y: homeY + (Math.random() * 2 - 1) * 60,
-      hp: MOB.MAX_HP,
-      max: MOB.MAX_HP,
+      hp: def.hp,
+      max: def.hp,
       homeX,
       homeY,
       target: null,
       attackIn: 0,
+      variant,
     });
   }
 
@@ -938,7 +980,7 @@ export class WorldScene extends Scene {
     this.me.position.set(this.spawnPoint.x, this.spawnPoint.y);
     this.hostPositions[this.session.id] = { x: this.me.x, y: this.me.y };
     for (const camp of this.map.objects.filter((o) => o.name === 'camp')) {
-      for (let i = 0; i < MOB.PER_CAMP; i++) this.hostSpawnMob(camp.x, camp.y);
+      CAMP_VARIANTS.forEach((v) => this.hostSpawnMob(camp.x, camp.y, v));
     }
     const lair = this.map.objects.find((o) => o.name === 'boss');
     if (lair) this.hostSpawnBoss(lair.x, lair.y + 60, next);
@@ -991,13 +1033,20 @@ export class WorldScene extends Scene {
 
   private hostSimMobs(dt: number): void {
     for (const m of this.hostMobs.values()) {
+      // Damage-over-time first — a mob can die to poison/burn between hits.
+      if (this.tickStatuses(m)) continue;
+
       const bd = m.kind !== undefined ? BOSSES[m.kind] : undefined;
-      const speed = bd ? (this.bossEnraged ? bd.enragedSpeed : bd.speed) : MOB.SPEED;
-      const atkRange = bd ? bd.attackRange : MOB.ATTACK_RANGE;
-      const atkDmg = bd ? bd.attackDamage : MOB.ATTACK_DAMAGE;
-      const atkEvery =
-        (bd ? bd.attackEvery : MOB.ATTACK_EVERY) * (bd && this.bossEnraged ? 0.6 : 1);
-      // Frozen solid (❄️ mod): no thinking, no moving, no attacking.
+      const variant: MobVariant = m.variant ?? 'melee';
+      const mv = MOB_VARIANTS[variant];
+      const baseSpeed = bd ? (this.bossEnraged ? bd.enragedSpeed : bd.speed) : MOB.SPEED;
+      const shocked = m.shockUntil !== undefined && this.t < m.shockUntil;
+      const speed = baseSpeed * (shocked ? 1 - STATUS.shock.slow : 1);
+      const atkRange = bd ? bd.attackRange : mv.range;
+      const atkDmg = bd ? bd.attackDamage : mv.dmg;
+      const atkEvery = (bd ? bd.attackEvery : mv.every) * (bd && this.bossEnraged ? 0.6 : 1);
+
+      // Frozen solid: no thinking/moving/attacking (DoTs still tick above).
       if (m.frozenUntil !== undefined && this.t < m.frozenUntil) continue;
       // Acquire/drop target.
       let best: string | null = null;
@@ -1025,17 +1074,28 @@ export class WorldScene extends Scene {
             y: m.homeY + Math.cos(this.t * 0.5 + m.id) * 50,
           };
       if (goal) {
-        const d = Math.hypot(goal.x - m.x, goal.y - m.y);
+        const d = Math.hypot(goal.x - m.x, goal.y - m.y) || 1;
+        let dirx = (goal.x - m.x) / d;
+        let diry = (goal.y - m.y) / d;
         const stop = best ? atkRange * 0.8 : 6;
-        if (d > stop) {
+        let move = false;
+        // Ranged mobs kite: back off if a player closes inside half their range.
+        if (best && variant === 'ranged' && d < atkRange * 0.5) {
+          dirx = -dirx;
+          diry = -diry;
+          move = true;
+        } else if (d > stop) {
+          move = true;
+        }
+        if (move) {
           const moved = moveWithCollision(
             this.map,
             m.x,
             m.y,
             18,
             14,
-            ((goal.x - m.x) / d) * speed * dt,
-            ((goal.y - m.y) / d) * speed * dt,
+            dirx * speed * dt,
+            diry * speed * dt,
           );
           m.x = moved.x;
           m.y = moved.y;
@@ -1047,7 +1107,16 @@ export class WorldScene extends Scene {
         const p = this.hostPositions[best];
         if (p && Math.hypot(p.x - m.x, p.y - m.y) <= atkRange) {
           m.attackIn = atkEvery;
-          this.hostHurtPlayer(best, atkDmg);
+          if (bd) {
+            this.hostHurtPlayer(best, atkDmg);
+          } else if (variant === 'ranged') {
+            this.broadcastFx({ type: 'fx', kind: 'mobshot', x: m.x, y: m.y, tx: p.x, ty: p.y });
+            this.hostHurtPlayer(best, atkDmg);
+          } else if (variant === 'aoe') {
+            this.hostMobSlam(m, mv);
+          } else {
+            this.hostHurtPlayer(best, atkDmg);
+          }
         }
       }
       if (bd && best) this.hostBossSpecial(m, bd, best, dt);
@@ -1176,10 +1245,7 @@ export class WorldScene extends Scene {
             (m) => Math.hypot(m.x - target.x, m.y - target.y) <= def.splash,
           )
         : [target];
-    if (mods.includes('freeze')) {
-      for (const m of victims) m.frozenUntil = this.t + MODS.FREEZE_SECONDS;
-      this.broadcastFx({ type: 'fx', kind: 'freeze', x: target.x, y: target.y });
-    }
+    this.applyStatuses(victims, mods, target.x, target.y);
     for (const m of victims) this.hostHitMob(m, dmg);
 
     // Move-changing mods (M4) — extra bursts on top of the base attack.
@@ -1245,6 +1311,90 @@ export class WorldScene extends Scene {
         });
       }
     }
+  }
+
+  // ------------------------------------------------------- status effects
+
+  /** Roll each owned status mod's chance against each victim. */
+  private applyStatuses(victims: MobState[], mods: string[], fxX: number, fxY: number): void {
+    for (const kind of STATUS_KINDS) {
+      if (!mods.includes(kind)) continue;
+      let landed = false;
+      for (const m of victims) {
+        if (!this.hostMobs.has(m.id)) continue;
+        if (Math.random() > STATUS[kind].chance) continue;
+        if (this.applyStatus(m, kind)) landed = true;
+      }
+      if (landed) this.broadcastFx({ type: 'fx', kind, x: fxX, y: fxY });
+    }
+  }
+
+  /** Apply one status; returns false if it didn't take (e.g. freeze on CD). */
+  private applyStatus(m: MobState, kind: StatusKind): boolean {
+    const t = this.t;
+    if (kind === 'freeze') {
+      // CC cooldown: can't be re-frozen until the immunity window passes.
+      if (m.ccImmuneUntil !== undefined && t < m.ccImmuneUntil) return false;
+      m.frozenUntil = t + STATUS.freeze.duration;
+      m.ccImmuneUntil = t + STATUS.freeze.duration + STATUS.freeze.ccCooldown;
+      return true;
+    }
+    if (kind === 'poison') {
+      m.poisonUntil = t + STATUS.poison.duration;
+      m.poisonNext = t + STATUS.poison.tick;
+      return true;
+    }
+    if (kind === 'burn') {
+      m.burnUntil = t + STATUS.burn.duration;
+      m.burnNext = t + STATUS.burn.tick;
+      return true;
+    }
+    m.shockUntil = t + STATUS.shock.duration; // shock
+    return true;
+  }
+
+  /** Poison/burn ticks; returns true if the mob died from the tick. */
+  private tickStatuses(m: MobState): boolean {
+    const t = this.t;
+    if (
+      m.poisonUntil !== undefined &&
+      t < m.poisonUntil &&
+      m.poisonNext !== undefined &&
+      t >= m.poisonNext
+    ) {
+      m.poisonNext = t + STATUS.poison.tick;
+      this.hostHitMob(m, STATUS.poison.dmg);
+      if (!this.hostMobs.has(m.id)) return true;
+    }
+    if (
+      m.burnUntil !== undefined &&
+      t < m.burnUntil &&
+      m.burnNext !== undefined &&
+      t >= m.burnNext
+    ) {
+      m.burnNext = t + STATUS.burn.tick;
+      this.hostHitMob(m, STATUS.burn.dmg);
+      if (!this.hostMobs.has(m.id)) return true;
+    }
+    return false;
+  }
+
+  /** AoE mob attack: a telegraphed slam that hits everyone in the blast. */
+  private hostMobSlam(m: MobState, mv: MobVariantDef): void {
+    const bx = m.x;
+    const by = m.y;
+    const blast = mv.blast ?? 130;
+    this.broadcastFx({ type: 'fx', kind: 'telegraph', x: bx, y: by, r: blast });
+    const fuse = new Entity();
+    fuse.addBehavior(
+      new Timer(0.7, () => {
+        this.broadcastFx({ type: 'fx', kind: 'boom', x: bx, y: by, r: blast });
+        for (const [pid, pp] of Object.entries(this.hostPositions)) {
+          if (Math.hypot(pp.x - bx, pp.y - by) <= blast) this.hostHurtPlayer(pid, mv.dmg);
+        }
+      }),
+    );
+    this.add(fuse);
   }
 
   private hostGrantXp(x: number, y: number, amount = MOB.XP_PER_KILL): void {
@@ -1388,6 +1538,56 @@ export class WorldScene extends Scene {
         }
         audio.blip(0.5);
         life = 0.6;
+        break;
+      }
+      case 'poison': {
+        for (let i = 0; i < 5; i++) {
+          const a = (i / 5) * Math.PI * 2;
+          g.circle(Math.cos(a) * 22, Math.sin(a) * 22, 9).fill({ color: 0x8fd94f, alpha: 0.85 });
+        }
+        const skull = makeText('☠️', 26, { color: 0xffffff });
+        skull.position.set(0, -8);
+        e.addChild(skull);
+        e.addBehavior(new Tween(e, { y: fx.y - 40, alpha: 0 }, 0.8, { ease: easings.outQuad }));
+        audio.blip(0.7);
+        life = 0.8;
+        break;
+      }
+      case 'burn': {
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * Math.PI * 2;
+          g.poly([
+            Math.cos(a) * 8,
+            Math.sin(a) * 8,
+            Math.cos(a) * 34,
+            Math.sin(a) * 34 - 10,
+            Math.cos(a + 0.4) * 16,
+            Math.sin(a + 0.4) * 16,
+          ]).fill({ color: i % 2 ? 0xff8c42 : 0xffd166, alpha: 0.9 });
+        }
+        audio.buzz();
+        life = 0.55;
+        break;
+      }
+      case 'shock': {
+        for (let i = 0; i < 3; i++) {
+          const a = (i / 3) * Math.PI * 2 + 0.4;
+          g.moveTo(0, 0)
+            .lineTo(Math.cos(a) * 20, Math.sin(a) * 20 - 6)
+            .lineTo(Math.cos(a) * 42, Math.sin(a) * 42)
+            .stroke({ color: 0xfff08a, width: 5, alpha: 0.95 });
+        }
+        audio.blip(1.9);
+        life = 0.4;
+        break;
+      }
+      case 'mobshot': {
+        const tx = (fx.tx ?? fx.x) - fx.x;
+        const ty = (fx.ty ?? fx.y) - fx.y;
+        g.moveTo(0, 0).lineTo(tx, ty).stroke({ color: 0x9ad8ff, width: 6, alpha: 0.85 });
+        g.circle(tx, ty, 12).fill({ color: 0xdff6ff, alpha: 0.9 });
+        audio.blip(0.6);
+        life = 0.22;
         break;
       }
       case 'telegraph': {
@@ -1564,12 +1764,13 @@ export class WorldScene extends Scene {
         this.mobViews.delete(id);
         v = undefined;
       }
+      const mv = MOB_VARIANTS[m.vr ?? 'melee'];
       if (!v) {
         const e = new Entity();
-        const radius = bd ? 66 : 26;
+        const radius = bd ? 66 : mv.radius;
         const char = blobCharacter({
           radius,
-          color: bd?.color ?? 0x8fbf6b,
+          color: bd?.color ?? mv.color,
           seed: 100 + Number(id) + (m.k ?? 0),
           shadow: false,
         });
@@ -1597,8 +1798,8 @@ export class WorldScene extends Scene {
       v.targetX = m.x;
       v.targetY = m.y;
       v.hp = m.hp;
-      // Frozen mobs go ice-blue and hold still.
-      v.body.tint = m.f ? 0x9adcff : 0xffffff;
+      // Tint by active status (frozen wins, then burn, poison, shock).
+      v.body.tint = m.f ? 0x9adcff : m.b ? 0xffb08a : m.p ? 0xb6f28a : m.sh ? 0xfff08a : 0xffffff;
       const bw = isBoss ? 150 : 52;
       const bh = isBoss ? 12 : 7;
       v.bar.clear();

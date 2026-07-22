@@ -175,6 +175,9 @@ await p1.evaluate(() => window.__blobvale.revive());
 await p1.evaluate(() => window.__blobvale.giveMod('bomb'));
 await p1.evaluate(() => window.__blobvale.warp(1248, 980));
 await sleep(500);
+// MOB VARIANTS (M8): each camp fields melee + ranged + aoe mobs.
+const variantsAtCamp = await p1.evaluate(() => window.__blobvale.mobInfo().map((m) => m.v));
+const mobVariantOk = variantsAtCamp.includes('ranged') && variantsAtCamp.includes('aoe');
 const mobsOnP2 = await p2.evaluate(() => window.__blobvale.mobCount());
 for (let i = 0; i < 16; i++) {
   await p1.evaluate(() => window.__blobvale.cast());
@@ -189,6 +192,15 @@ const killsJoiner = await p2.evaluate(() => window.__blobvale.kills());
 const statsHost = await p1.evaluate(() => window.__blobvale.myStats());
 const combatOk =
   mobsOnP2 > 0 && killsHost >= 1 && killsJoiner >= 1 && (statsHost.xp > 0 || statsHost.lvl > 1);
+// STATUS + CC COOLDOWN (M8): poison lands; freeze can't be re-applied while
+// the mob is in its CC-immune window (second freeze on the same mob fails).
+const poisonApplied = await p1.evaluate(() => window.__blobvale.zapNearest('poison'));
+await sleep(120);
+const anyPoisoned = await p1.evaluate(() => window.__blobvale.mobInfo().some((m) => m.po));
+const freeze1 = await p1.evaluate(() => window.__blobvale.zapNearest('freeze'));
+const freeze2 = await p1.evaluate(() => window.__blobvale.zapNearest('freeze'));
+const statusOk = poisonApplied === true && anyPoisoned === true;
+const ccOk = freeze1 === true && freeze2 === false;
 // VERIUM (economy): kills pay out the shared currency to everyone nearby.
 const veriumHost = await p1.evaluate(() => window.__blobvale.verium());
 const veriumEarnedHost = await p1.evaluate(() => window.__blobvale.veriumEarned());
@@ -309,6 +321,9 @@ const ok =
   storeOk &&
   readyOk &&
   partyOk &&
+  mobVariantOk &&
+  statusOk &&
+  ccOk &&
   errors.length === 0;
 console.log(
   JSON.stringify(
@@ -349,6 +364,12 @@ console.log(
       cdStarted,
       partyOk,
       partySizeHost,
+      mobVariantOk,
+      variantsAtCamp,
+      statusOk,
+      ccOk,
+      freeze1,
+      freeze2,
       bossBefore,
       bossAfter,
       bossBeforeCleric,

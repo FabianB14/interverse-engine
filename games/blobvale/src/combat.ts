@@ -67,40 +67,61 @@ export const MODS = {
   BOMB_FACTOR: 0.8,
   RADIAL_RADIUS: 240,
   RADIAL_FACTOR: 0.6,
-  FREEZE_SECONDS: 2.2,
   CHILL_SECONDS: 2.0,
   CHILL_FACTOR: 0.55,
 };
 
+/**
+ * Status effects (M8). Each attack that carries a status mod rolls its
+ * `chance` per victim — nothing is guaranteed. Freeze is a stun that then
+ * leaves the mob CC-immune for `ccCooldown` so it can't be frozen forever;
+ * poison/burn are damage-over-time; shock slows movement.
+ */
+export type StatusKind = 'freeze' | 'poison' | 'burn' | 'shock';
+
+export const STATUS = {
+  freeze: { chance: 0.35, duration: 2.0, ccCooldown: 4.0 },
+  poison: { chance: 0.5, duration: 4.2, tick: 0.7, dmg: 5 },
+  burn: { chance: 0.5, duration: 3.0, tick: 0.5, dmg: 7 },
+  shock: { chance: 0.45, duration: 2.0, slow: 0.5 },
+} as const;
+
+export const STATUS_KINDS: StatusKind[] = ['freeze', 'poison', 'burn', 'shock'];
+
 /** Which mods each class can roll — the same effect, class-flavored. */
 export const CLASS_MODS: Record<string, string[]> = {
-  knight: ['bomb', 'radial'],
-  archer: ['radial', 'freeze'],
-  mage: ['bomb', 'freeze'],
-  cleric: ['radial', 'bomb'],
-  rogue: ['freeze', 'bomb'],
+  knight: ['bomb', 'radial', 'shock'],
+  archer: ['radial', 'freeze', 'poison'],
+  mage: ['bomb', 'freeze', 'burn'],
+  cleric: ['radial', 'poison', 'burn'],
+  rogue: ['freeze', 'poison', 'shock'],
 };
 
 const MOD_LABELS: Record<string, Record<string, string>> = {
   knight: {
     bomb: '💣 Shield Bomb — slashes lob a bomb',
     radial: '🌀 Whirl Slash — strike all around you',
+    shock: '⚡ Thunder Slam — chance to shock & slow',
   },
   archer: {
     radial: '🌀 Arrow Storm — arrows fly everywhere',
-    freeze: '❄️ Frost Arrows — hits freeze mobs',
+    freeze: '❄️ Frost Arrows — chance to freeze',
+    poison: '☠️ Venom Tips — chance to poison',
   },
   mage: {
     bomb: '💣 Ember Bomb — fireballs leave a bomb',
-    freeze: '❄️ Frost Nova — flames freeze mobs',
+    freeze: '❄️ Frost Nova — chance to freeze',
+    burn: '🔥 Wildfire — chance to set ablaze',
   },
   cleric: {
     radial: '🌀 Radiant Burst — smite all around you',
-    bomb: '💣 Holy Bomb — smites drop a bomb',
+    poison: '☠️ Plague Touch — chance to poison',
+    burn: '🔥 Holy Fire — chance to set ablaze',
   },
   rogue: {
-    freeze: '❄️ Ice Daggers — strikes freeze mobs',
-    bomb: '💣 Smoke Bomb — strikes leave a bomb',
+    freeze: '❄️ Ice Daggers — chance to freeze',
+    poison: '☠️ Toxic Blades — chance to poison',
+    shock: '⚡ Shock Daggers — chance to shock & slow',
   },
 };
 
@@ -110,6 +131,8 @@ export function cardLabel(classId: string, cardId: string): string {
 }
 
 // --------------------------------------------------------------- mobs
+
+export type MobVariant = 'melee' | 'ranged' | 'aoe';
 
 export interface MobState {
   id: number;
@@ -122,10 +145,21 @@ export interface MobState {
   homeY: number;
   target: string | null;
   attackIn: number;
+  /** Attack style (regular mobs): melee / ranged bolt / telegraphed slam. */
+  variant?: MobVariant;
   /** Boss kind (index into BOSSES); undefined for regular mobs. */
   kind?: number;
   /** Frozen (no move/attack) until this sim time. */
   frozenUntil?: number;
+  /** Immune to re-freeze until this time (CC cooldown). */
+  ccImmuneUntil?: number;
+  /** Damage-over-time timers. */
+  poisonUntil?: number;
+  poisonNext?: number;
+  burnUntil?: number;
+  burnNext?: number;
+  /** Movement slow (shock) until this time. */
+  shockUntil?: number;
   /** Boss special-attack countdown. */
   specialIn?: number;
   /** Last roar time, so bosses announce themselves only on fresh aggro. */
@@ -145,6 +179,27 @@ export const MOB = {
   XP_PER_KILL: 20,
   XP_RANGE: 700,
 };
+
+export interface MobVariantDef {
+  color: number;
+  radius: number;
+  /** Reach at which it attacks (bolt range for ranged, slam trigger for aoe). */
+  range: number;
+  every: number;
+  dmg: number;
+  hp: number;
+  /** Blast radius for the aoe slam. */
+  blast?: number;
+}
+
+/** Three regular-mob flavors; each camp spawns one of each. */
+export const MOB_VARIANTS: Record<MobVariant, MobVariantDef> = {
+  melee: { color: 0x8fbf6b, radius: 26, range: 70, every: 1.2, dmg: 5, hp: 45 },
+  ranged: { color: 0x8ab0e0, radius: 24, range: 380, every: 1.7, dmg: 7, hp: 38 },
+  aoe: { color: 0xe08a8a, radius: 30, range: 150, every: 2.4, dmg: 10, hp: 62, blast: 135 },
+};
+
+export const CAMP_VARIANTS: MobVariant[] = ['melee', 'ranged', 'aoe'];
 
 // -------------------------------------------------------------- bosses
 
