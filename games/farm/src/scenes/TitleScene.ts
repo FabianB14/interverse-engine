@@ -1,4 +1,4 @@
-import { Container, Graphics } from 'pixi.js';
+import { Container, Graphics, Rectangle } from 'pixi.js';
 import type { Text } from 'pixi.js';
 import { Entity, Scene, Timer, Tween, audio, easings, makeTappable } from '@interverse/engine';
 import { UIButton } from '@interverse/ui';
@@ -19,6 +19,24 @@ import '../debug.js';
 const CHAR_COLORS = [0xe07a5f, 0xf2cc8f, 0x81b29a, 0x6fb0d8, 0xc77dff];
 const SKIN_COLORS = [0xffe0bd, 0xf0c08a, 0xd99a63, 0xb5703c, 0x8d5524, 0x5c3a1e];
 
+/** HSV (h in 0..360, s/v in 0..1) to a packed RGB hex, for the color picker. */
+function hsvToHex(h: number, s: number, v: number): number {
+  const c = v * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = v - c;
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  if (h < 60) [r, g] = [c, x];
+  else if (h < 120) [r, g] = [x, c];
+  else if (h < 180) [g, b] = [c, x];
+  else if (h < 240) [g, b] = [x, c];
+  else if (h < 300) [r, b] = [x, c];
+  else [r, b] = [c, x];
+  const to = (n: number): number => Math.round((n + m) * 255);
+  return (to(r) << 16) | (to(g) << 8) | to(b);
+}
+
 /** Cozy title: live avatar picker (blob/person, colors, skin, accessory) + name. */
 export class TitleScene extends Scene {
   private title!: Text;
@@ -29,6 +47,10 @@ export class TitleScene extends Scene {
   private typeBtn!: UIButton;
   private outfitCap!: Text;
   private swatchRow!: Entity;
+  private hueBar!: Entity;
+  private hueKnob!: Graphics;
+  private hueWidth = 520;
+  private hueDragging = false;
   private skinCap!: Text;
   private skinRow!: Entity;
   private accRow!: Entity;
@@ -60,27 +82,31 @@ export class TitleScene extends Scene {
       this.sub.position.set(W / 2, H * 0.12 + 44);
       this.preview.position.set(lx, H * 0.56);
       this.nameBtn.position.set(lx, H * 0.82);
-      this.typeBtn.position.set(rx, H * 0.28);
-      this.outfitCap.position.set(rx, H * 0.4);
-      this.swatchRow.position.set(rx, H * 0.5);
-      this.skinCap.position.set(rx, H * 0.6);
-      this.skinRow.position.set(rx, H * 0.7);
-      this.accRow.position.set(rx, H * 0.82);
+      this.typeBtn.position.set(rx, H * 0.23);
+      this.outfitCap.position.set(rx, H * 0.33);
+      this.swatchRow.position.set(rx, H * 0.42);
+      this.hueBar.position.set(rx, H * 0.52);
+      this.hueBar.scale.set(Math.min(1, (W * 0.6) / this.hueWidth));
+      this.skinCap.position.set(rx, H * 0.62);
+      this.skinRow.position.set(rx, H * 0.72);
+      this.accRow.position.set(rx, H * 0.84);
       this.playBtn.position.set(lx, H * 0.94);
       this.friendsBtn.position.set(W - 130, 50);
       return;
     }
-    this.title.position.set(W / 2, H * 0.085);
-    this.sub.position.set(W / 2, H * 0.085 + 52);
-    this.preview.position.set(W / 2, H * 0.29);
-    this.nameBtn.position.set(W / 2, H * 0.44);
-    this.typeBtn.position.set(W / 2, H * 0.51);
-    this.outfitCap.position.set(W / 2, H * 0.565);
-    this.swatchRow.position.set(W / 2, H * 0.6);
-    this.skinCap.position.set(W / 2, H * 0.655);
-    this.skinRow.position.set(W / 2, H * 0.69);
-    this.accRow.position.set(W / 2, H * 0.765);
-    this.playBtn.position.set(W / 2, H * 0.88);
+    this.title.position.set(W / 2, H * 0.075);
+    this.sub.position.set(W / 2, H * 0.075 + 50);
+    this.preview.position.set(W / 2, H * 0.275);
+    this.nameBtn.position.set(W / 2, H * 0.42);
+    this.typeBtn.position.set(W / 2, H * 0.485);
+    this.outfitCap.position.set(W / 2, H * 0.535);
+    this.swatchRow.position.set(W / 2, H * 0.57);
+    this.hueBar.position.set(W / 2, H * 0.625);
+    this.hueBar.scale.set(1);
+    this.skinCap.position.set(W / 2, H * 0.675);
+    this.skinRow.position.set(W / 2, H * 0.71);
+    this.accRow.position.set(W / 2, H * 0.775);
+    this.playBtn.position.set(W / 2, H * 0.875);
     this.friendsBtn.position.set(W - 130, 50);
   }
 
@@ -136,6 +162,7 @@ export class TitleScene extends Scene {
     this.swatchRow = new Entity();
     this.add(this.swatchRow);
     this.redrawSwatches();
+    this.buildHueBar();
 
     this.skinCap = makeText('skin tone', 20, { color: FARM.inkSoft, weight: '800' });
     this.stage.addChild(this.skinCap);
@@ -282,7 +309,66 @@ export class TitleScene extends Scene {
     store.set('charColor', c);
     this.rebuildPreview();
     this.redrawSwatches();
+    this.moveHueKnob();
     audio.blip(1.2);
+  }
+
+  /** A full-spectrum hue bar so you can pick any color, not just presets. */
+  private buildHueBar(): void {
+    this.hueBar = new Entity();
+    const bar = new Graphics();
+    const w = this.hueWidth;
+    const h = 34;
+    const steps = 60;
+    for (let i = 0; i < steps; i++) {
+      const x = -w / 2 + (i / steps) * w;
+      bar.rect(x, -h / 2, w / steps + 1, h).fill(hsvToHex((i / steps) * 360, 0.62, 0.92));
+    }
+    bar.roundRect(-w / 2, -h / 2, w, h, 10).stroke({ color: 0xffffff, width: 3, alpha: 0.35 });
+    this.hueBar.addChild(bar);
+    this.hueKnob = new Graphics();
+    this.hueKnob
+      .circle(0, 0, 16)
+      .fill(0xffffff)
+      .circle(0, 0, 16)
+      .stroke({ color: 0x2a2016, width: 3 });
+    this.hueBar.addChild(this.hueKnob);
+
+    this.hueBar.eventMode = 'static';
+    this.hueBar.hitArea = new Rectangle(-w / 2 - 20, -30, w + 40, 60);
+    const pick = (e: { global: { x: number; y: number } }): void => {
+      const p = this.hueBar.toLocal(e.global);
+      const t = Math.max(0, Math.min(1, (p.x + w / 2) / w));
+      this.pickColor(hsvToHex(t * 360, 0.62, 0.92));
+    };
+    this.hueBar.on('pointerdown', pick);
+    this.hueBar.on('globalpointermove', (e) => {
+      if (this.hueDragging) pick(e);
+    });
+    this.hueBar.on('pointerdown', () => (this.hueDragging = true));
+    this.hueBar.on('pointerup', () => (this.hueDragging = false));
+    this.hueBar.on('pointerupoutside', () => (this.hueDragging = false));
+    this.add(this.hueBar);
+    this.moveHueKnob();
+  }
+
+  private moveHueKnob(): void {
+    if (!this.hueKnob) return;
+    // Show the knob at the hue nearest the current color (approx via max channel).
+    const r = (this.charColor >> 16) & 0xff;
+    const g = (this.charColor >> 8) & 0xff;
+    const b = this.charColor & 0xff;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    let hue = 0;
+    if (max !== min) {
+      const d = max - min;
+      if (max === r) hue = ((g - b) / d) % 6;
+      else if (max === g) hue = (b - r) / d + 2;
+      else hue = (r - g) / d + 4;
+      hue = (hue * 60 + 360) % 360;
+    }
+    this.hueKnob.position.set((hue / 360 - 0.5) * this.hueWidth, 0);
   }
 
   private pickSkin(c: number): void {

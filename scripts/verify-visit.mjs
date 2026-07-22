@@ -59,7 +59,10 @@ const q = '?relay=ws://localhost:8787';
 async function phone(name) {
   // newPage → isolated context (separate localStorage), so the two farmers
   // have independent baskets like real separate devices.
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+  const page = await browser.newPage({
+    viewport: { width: 390, height: 844 },
+    deviceScaleFactor: 1,
+  });
   page.on('pageerror', (e) => errors.push(`${name} pageerror: ${e.message}`));
   page.on('console', (m) => {
     if (m.type() === 'error') errors.push(`${name} console.error: ${m.text()}`);
