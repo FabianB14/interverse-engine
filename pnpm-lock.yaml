@@ -68,6 +68,22 @@ importers:
         specifier: ^6.0.7
         version: 6.4.3(@types/node@22.20.1)
 
+  games/farm:
+    dependencies:
+      '@interverse/engine':
+        specifier: workspace:*
+        version: link:../../packages/engine
+      '@interverse/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui-kit
+      pixi.js:
+        specifier: ^8.6.6
+        version: 8.19.0
+    devDependencies:
+      vite:
+        specifier: ^6.0.7
+        version: 6.4.3(@types/node@22.20.1)
+
   games/hello:
     dependencies:
       '@interverse/engine':

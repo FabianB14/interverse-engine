@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#2a2016" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%237bab54'/%3E%3Cpath d='M16 24V13' stroke='%23e9c46a' stroke-width='3' stroke-linecap='round'/%3E%3Cpath d='M16 15c-5-1-8-6-8-6s6-1 8 3c2-4 8-3 8-3s-3 5-8 6z' fill='%23e9c46a'/%3E%3C/svg%3E"
+    />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>Cozy Farm — Interverse</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #2a2016;
+        touch-action: none;
+        overscroll-behavior: none;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+      canvas {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <script type="module" src="/src/main.ts"></script>
+    <script>
+      // PWA: cache the app shell (not during local dev) + Install button.
+      if ('serviceWorker' in navigator && location.hostname !== 'localhost') {
+        navigator.serviceWorker.register('./sw.js');
+        // Update (icon only, two-tap): first tap hints, second tap updates.
+        const upd = document.createElement('button');
+        upd.textContent = '⟳';
+        upd.title = 'Update the app';
+        upd.style.cssText =
+          'position:fixed;right:10px;top:10px;z-index:21;width:42px;height:42px;' +
+          'padding:0;border-radius:999px;border:0;background:#8affc1;color:#1c1c28;' +
+          'font:700 22px system-ui;box-shadow:0 2px 8px rgba(0,0,0,.4)';
+        const updTip = document.createElement('div');
+        updTip.textContent = 'tap again to update';
+        updTip.style.cssText =
+          'position:fixed;right:60px;top:18px;z-index:21;padding:6px 10px;' +
+          'border-radius:10px;background:#1c1c28;color:#8affc1;display:none;' +
+          'font:700 13px system-ui;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.4)';
+        let updArmed = false;
+        let updTimer = 0;
+        upd.onclick = async () => {
+          if (!updArmed) {
+            updArmed = true;
+            updTip.style.display = 'block';
+            clearTimeout(updTimer);
+            updTimer = setTimeout(() => {
+              updArmed = false;
+              updTip.style.display = 'none';
+            }, 3000);
+            return;
+          }
+          clearTimeout(updTimer);
+          updArmed = false;
+          updTip.style.display = 'none';
+          upd.textContent = '…';
+          try {
+            const regs = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(regs.map((r) => r.unregister()));
+            if (window.caches) {
+              const keys = await caches.keys();
+              await Promise.all(keys.map((k) => caches.delete(k)));
+            }
+          } catch (err) {
+            void err;
+          }
+          location.reload();
+        };
+        document.body.appendChild(upd);
+        document.body.appendChild(updTip);
+      }
+      let deferredInstall = null;
+      window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredInstall = e;
+        const b = document.createElement('button');
+        b.textContent = '⬇ Install';
+        b.style.cssText =
+          'position:fixed;top:62px;right:10px;z-index:20;padding:9px 16px;' +
+          'border-radius:999px;border:0;background:#e9c46a;color:#2a2016;' +
+          'font:700 14px system-ui;box-shadow:0 2px 8px rgba(0,0,0,.4)';
+        b.onclick = () => {
+          if (deferredInstall) deferredInstall.prompt();
+          deferredInstall = null;
+          b.remove();
+        };
+        document.body.appendChild(b);
+      });
+    </script>
+  </body>
+</html>
