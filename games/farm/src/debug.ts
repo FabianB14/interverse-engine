@@ -27,6 +27,14 @@ export interface FarmDebug {
   editName?: () => void;
   setName?: (n: string) => void;
   saveName?: () => void;
+  // Settings / sync
+  settings?: () => void;
+  sfxOn?: () => boolean;
+  syncSend?: () => Promise<string>;
+  syncApply?: () => void;
+  openReceive?: () => void;
+  setHair?: (h: string) => void;
+  hair?: () => string;
   // Navigation / feedback
   home?: () => void;
   tip?: () => string;

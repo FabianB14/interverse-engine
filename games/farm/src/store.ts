@@ -30,3 +30,10 @@ export const SKIN_KEY = 'skinColor';
 export function savedSkin(): number {
   return store.get<number>(SKIN_KEY, 0xf0c08a);
 }
+
+export const HAIR_KEY = 'hair';
+
+/** The person avatar's hair style ('short' | 'long' | 'pony'). */
+export function savedHair(): string {
+  return store.get<string>(HAIR_KEY, 'short');
+}

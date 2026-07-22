@@ -3,6 +3,7 @@ import { blobCharacter, darken, lighten } from '@interverse/engine';
 import { accessoryView } from './accessories.js';
 
 export type CharType = 'blob' | 'person';
+export type HairStyle = 'short' | 'long' | 'pony';
 
 export interface Character {
   view: Container;
@@ -18,7 +19,7 @@ const PERSON_HEAD_Y = -0.98;
 const PERSON_HEAD_R = 0.6;
 
 /** A clearly human little farmer: legs, shirt (in `color`), head in `skin`. */
-function personCharacter(color: number, r: number, skin: number): Character {
+function personCharacter(color: number, r: number, skin: number, hair: HairStyle): Character {
   const view = new Container();
   view.addChild(
     new Graphics().ellipse(0, r * 1.24, r * 0.66, r * 0.22).fill({ color: 0x000000, alpha: 0.18 }),
@@ -26,7 +27,7 @@ function personCharacter(color: number, r: number, skin: number): Character {
 
   const body = new Container();
   const g = new Graphics();
-  const hair = 0x5b3d27;
+  const hairColor = 0x5b3d27;
   const hy = PERSON_HEAD_Y * r;
   const hr = PERSON_HEAD_R * r;
 
@@ -54,6 +55,15 @@ function personCharacter(color: number, r: number, skin: number): Character {
   // neck
   g.rect(-r * 0.13, hy + hr * 0.7, r * 0.26, r * 0.24).fill(darken(skin, 0.06));
 
+  // long styles put a soft mass BEHIND the head first
+  const hairC = hairColor;
+  if (hair === 'long') {
+    g.roundRect(-hr * 1.08, hy - hr * 0.5, hr * 0.42, hr * 1.9, hr * 0.2).fill(hairC);
+    g.roundRect(hr * 0.66, hy - hr * 0.5, hr * 0.42, hr * 1.9, hr * 0.2).fill(hairC);
+  } else if (hair === 'pony') {
+    g.roundRect(hr * 0.7, hy - hr * 0.2, hr * 0.36, hr * 1.7, hr * 0.18).fill(hairC);
+    g.circle(hr * 0.88, hy - hr * 0.3, hr * 0.24).fill(darken(hairC, 0.12));
+  }
   // head
   g.circle(0, hy, hr).fill(skin);
   g.circle(0, hy, hr).stroke({ color: darken(skin, 0.22), width: Math.max(2, r * 0.05) });
@@ -62,7 +72,12 @@ function personCharacter(color: number, r: number, skin: number): Character {
   g.moveTo(-hr, hy);
   g.arc(0, hy, hr, Math.PI, Math.PI * 2, false);
   g.quadraticCurveTo(0, hy - hr * 0.22, -hr, hy);
-  g.fill(hair);
+  g.fill(hairC);
+  if (hair === 'long') {
+    // face-framing strands over the cap edges
+    g.ellipse(-hr * 0.86, hy + hr * 0.1, hr * 0.18, hr * 0.42).fill(hairC);
+    g.ellipse(hr * 0.86, hy + hr * 0.1, hr * 0.18, hr * 0.42).fill(hairC);
+  }
   // face — sits on skin, below the hairline
   g.circle(-hr * 0.32, hy + hr * 0.18, r * 0.075).fill(0x2b2b33);
   g.circle(hr * 0.32, hy + hr * 0.18, r * 0.075).fill(0x2b2b33);
@@ -89,10 +104,11 @@ export function makeCharacter(
   seed = 5,
   accessory = 'none',
   skin: number = DEFAULT_SKIN,
+  hair: HairStyle = 'short',
 ): Character {
   const char =
     type === 'person'
-      ? personCharacter(color, r, skin)
+      ? personCharacter(color, r, skin, hair)
       : (() => {
           const b = blobCharacter({ radius: r, color, seed, strokeWidth: 4 });
           return { view: b.view, body: b.body };

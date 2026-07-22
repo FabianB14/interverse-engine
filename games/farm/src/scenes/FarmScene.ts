@@ -64,10 +64,10 @@ import {
 } from '../accessories.js';
 import { farmNet } from '../net.js';
 import type { Look } from '../net.js';
-import { savedAcc, savedName, savedSkin, store } from '../store.js';
+import { savedAcc, savedHair, savedName, savedSkin, store } from '../store.js';
 import { invAdd, invAll, invClear, invCount, invRemove, invTotal } from '../inventory.js';
 import { makeCharacter } from '../character.js';
-import type { CharType } from '../character.js';
+import type { CharType, HairStyle } from '../character.js';
 import {
   TILE,
   TILE_SIZE,
@@ -310,7 +310,15 @@ export class FarmScene extends Scene {
     const charType = store.get<CharType>('charType', 'blob');
     const charColor = store.get<number>('charColor', 0xe07a5f);
     this.player = new Entity();
-    const pChar = makeCharacter(charType, charColor, 30, 5, savedAcc(), savedSkin());
+    const pChar = makeCharacter(
+      charType,
+      charColor,
+      30,
+      5,
+      savedAcc(),
+      savedSkin(),
+      savedHair() as HairStyle,
+    );
     this.playerBody = pChar.body;
     this.player.addChild(pChar.view);
     this.player.position.set(spawn.x, spawn.y);
@@ -1726,7 +1734,15 @@ export class FarmScene extends Scene {
       n: 'Friend',
     };
     const entity = new Entity();
-    const char = makeCharacter(look.t, look.c, 30, id.length + 3, look.a, look.s);
+    const char = makeCharacter(
+      look.t,
+      look.c,
+      30,
+      id.length + 3,
+      look.a,
+      look.s,
+      look.h ?? 'short',
+    );
     entity.addChild(char.view);
     const label = makeText(look.n, 18, { color: FARM.ink, weight: '800' });
     label.position.set(0, -58);

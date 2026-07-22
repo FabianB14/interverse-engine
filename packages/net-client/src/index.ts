@@ -4,3 +4,4 @@
 
 export { host, join, Session } from './session.js';
 export type { NetOptions, PlayerInfo } from './session.js';
+export { makeSyncCode, syncPull, syncPush } from './sync.js';

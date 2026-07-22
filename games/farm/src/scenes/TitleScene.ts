@@ -5,14 +5,24 @@ import { UIButton } from '@interverse/ui';
 import { FARM } from '../theme.js';
 import { makeText } from '../text.js';
 import { music } from '../music.js';
-import { ACC_KEY, SKIN_KEY, savedAcc, savedName, savedSkin, store } from '../store.js';
+import {
+  ACC_KEY,
+  HAIR_KEY,
+  SKIN_KEY,
+  savedAcc,
+  savedHair,
+  savedName,
+  savedSkin,
+  store,
+} from '../store.js';
 import { makeCharacter } from '../character.js';
-import type { CharType } from '../character.js';
+import type { CharType, HairStyle } from '../character.js';
 import { ACCESSORIES, accessoryIndex, ownedAccessoryIds } from '../accessories.js';
 import { GAME_TITLE } from '../game.js';
 import { FarmScene } from './FarmScene.js';
 import { NameScene } from './NameScene.js';
 import { FriendsScene } from './FriendsScene.js';
+import { SettingsScene, applySoundPrefs, musicPref } from './SettingsScene.js';
 import '../debug.js';
 
 // Outfit / blob-body colors, and a range of skin tones for the person.
@@ -58,6 +68,8 @@ export class TitleScene extends Scene {
   private accGrid!: Container;
   private playBtn!: UIButton;
   private friendsBtn!: UIButton;
+  private settingsBtn!: UIButton;
+  private hairBtn!: UIButton;
   private busy = false;
   private t = 0;
 
@@ -79,7 +91,9 @@ export class TitleScene extends Scene {
       this.sub.position.set(W / 2, H * 0.12 + 44);
       this.preview.position.set(lx, H * 0.56);
       this.nameBtn.position.set(lx, H * 0.82);
-      this.typeBtn.position.set(rx, H * 0.23);
+      this.typeBtn.position.set(rx - 120, H * 0.23);
+      this.hairBtn.position.set(rx + 180, H * 0.23);
+      this.settingsBtn.position.set(288, 50);
       this.outfitCap.position.set(rx, H * 0.33);
       this.swatchRow.position.set(rx, H * 0.42);
       this.hueBar.position.set(rx, H * 0.52);
@@ -97,7 +111,9 @@ export class TitleScene extends Scene {
     this.sub.position.set(W / 2, H * 0.075 + 50);
     this.preview.position.set(W / 2, H * 0.275);
     this.nameBtn.position.set(W / 2, H * 0.42);
-    this.typeBtn.position.set(W / 2, H * 0.485);
+    this.typeBtn.position.set(W / 2 - 130, H * 0.485);
+    this.hairBtn.position.set(W / 2 + 160, H * 0.485);
+    this.settingsBtn.position.set(288, 50);
     this.outfitCap.position.set(W / 2, H * 0.535);
     this.swatchRow.position.set(W / 2, H * 0.57);
     this.hueBar.position.set(W / 2, H * 0.625);
@@ -148,7 +164,7 @@ export class TitleScene extends Scene {
     this.updateNameLabel();
 
     this.typeBtn = new UIButton('', {
-      width: 380,
+      width: 340,
       height: 76,
       fontSize: 30,
       fill: FARM.panel,
@@ -157,6 +173,17 @@ export class TitleScene extends Scene {
     });
     this.add(this.typeBtn);
     this.updateTypeLabel();
+
+    this.hairBtn = new UIButton('', {
+      width: 220,
+      height: 76,
+      fontSize: 24,
+      fill: FARM.panel,
+      textColor: FARM.ink,
+      onTap: () => this.cycleHair(),
+    });
+    this.add(this.hairBtn);
+    this.updateHairLabel();
 
     this.outfitCap = makeText('', 20, { color: FARM.inkSoft, weight: '800' });
     this.stage.addChild(this.outfitCap);
@@ -205,6 +232,17 @@ export class TitleScene extends Scene {
     });
     this.add(this.friendsBtn);
 
+    this.settingsBtn = new UIButton('⚙️', {
+      width: 76,
+      height: 68,
+      fontSize: 30,
+      fill: FARM.panel,
+      textColor: FARM.ink,
+      onTap: () => this.goSettings(),
+    });
+    this.add(this.settingsBtn);
+    applySoundPrefs();
+
     this.updateOutfitCap();
     this.updateSkinVisibility();
     this.layout(W, H);
@@ -232,6 +270,13 @@ export class TitleScene extends Scene {
       name: () => savedName() ?? '',
       editName: () => this.editName(),
       friends: () => this.goFriends(),
+      settings: () => this.goSettings(),
+      setHair: (h: string) => {
+        store.set(HAIR_KEY, h === 'long' || h === 'pony' ? h : 'short');
+        this.rebuildPreview();
+        this.updateHairLabel();
+      },
+      hair: () => savedHair(),
     };
   }
 
@@ -265,7 +310,15 @@ export class TitleScene extends Scene {
 
   private rebuildPreview(): void {
     for (const old of this.preview.removeChildren()) old.destroy({ children: true });
-    const char = makeCharacter(this.charType, this.charColor, 82, 5, this.accId, this.skinColor);
+    const char = makeCharacter(
+      this.charType,
+      this.charColor,
+      82,
+      5,
+      this.accId,
+      this.skinColor,
+      savedHair() as HairStyle,
+    );
     this.preview.addChild(char.view);
     this.previewBody = char.body;
   }
@@ -282,6 +335,31 @@ export class TitleScene extends Scene {
     const show = this.charType === 'person';
     this.skinCap.visible = show;
     this.skinRow.visible = show;
+    this.hairBtn.visible = show;
+  }
+
+  private cycleHair(): void {
+    const styles: HairStyle[] = ['short', 'long', 'pony'];
+    const next = styles[(styles.indexOf(savedHair() as HairStyle) + 1) % styles.length]!;
+    store.set(HAIR_KEY, next);
+    this.rebuildPreview();
+    this.updateHairLabel();
+    audio.blip(1.2);
+  }
+
+  private updateHairLabel(): void {
+    const labels: Record<string, string> = {
+      short: '💇 Short hair',
+      long: '💇‍♀️ Long hair',
+      pony: '💇‍♀️ Ponytail',
+    };
+    this.hairBtn.setLabel(labels[savedHair()] ?? '💇 Hair');
+  }
+
+  private goSettings(): void {
+    if (this.busy || this.game.scenes.isTransitioning) return;
+    audio.blip(1.2);
+    this.game.scenes.replace(new SettingsScene());
   }
 
   private toggleType(): void {
@@ -492,7 +570,7 @@ export class TitleScene extends Scene {
   private play(): void {
     if (this.busy || this.game.scenes.isTransitioning) return;
     this.busy = true;
-    music.start();
+    if (musicPref()) music.start();
     const go = new Entity();
     go.addBehavior(new Timer(0.02, () => this.game.scenes.replace(new FarmScene())));
     this.add(go);

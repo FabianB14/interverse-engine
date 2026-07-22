@@ -91,15 +91,76 @@ function closeRoom(room: Room, reason: string): void {
   }
 }
 
+// Family sync: tiny short-lived blobs (wallet transfers between devices and
+// between installed apps, which get isolated storage on iOS). Codes expire
+// after a day; payloads are capped small. Best-effort — the free-tier host
+// may restart, so clients treat this as "transfer now", not cloud storage.
+const SYNC_TTL_MS = 24 * 60 * 60_000;
+const SYNC_MAX_BYTES = 8 * 1024;
+const syncBlobs = new Map<string, { data: string; at: number }>();
+
 const httpServer = createServer((req, res) => {
+  const cors = {
+    'access-control-allow-origin': '*',
+    'access-control-allow-methods': 'GET, PUT, OPTIONS',
+    'access-control-allow-headers': 'content-type',
+  };
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, cors);
+    res.end();
+    return;
+  }
   if (req.url === '/health' || req.url === '/') {
-    res.writeHead(200, { 'content-type': 'application/json' });
+    res.writeHead(200, { 'content-type': 'application/json', ...cors });
     res.end(JSON.stringify({ ok: true, rooms: rooms.size }));
     return;
   }
-  res.writeHead(404);
+  const sync = /^\/sync\/([A-Z2-9]{4,8})$/.exec(req.url ?? '');
+  if (sync) {
+    const code = sync[1]!;
+    if (req.method === 'PUT') {
+      let body = '';
+      req.on('data', (chunk: Buffer) => {
+        body += chunk.toString();
+        if (body.length > SYNC_MAX_BYTES) req.destroy();
+      });
+      req.on('end', () => {
+        try {
+          JSON.parse(body);
+        } catch {
+          res.writeHead(400, cors);
+          res.end();
+          return;
+        }
+        syncBlobs.set(code, { data: body, at: Date.now() });
+        res.writeHead(200, { 'content-type': 'application/json', ...cors });
+        res.end(JSON.stringify({ ok: true }));
+      });
+      return;
+    }
+    if (req.method === 'GET') {
+      const blob = syncBlobs.get(code);
+      if (!blob || Date.now() - blob.at > SYNC_TTL_MS) {
+        res.writeHead(404, cors);
+        res.end();
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'application/json', ...cors });
+      res.end(blob.data);
+      return;
+    }
+  }
+  res.writeHead(404, cors);
   res.end();
 });
+
+// Expire stale sync blobs alongside the room sweep.
+setInterval(() => {
+  const now = Date.now();
+  for (const [code, blob] of syncBlobs) {
+    if (now - blob.at > SYNC_TTL_MS) syncBlobs.delete(code);
+  }
+}, 60 * 60_000);
 
 const wss = new WebSocketServer({ server: httpServer, maxPayload: MAX_MESSAGE_BYTES });
 

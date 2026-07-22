@@ -9,6 +9,7 @@ import { JoinScene } from './JoinScene.js';
 import { NameScene } from './NameScene.js';
 import { NAME_KEY, cleanName, lastRoom, savedName, store } from '../store.js';
 import { LobbyScene } from './LobbyScene.js';
+import { SyncScene } from './SyncScene.js';
 
 interface LobbyDebug {
   scene: () => string;
@@ -85,6 +86,7 @@ export class MenuScene extends Scene {
   private title: Text | null = null;
   private mascot: Entity | null = null;
   private rejoinBtn: UIButton | null = null;
+  private syncBtn: UIButton | null = null;
   private hostBtn: UIButton | null = null;
   private joinBtn: UIButton | null = null;
   private nameBtn: UIButton | null = null;
@@ -97,6 +99,7 @@ export class MenuScene extends Scene {
     this.title?.position.set(W / 2, H * 0.16);
     this.mascot?.position.set(W / 2, H * 0.44);
     this.rejoinBtn?.position.set(W / 2, H * 0.58);
+    this.syncBtn?.position.set(150, 54);
     this.hostBtn?.position.set(W / 2, H * 0.66);
     this.joinBtn?.position.set(W / 2, H * 0.66 + 124);
     this.status?.position.set(W / 2, H * 0.9);
@@ -183,6 +186,20 @@ export class MenuScene extends Scene {
 
     this.status = makeText('', 28, { color: 0xff5470, weight: 'bold', wrapWidth: 620 });
     this.stage.addChild(this.status);
+
+    this.syncBtn = new UIButton('🔄 Wallet', {
+      width: 230,
+      height: 68,
+      fontSize: 24,
+      fill: 0x2c2150,
+      textColor: 0xb8a8e0,
+      onTap: () => {
+        if (this.busy || this.game.scenes.isTransitioning) return;
+        audio.blip();
+        this.game.scenes.replace(new SyncScene());
+      },
+    });
+    this.add(this.syncBtn);
 
     this.nameBtn = new UIButton(`playing as ${savedName() ?? '?'} Blob — tap to change`, {
       width: 560,

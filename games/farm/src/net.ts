@@ -1,8 +1,8 @@
 import { host, join } from '@interverse/net';
 import type { Session } from '@interverse/net';
 import { GAME_TAG, resolveRelayUrl } from './config.js';
-import { savedAcc, savedName, savedSkin, store } from './store.js';
-import type { CharType } from './character.js';
+import { savedAcc, savedHair, savedName, savedSkin, store } from './store.js';
+import type { CharType, HairStyle } from './character.js';
 
 /** How a farmer looks, shipped over the wire so visitors render correctly. */
 export interface Look {
@@ -11,6 +11,7 @@ export interface Look {
   s: number;
   a: string;
   n: string;
+  h?: HairStyle;
 }
 
 export function myLook(): Look {
@@ -20,6 +21,7 @@ export function myLook(): Look {
     s: savedSkin(),
     a: savedAcc(),
     n: savedName() ?? 'Farmer',
+    h: savedHair() as HairStyle,
   };
 }
 
