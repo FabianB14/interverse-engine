@@ -174,7 +174,7 @@ export const BOSSES: BossDef[] = [
     name: 'King Slime',
     emoji: '👑',
     color: 0x6b4f8f,
-    hp: 420,
+    hp: 1600,
     speed: 90,
     enragedSpeed: 150,
     attackRange: 100,
@@ -185,41 +185,41 @@ export const BOSSES: BossDef[] = [
     specialDamage: 16,
     specialRadius: 190,
     specialRange: 190,
-    xp: 100,
+    xp: 140,
   },
   {
     name: 'Frost Wraith',
     emoji: '❄️',
     color: 0x7fd4e8,
-    hp: 480,
+    hp: 2100,
     speed: 100,
     enragedSpeed: 160,
     attackRange: 100,
-    attackDamage: 10,
+    attackDamage: 12,
     attackEvery: 1.6,
     special: 'frostbolt',
     specialEvery: 3.0,
-    specialDamage: 10,
+    specialDamage: 12,
     specialRadius: 0,
     specialRange: 440,
-    xp: 120,
+    xp: 180,
   },
   {
     name: 'Ember Titan',
     emoji: '🔥',
     color: 0xd96a3b,
-    hp: 540,
+    hp: 2800,
     speed: 85,
     enragedSpeed: 140,
     attackRange: 110,
-    attackDamage: 14,
+    attackDamage: 16,
     attackEvery: 1.7,
     special: 'bomb',
     specialEvery: 4.5,
-    specialDamage: 20,
+    specialDamage: 22,
     specialRadius: 170,
     specialRange: 420,
-    xp: 140,
+    xp: 240,
   },
 ];
 
@@ -229,6 +229,11 @@ export const BOSS = {
   RESPAWN_SECONDS: 60,
   MINIONS_ON_ENRAGE: 2,
 };
+
+/** Bosses get burlier with each extra adventurer piling on. */
+export function bossHpFor(baseHp: number, players: number): number {
+  return Math.round(baseHp * (1 + 0.4 * Math.max(0, players - 1)));
+}
 
 export const PLAYER_BASE_HP = 120;
 export const RESPAWN_SECONDS = 5;

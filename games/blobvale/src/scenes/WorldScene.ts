@@ -31,6 +31,7 @@ import {
   MODS,
   RESPAWN_SECONDS,
   STAT_CARDS,
+  bossHpFor,
   cardLabel,
   damageAtLevel,
   maxHpAtLevel,
@@ -198,7 +199,14 @@ export class WorldScene extends Scene {
     bossKind?: number;
   }[] = [];
   private stats: Record<string, PlayerStats> = {};
-  private upgradeOverlay: { root: Entity; buttons: UIButton[]; cards: string[] } | null = null;
+  private upgradeOverlay: {
+    root: Entity;
+    buttons: UIButton[];
+    cards: string[];
+    expanded: boolean;
+  } | null = null;
+  /** Pending level-up offers; [0] is the one the docked card is showing. */
+  private offerQueue: string[][] = [];
   private mobViews = new Map<
     string,
     {
@@ -240,6 +248,8 @@ export class WorldScene extends Scene {
     this.statusText.position.set(W / 2, H / 2);
     this.camera.setViewSize(W, H);
     if (this.chatOpen) this.closeChat();
+    // Keep the docked level-up card glued to the (new) left edge.
+    if (this.upgradeOverlay) this.renderOffer(this.upgradeOverlay.expanded);
   }
 
   constructor(
@@ -807,12 +817,13 @@ export class WorldScene extends Scene {
     const def = BOSSES[kind % BOSSES.length] ?? BOSSES[0];
     if (!def) return;
     this.bossEnraged = false;
+    const hp = bossHpFor(def.hp, this.roster.order.length);
     this.hostMobs.set(BOSS.ID, {
       id: BOSS.ID,
       x,
       y,
-      hp: def.hp,
-      max: def.hp,
+      hp,
+      max: hp,
       homeX: x,
       homeY: y,
       target: null,
@@ -1435,40 +1446,77 @@ export class WorldScene extends Scene {
     this.myBar.rect(-26, 0, 52 * Math.max(0, st.hp / st.max), 6).fill(0x8affc1);
   }
 
-  // -------------------------------------------------- upgrade cards (M3)
+  // -------------------------------------------------- upgrade cards (M3/M4)
+  //
+  // The offer is a small card docked to the left edge that you can collapse
+  // to a pulsing tab and keep playing — level-ups no longer freeze the game.
+  // Multiple pending level-ups queue up behind the tab (it shows the count).
 
   private showOffer(cards: string[]): void {
-    this.closeOffer();
-    const W = this.game.viewWidth;
-    const H = this.game.viewHeight;
-    const root = new Entity();
-    const bg = new Graphics();
-    drawPanel(bg, 560, 300, { fill: 0x243a2a, stroke: forestDeep.ink, radius: 28 });
-    root.addChild(bg);
-    const title = makeText('LEVEL UP! choose one', 30, { color: forestDeep.accent });
-    title.position.set(280, 44);
-    root.addChild(title);
-    const myClass = this.roster.classes[this.session.id] ?? 'knight';
-    const buttons: UIButton[] = [];
-    cards.slice(0, 2).forEach((cardId, i) => {
-      const btn = new UIButton(cardLabel(myClass, cardId), {
-        width: 500,
-        height: 86,
-        fontSize: 26,
-        fill: i === 0 ? 0xffd166 : 0x8affc1,
-        onTap: () => this.pickUpgrade(cardId),
-      });
-      btn.position.set(280, 116 + i * 104);
-      this.add(btn, root);
-      buttons.push(btn);
-    });
-    root.position.set((W - 560) / 2, Math.max(60, H / 2 - 320));
-    this.add(root, this.uiLayer);
-    this.upgradeOverlay = { root, buttons, cards: cards.slice(0, 2) };
+    this.offerQueue.push(cards.slice(0, 2));
+    // First offer opens collapsed (subtle); keep whatever state we were in.
+    this.renderOffer(this.upgradeOverlay?.expanded ?? false);
     audio.chime();
   }
 
-  private closeOffer(): void {
+  /** (Re)build the docked level-up card in collapsed or expanded form. */
+  private renderOffer(expanded: boolean): void {
+    this.tearDownOffer();
+    const current = this.offerQueue[0];
+    if (!current) return;
+    const H = this.game.viewHeight;
+    const root = new Entity();
+    const count = this.offerQueue.length;
+    const buttons: UIButton[] = [];
+
+    // The always-visible tab: tap to toggle the cards open/closed.
+    const tab = new UIButton(expanded ? `⬆ LEVEL UP  ▸` : `⬆${count > 1 ? ` ×${count}` : ''}`, {
+      width: expanded ? 250 : 96,
+      height: 64,
+      fontSize: expanded ? 22 : 30,
+      fill: 0xffd166,
+      textColor: 0x1c2418,
+      onTap: () => this.renderOffer(!expanded),
+    });
+    tab.position.set(expanded ? 145 : 68, 0);
+    this.add(tab, root);
+    buttons.push(tab);
+
+    if (expanded) {
+      const myClass = this.roster.classes[this.session.id] ?? 'knight';
+      const panel = new Graphics();
+      drawPanel(panel, 430, 90 + current.length * 78, {
+        fill: 0x243a2a,
+        stroke: forestDeep.ink,
+        radius: 20,
+      });
+      panel.position.set(20, 44);
+      root.addChild(panel);
+      const hint = makeText('choose one', 20, { color: forestDeep.accent });
+      hint.position.set(235, 70);
+      root.addChild(hint);
+      current.forEach((cardId, i) => {
+        const btn = new UIButton(cardLabel(myClass, cardId), {
+          width: 396,
+          height: 66,
+          fontSize: 21,
+          fill: i === 0 ? 0xffd166 : 0x8affc1,
+          textColor: 0x1c2418,
+          onTap: () => this.pickUpgrade(cardId),
+        });
+        btn.position.set(235, 118 + i * 78);
+        this.add(btn, root);
+        buttons.push(btn);
+      });
+    }
+
+    root.position.set(0, Math.max(120, H * 0.4));
+    this.add(root, this.uiLayer);
+    this.upgradeOverlay = { root, buttons, cards: current, expanded };
+  }
+
+  /** Remove the docked card's display objects without dropping the queue. */
+  private tearDownOffer(): void {
     if (!this.upgradeOverlay) return;
     for (const b of this.upgradeOverlay.buttons) this.remove(b);
     this.remove(this.upgradeOverlay.root);
@@ -1482,7 +1530,10 @@ export class WorldScene extends Scene {
     } else {
       this.session.send({ type: 'upgrade', pick: cardId });
     }
-    this.closeOffer();
+    const wasExpanded = this.upgradeOverlay?.expanded ?? false;
+    this.offerQueue.shift();
+    this.tearDownOffer();
+    if (this.offerQueue.length) this.renderOffer(wasExpanded);
   }
 
   /** Host-authoritative upgrade application. */
