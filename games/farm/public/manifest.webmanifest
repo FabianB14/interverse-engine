@@ -1,10 +1,10 @@
 {
-  "name": "Cozy Farm — Interverse",
-  "short_name": "Cozy Farm",
+  "name": "Blob Farm — Interverse",
+  "short_name": "Blob Farm",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "orientation": "portrait",
+  "orientation": "any",
   "background_color": "#2a2016",
   "theme_color": "#2a2016",
   "icons": [

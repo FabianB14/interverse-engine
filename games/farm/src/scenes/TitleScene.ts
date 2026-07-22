@@ -48,6 +48,25 @@ export class TitleScene extends Scene {
   }
 
   private layout(W: number, H: number): void {
+    this.accPrev.position.set(-200, 0);
+    this.accNext.position.set(200, 0);
+    if (W > H) {
+      // Landscape: avatar preview on the left, controls in a right column.
+      const lx = W * 0.28;
+      const rx = W * 0.66;
+      this.title.position.set(W / 2, H * 0.12);
+      this.sub.position.set(W / 2, H * 0.12 + 44);
+      this.preview.position.set(lx, H * 0.56);
+      this.nameBtn.position.set(lx, H * 0.82);
+      this.typeBtn.position.set(rx, H * 0.28);
+      this.outfitCap.position.set(rx, H * 0.4);
+      this.swatchRow.position.set(rx, H * 0.5);
+      this.skinCap.position.set(rx, H * 0.6);
+      this.skinRow.position.set(rx, H * 0.7);
+      this.accRow.position.set(rx, H * 0.82);
+      this.playBtn.position.set(lx, H * 0.94);
+      return;
+    }
     this.title.position.set(W / 2, H * 0.085);
     this.sub.position.set(W / 2, H * 0.085 + 52);
     this.preview.position.set(W / 2, H * 0.29);
@@ -58,8 +77,6 @@ export class TitleScene extends Scene {
     this.skinCap.position.set(W / 2, H * 0.655);
     this.skinRow.position.set(W / 2, H * 0.69);
     this.accRow.position.set(W / 2, H * 0.765);
-    this.accPrev.position.set(-200, 0);
-    this.accNext.position.set(200, 0);
     this.playBtn.position.set(W / 2, H * 0.88);
   }
 
