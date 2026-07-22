@@ -89,6 +89,8 @@ type Target = { kind: 'plot'; i: number } | { kind: 'vendor' } | { kind: 'gift' 
 
 // Rotating gameplay hints so a new farmer knows what to do next.
 const TIPS: readonly string[] = [
+  '💡 Slide your thumb anywhere to walk',
+  '💡 Tap 🎒 to see all the crops in your basket',
   '💡 Check the market for orders before you plant',
   '💡 Rarer crops are worth more — and orders pay big',
   '💡 Keep crops watered (or let the rain do it) to grow',
@@ -133,6 +135,10 @@ export class FarmScene extends Scene {
   private seedChips: { id: string; ring: Graphics }[] = [];
   private pouchBtn!: UIButton;
   private interactBtn!: UIButton;
+  private invBtn!: UIButton;
+  private invPanel!: Container;
+  private invGrid!: Container;
+  private invTotalText!: Text;
   private promptText!: Text;
   private target: Target = null;
 
@@ -232,8 +238,16 @@ export class FarmScene extends Scene {
     this.promptText.visible = false;
     this.mapLayer.addChild(this.promptText);
 
-    // UI layer.
-    this.joystick = new VirtualJoystick({ radius: 100 });
+    // UI layer. A dynamic joystick: press and slide anywhere to walk — the
+    // ring springs up under your thumb. Sits below the action buttons so
+    // taps on those still hit the buttons.
+    this.joystick = new VirtualJoystick({
+      radius: 90,
+      dynamic: true,
+      hitWidth: W,
+      hitHeight: H,
+    });
+    this.joystick.position.set(W / 2, H / 2);
     this.add(this.joystick, this.uiLayer);
 
     this.rainLayer = new Graphics();
@@ -281,6 +295,14 @@ export class FarmScene extends Scene {
       onTap: () => this.toggleSeedPanel(),
     });
     this.add(this.pouchBtn, this.uiLayer);
+    this.invBtn = new UIButton('🎒', {
+      width: 100,
+      height: 88,
+      fontSize: 40,
+      fill: FARM.panel,
+      onTap: () => this.toggleInventory(),
+    });
+    this.add(this.invBtn, this.uiLayer);
     this.interactBtn = new UIButton('✋', {
       width: 140,
       height: 140,
@@ -291,6 +313,7 @@ export class FarmScene extends Scene {
     });
     this.add(this.interactBtn, this.uiLayer);
     this.buildSeedPanel();
+    this.buildInventoryPanel();
 
     this.box = new DialogueBox({ palette: cozyAutumn });
     this.box.onClosed = () => {
@@ -371,6 +394,8 @@ export class FarmScene extends Scene {
       home: () => this.goHome(),
       tip: () => this.tipText.text,
       storm: () => this.currentWeather() === 'storm',
+      openInv: () => this.toggleInventory(),
+      invOpen: () => this.invPanel.visible,
     };
   }
 
@@ -391,10 +416,13 @@ export class FarmScene extends Scene {
     this.nameText.position.set(W / 2, 40);
     this.toastText.position.set(W / 2, 108);
     this.tipText.position.set(W / 2, H - 26);
-    this.joystick.position.set(150, H - 170);
+    this.joystick.position.set(W / 2, H / 2);
+    this.joystick.setHitSize(W, H);
     this.interactBtn.position.set(W - 100, H - 120);
     this.pouchBtn.position.set(W - 100, H - 250);
+    this.invBtn.position.set(W - 100, H - 350);
     this.seedPanel.position.set(W / 2, H - 360);
+    this.invPanel.position.set(W / 2, H / 2);
     this.box.position.set((W - 656) / 2, H - 300 - 36);
   }
 
@@ -443,6 +471,88 @@ export class FarmScene extends Scene {
 
   private toggleSeedPanel(): void {
     this.seedPanel.visible = !this.seedPanel.visible;
+    audio.blip();
+  }
+
+  /** The basket/inventory panel: every crop you're holding, with worth. */
+  private buildInventoryPanel(): void {
+    this.invPanel = new Container();
+    this.invPanel.visible = false;
+    const bg = new Graphics();
+    bg.roundRect(-330, -300, 660, 600, 26).fill(0x2a2016);
+    bg.roundRect(-330, -300, 660, 600, 26).stroke({ color: FARM.accent, width: 3 });
+    this.invPanel.addChild(bg);
+    const title = makeText('🎒 your basket', 30, { color: FARM.accent, weight: '900' });
+    title.position.set(0, -262);
+    this.invPanel.addChild(title);
+    this.invTotalText = makeText('', 22, { color: FARM.coin, weight: '900' });
+    this.invTotalText.position.set(0, -222);
+    this.invPanel.addChild(this.invTotalText);
+    this.invGrid = new Container();
+    this.invPanel.addChild(this.invGrid);
+    const close = new UIButton('✕ close', {
+      width: 200,
+      height: 70,
+      fontSize: 26,
+      fill: FARM.panel,
+      textColor: FARM.ink,
+      onTap: () => this.toggleInventory(),
+    });
+    close.position.set(0, 250);
+    this.add(close, this.invPanel);
+    this.uiLayer.addChild(this.invPanel);
+  }
+
+  private refreshInventoryPanel(): void {
+    for (const old of this.invGrid.removeChildren()) old.destroy({ children: true });
+    const inv = invAll();
+    const ids = Object.keys(inv).filter((id) => (inv[id] ?? 0) > 0 && cropById(id));
+    let total = 0;
+    for (const id of ids) {
+      const crop = cropById(id);
+      if (crop) total += (inv[id] ?? 0) * crop.sellPrice;
+    }
+    this.invTotalText.text =
+      ids.length > 0 ? `${invTotal()} crops · worth ⬡${total}` : 'empty — go harvest! 🌾';
+    const cols = 4;
+    const dx = 150;
+    const dy = 140;
+    ids.forEach((id, k) => {
+      const crop = cropById(id);
+      if (!crop) return;
+      const col = k % cols;
+      const row = Math.floor(k / cols);
+      const chip = new Container();
+      const ring = new Graphics();
+      ring
+        .roundRect(-64, -60, 128, 120, 18)
+        .fill(FARM.panel)
+        .roundRect(-64, -60, 128, 120, 18)
+        .stroke({ color: RARITY[crop.rarity].color, width: 3 });
+      chip.addChild(ring);
+      if (crop.emoji) chip.addChild(makeText(crop.emoji, 44));
+      else if (crop.drawFruit) {
+        const g = new Graphics();
+        crop.drawFruit(g, 28);
+        chip.addChild(g);
+      }
+      const count = makeText(`×${inv[id]}`, 22, { color: FARM.ink, weight: '900' });
+      count.position.set(0, 30);
+      chip.addChild(count);
+      const worth = makeText(`⬡${crop.sellPrice}`, 15, {
+        color: RARITY[crop.rarity].color,
+        weight: '800',
+      });
+      worth.position.set(0, 50);
+      chip.addChild(worth);
+      chip.position.set((col - (cols - 1) / 2) * dx, -140 + row * dy);
+      this.invGrid.addChild(chip);
+    });
+  }
+
+  private toggleInventory(): void {
+    if (!this.invPanel.visible) this.refreshInventoryPanel();
+    this.invPanel.visible = !this.invPanel.visible;
     audio.blip();
   }
 

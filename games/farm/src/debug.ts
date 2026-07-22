@@ -31,6 +31,8 @@ export interface FarmDebug {
   home?: () => void;
   tip?: () => string;
   storm?: () => boolean;
+  openInv?: () => void;
+  invOpen?: () => boolean;
   // Market
   inv?: () => Record<string, number>;
   giveItem?: (id: string, n: number) => void;

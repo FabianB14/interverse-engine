@@ -109,6 +109,27 @@ await page.evaluate(() => window.__farm.teleport(600, 640));
 const pp = await page.evaluate(() => window.__farm.player());
 const walkOk = pp.x === 600 && pp.y === 640;
 
+// Dynamic joystick: press and drag anywhere should walk the player.
+await page.evaluate(() => window.__farm.teleport(500, 700));
+const dragBefore = await page.evaluate(() => window.__farm.player());
+await page.mouse.move(150, 500);
+await page.mouse.down();
+for (let i = 0; i < 10; i++) {
+  await page.mouse.move(150 + i * 12, 500);
+  await sleep(30);
+}
+await sleep(150);
+await page.mouse.up();
+const dragAfter = await page.evaluate(() => window.__farm.player());
+const dragWalkOk = dragAfter.x - dragBefore.x > 40;
+
+// Inventory panel: opens and closes.
+await page.evaluate(() => window.__farm.openInv());
+const invOpened = await page.evaluate(() => window.__farm.invOpen());
+await page.evaluate(() => window.__farm.openInv());
+const invClosed = (await page.evaluate(() => window.__farm.invOpen())) === false;
+const invOk = invOpened === true && invClosed;
+
 // Economy + plant/grow/harvest loop.
 await page.evaluate(() => window.__farm.grantVerium(500));
 await page.evaluate(() => window.__farm.selectSeed('carrot'));
@@ -233,6 +254,8 @@ const ok =
   accOk &&
   skinOk &&
   nameOk &&
+  dragWalkOk &&
+  invOk &&
   stormFlag &&
   homeOk &&
   welcomeOk &&
@@ -260,6 +283,8 @@ console.log(
       skinOk,
       nameOk,
       savedNameVal,
+      dragWalkOk,
+      invOk,
       stormFlag,
       homeOk,
       welcomeOk,
