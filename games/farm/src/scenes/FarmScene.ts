@@ -55,7 +55,7 @@ import { savedAcc, savedName, savedSkin, store } from '../store.js';
 import { invAdd, invAll, invClear, invCount, invRemove, invTotal } from '../inventory.js';
 import { makeCharacter } from '../character.js';
 import type { CharType } from '../character.js';
-import { TILE_SIZE, farmLegend, farmPainters, farmRows, setMapTheme } from '../map.js';
+import { TILE, TILE_SIZE, farmLegend, farmPainters, farmRows, setMapTheme } from '../map.js';
 import { MarketScene } from './MarketScene.js';
 import { TitleScene } from './TitleScene.js';
 import '../debug.js';
@@ -174,6 +174,7 @@ export class FarmScene extends Scene {
   private buildBtn!: UIButton;
   private buildPanel!: Container;
   private placing: string | null = null;
+  private baseSolid: boolean[][] | null = null;
 
   // Pet companion
   private pet: Entity | null = null;
@@ -1257,33 +1258,66 @@ export class FarmScene extends Scene {
   private renderBuilds(list: Placed[]): void {
     for (const old of this.buildLayer.removeChildren()) old.destroy({ children: true });
     const theme = currentTheme();
+    const s = TILE_SIZE;
+
+    // Streams first (under bridges): each tile flows into neighboring stream
+    // tiles and into the map's own water, so placed runs read as one river.
+    const streamSet = new Set(
+      list.filter((b) => b.id === 'stream').map((b) => `${b.col},${b.row}`),
+    );
+    const wet = (c: number, r: number): boolean =>
+      streamSet.has(`${c},${r}`) || this.map.ground[r]?.[c] === TILE.WATER;
+    const water = new Graphics();
+    for (const b of list) {
+      if (b.id !== 'stream') continue;
+      const x = b.col * s;
+      const y = b.row * s;
+      water.roundRect(x + 5, y + 5, s - 10, s - 10, 16).fill(darken(theme.water, 0.12));
+      water.roundRect(x + 8, y + 8, s - 16, s - 16, 12).fill(theme.water);
+      if (wet(b.col - 1, b.row)) water.rect(x, y + 8, 10, s - 16).fill(theme.water);
+      if (wet(b.col + 1, b.row)) water.rect(x + s - 10, y + 8, 10, s - 16).fill(theme.water);
+      if (wet(b.col, b.row - 1)) water.rect(x + 8, y, s - 16, 10).fill(theme.water);
+      if (wet(b.col, b.row + 1)) water.rect(x + 8, y + s - 10, s - 16, 10).fill(theme.water);
+      water
+        .ellipse(x + s * 0.38, y + s * 0.42, 7, 3)
+        .fill({ color: lighten(theme.water, 0.25), alpha: 0.7 });
+    }
+    this.buildLayer.addChild(water);
+
     for (const b of list) {
       const def = buildById(b.id);
-      if (!def || b.id === 'plot') continue; // plots render as real plots
+      if (!def || b.id === 'plot' || b.id === 'stream') continue;
       const view = def.draw(TILE_SIZE * 1.2, { water: theme.water, trunk: theme.trunk });
       view.position.set((b.col + 0.5) * TILE_SIZE, (b.row + 0.5) * TILE_SIZE);
       this.buildLayer.addChild(view);
     }
+
+    // Collision: streams are real water (you can't walk through them), and a
+    // bridge on a stream tile makes it crossable again.
+    if (!this.baseSolid) this.baseSolid = this.map.solid.map((r) => [...r]);
+    this.map.solid = this.baseSolid.map((r) => [...r]);
+    for (const b of list) if (b.id === 'stream') this.map.solid[b.row]![b.col] = true;
+    for (const b of list) if (b.id === 'bridge') this.map.solid[b.row]![b.col] = false;
   }
 
   private buildBuildPanel(): void {
     this.buildPanel = new Container();
     this.buildPanel.visible = false;
     const bg = new Graphics();
-    bg.roundRect(-330, -240, 660, 480, 26).fill(0x2a2016);
-    bg.roundRect(-330, -240, 660, 480, 26).stroke({ color: FARM.accent, width: 3 });
+    bg.roundRect(-330, -290, 660, 580, 26).fill(0x2a2016);
+    bg.roundRect(-330, -290, 660, 580, 26).stroke({ color: FARM.accent, width: 3 });
     this.buildPanel.addChild(bg);
     const title = makeText('🔨 Build — pick, then tap a tile', 26, {
       color: FARM.accent,
       weight: '900',
     });
-    title.position.set(0, -202);
+    title.position.set(0, -252);
     this.buildPanel.addChild(title);
     BUILDS.forEach((b, i) => {
       const btn = new UIButton(`${b.emoji} ${b.name} — ⬡${b.cost}`, {
         width: 560,
-        height: 66,
-        fontSize: 24,
+        height: 62,
+        fontSize: 23,
         fill: FARM.panel,
         textColor: FARM.ink,
         onTap: () => {
@@ -1293,18 +1327,18 @@ export class FarmScene extends Scene {
           audio.blip(1.2);
         },
       });
-      btn.position.set(0, -140 + i * 78);
+      btn.position.set(0, -192 + i * 72);
       this.add(btn, this.buildPanel);
     });
     const close = new UIButton('✕ close', {
       width: 190,
-      height: 62,
+      height: 60,
       fontSize: 24,
       fill: 0x5a4632,
       textColor: FARM.ink,
       onTap: () => this.toggleBuildPanel(),
     });
-    close.position.set(0, 196);
+    close.position.set(0, 250);
     this.add(close, this.buildPanel);
     this.uiLayer.addChild(this.buildPanel);
   }
@@ -1328,6 +1362,16 @@ export class FarmScene extends Scene {
     if (!def) return false;
     if (this.map.solid[row]?.[col] !== false) {
       this.toast('needs an open grassy tile');
+      audio.buzz();
+      return false;
+    }
+    // Don't let a stream flood the tile you're standing on.
+    if (
+      id === 'stream' &&
+      col === Math.floor(this.player.x / TILE_SIZE) &&
+      row === Math.floor(this.player.y / TILE_SIZE)
+    ) {
+      this.toast("can't place water under your feet");
       audio.buzz();
       return false;
     }

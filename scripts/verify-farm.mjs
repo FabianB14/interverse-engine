@@ -167,10 +167,18 @@ await sleep(80);
 const moistOk = (await page.evaluate(() => window.__farm.plotInfo()[1])).m > 0.9;
 
 // Building: place a pond on an open tile and confirm it stuck.
-await page.evaluate(() => window.__farm.grantVerium(200));
+await page.evaluate(() => window.__farm.grantVerium(300));
 await page.evaluate(() => window.__farm.buildStart('pond'));
 const placed = await page.evaluate(() => window.__farm.placeAt(8, 15));
 const buildOk = placed === true && (await page.evaluate(() => window.__farm.buildCount())) === 1;
+
+// Streams: two adjacent tiles route a little river next to the pond.
+await page.evaluate(() => window.__farm.buildStart('stream'));
+const s1 = await page.evaluate(() => window.__farm.placeAt(9, 15));
+await page.evaluate(() => window.__farm.buildStart('stream'));
+const s2 = await page.evaluate(() => window.__farm.placeAt(10, 15));
+const streamOk =
+  s1 === true && s2 === true && (await page.evaluate(() => window.__farm.buildCount())) === 3;
 
 // Weather: force rain and confirm it registers.
 await page.evaluate(() => window.__farm.rainNow());
@@ -330,6 +338,7 @@ const ok =
   upgradeOk &&
   cosmeticOk &&
   buildOk &&
+  streamOk &&
   themeOk &&
   petOk &&
   backOk &&
@@ -371,6 +380,7 @@ console.log(
       upgradeOk,
       cosmeticOk,
       buildOk,
+      streamOk,
       themeOk,
       petOk,
       order0,

@@ -73,6 +73,9 @@ function fence(s: number, t: { trunk: number }): Container {
 export const BUILDS: readonly BuildDef[] = [
   { id: 'plot', name: 'Crop Plot', emoji: '🟫', cost: 80, draw: () => new Container() },
   { id: 'pond', name: 'Pond', emoji: '🪷', cost: 120, draw: (s, t) => pond(s, t) },
+  // Streams are drawn tile-aware by the farm (they flow into neighbors),
+  // so like plots they carry no standalone art here.
+  { id: 'stream', name: 'Stream', emoji: '💧', cost: 40, draw: () => new Container() },
   { id: 'bridge', name: 'Bridge', emoji: '🌉', cost: 100, draw: (s, t) => bridge(s, t) },
   { id: 'fence', name: 'Fence', emoji: '🪵', cost: 60, draw: (s, t) => fence(s, t) },
   { id: 'shed', name: 'Farmhouse', emoji: '🏠', cost: 300, draw: (s, t) => shed(s, t) },
