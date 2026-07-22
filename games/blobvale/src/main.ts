@@ -1,4 +1,3 @@
-import { Text } from 'pixi.js';
 import { createGame, partyPop } from '@interverse/engine';
 import { MenuScene } from './scenes/MenuScene.js';
 
@@ -7,32 +6,12 @@ const DESIGN_W = 720;
 const DESIGN_H = 1280;
 
 async function main(): Promise<void> {
-  const game = await createGame({
+  await createGame({
     width: DESIGN_W,
     height: DESIGN_H,
     background: partyPop.bg,
     adaptive: true,
     scene: new MenuScene(),
-  });
-
-  // Small FPS readout (screen-space, top-left) — the 60fps budget gate.
-  const fps = new Text({
-    text: 'FPS —',
-    style: { fill: 0x8affc1, fontFamily: 'monospace', fontSize: 16, fontWeight: 'bold' },
-  });
-  fps.position.set(8, 8);
-  fps.alpha = 0.7;
-  game.app.stage.addChild(fps);
-
-  let acc = 0;
-  let smoothed = 60;
-  game.app.ticker.add(() => {
-    smoothed += (Math.min(game.app.ticker.FPS, 120) - smoothed) * 0.1;
-    acc += game.app.ticker.deltaMS;
-    if (acc >= 250) {
-      acc = 0;
-      fps.text = `FPS ${Math.round(smoothed)}`;
-    }
   });
 }
 
