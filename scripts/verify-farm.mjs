@@ -34,6 +34,8 @@ await page.goto(url, { waitUntil: 'networkidle' });
 await page.waitForSelector('canvas', { timeout: 30_000 });
 
 await page.waitForFunction(() => window.__farm?.scene() === 'title', null, { timeout: 10_000 });
+// Fresh state so the welcome gift + gift-box cooldown are deterministic.
+await page.evaluate(() => window.localStorage.clear());
 // Character picker: default blob, switch to a person avatar.
 const charDefault = await page.evaluate(() => window.__farm.charType());
 await page.evaluate(() => window.__farm.setChar('person', 0x6fb0d8));
@@ -42,6 +44,26 @@ const charOk = charDefault === 'blob' && charAfter === 'person';
 await page.evaluate(() => window.__farm.play());
 await page.waitForFunction(() => window.__farm?.scene() === 'farm', null, { timeout: 10_000 });
 await sleep(400);
+
+// A brand-new farmer gets a welcome gift so they can afford their first seeds:
+// +100 Verium and a few free crops in the basket.
+const vWelcome = await page.evaluate(() => window.__farm.verium());
+const invWelcome = await page.evaluate(() => window.__farm.inv());
+const welcomeCrops = Object.values(invWelcome).reduce((a, b) => a + b, 0);
+const welcomeOk = vWelcome >= 100 && welcomeCrops >= 3;
+// Clear the gifted basket so later inventory asserts are deterministic.
+await page.evaluate(() => window.__farm.clearInv());
+
+// Free recharging gift box: walk up to it and open it for Verium + a crop.
+await page.evaluate(() => window.__farm.teleport(416, 736));
+const giftReadyBefore = await page.evaluate(() => window.__farm.giftReadyMs());
+const vPreGift = await page.evaluate(() => window.__farm.verium());
+await page.evaluate(() => window.__farm.claimGift());
+await sleep(80);
+const vPostGift = await page.evaluate(() => window.__farm.verium());
+const giftReadyAfter = await page.evaluate(() => window.__farm.giftReadyMs());
+const giftOk = giftReadyBefore === 0 && vPostGift > vPreGift && giftReadyAfter > 0;
+await page.evaluate(() => window.__farm.clearInv());
 
 // Walkable world: teleport the player and confirm it moved.
 await page.evaluate(() => window.__farm.teleport(600, 640));
@@ -102,7 +124,26 @@ await page.evaluate(() => window.__farm.toMarket());
 await page.waitForFunction(() => window.__farm?.scene() === 'market', null, { timeout: 8_000 });
 await sleep(300);
 const ordersLen = await page.evaluate(() => window.__farm.orders().length);
-// Quick-sell the harvested carrot at base price (12).
+
+// Bundle pack: pay a flat price for a handful of random crops.
+await page.evaluate(() => window.__farm.grantVerium(100));
+const vPreBundle = await page.evaluate(() => window.__farm.verium());
+const invPreBundle = await page.evaluate(() =>
+  Object.values(window.__farm.inv()).reduce((a, b) => a + b, 0),
+);
+const bundleBought = await page.evaluate(() => window.__farm.buyBundle());
+await sleep(80);
+const vPostBundle = await page.evaluate(() => window.__farm.verium());
+const invPostBundle = await page.evaluate(() =>
+  Object.values(window.__farm.inv()).reduce((a, b) => a + b, 0),
+);
+const bundleOk =
+  bundleBought === true && vPostBundle === vPreBundle - 40 && invPostBundle === invPreBundle + 8;
+
+// Deterministic basket for the quick-sell check: one carrot only.
+await page.evaluate(() => window.__farm.clearInv());
+await page.evaluate(() => window.__farm.giveItem('carrot', 1));
+// Quick-sell the carrot at base price (12).
 const vPreSell = await page.evaluate(() => window.__farm.verium());
 const gained = await page.evaluate(() => window.__farm.quickSell('carrot'));
 await sleep(80);
@@ -129,6 +170,8 @@ await browser.close();
 
 const ok =
   charOk &&
+  welcomeOk &&
+  giftOk &&
   walkOk &&
   vendorOk &&
   plantOk &&
@@ -138,6 +181,7 @@ const ok =
   rainOk &&
   musicOk &&
   ordersLen === 3 &&
+  bundleOk &&
   quickSellOk &&
   fulfillOk &&
   backOk &&
@@ -147,6 +191,12 @@ console.log(
     {
       ok,
       charOk,
+      welcomeOk,
+      vWelcome,
+      welcomeCrops,
+      giftOk,
+      giftReadyBefore,
+      giftReadyAfter,
       walkOk,
       vendorOk,
       plantOk,
@@ -158,7 +208,8 @@ console.log(
       rainOk,
       musicOk,
       ordersLen,
-      gained,
+      bundleOk,
+      bundleBought,
       quickSellOk,
       fulfillOk,
       order0,

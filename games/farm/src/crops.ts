@@ -5,6 +5,16 @@ import { Graphics } from 'pixi.js';
  * session). Fruit is shown as an emoji, or code-drawn when there's no good
  * emoji for it (radish).
  */
+export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
+
+export const RARITY: Record<Rarity, { name: string; color: number; star: string }> = {
+  common: { name: 'Common', color: 0xbfc6cc, star: '⭐' },
+  uncommon: { name: 'Uncommon', color: 0x7bd06a, star: '⭐⭐' },
+  rare: { name: 'Rare', color: 0x5aa9ff, star: '⭐⭐⭐' },
+  epic: { name: 'Epic', color: 0xc77dff, star: '⭐⭐⭐⭐' },
+  legendary: { name: 'Legendary', color: 0xffb03a, star: '⭐⭐⭐⭐⭐' },
+};
+
 export interface CropDef {
   id: string;
   name: string;
@@ -13,11 +23,13 @@ export interface CropDef {
   drawFruit?: (g: Graphics, s: number) => void;
   /** Verium to plant a seed. */
   seedCost: number;
-  /** Verium earned per harvest. */
+  /** Verium earned per harvest (its "worth"). */
   sellPrice: number;
   growSeconds: number;
   /** Foliage color for the growing plant. */
   leaf: number;
+  /** How prized it is — rarer crops are worth more and sparkle. */
+  rarity: Rarity;
 }
 
 function drawRadish(g: Graphics, s: number): void {
@@ -41,6 +53,7 @@ export const CROPS: CropDef[] = [
     sellPrice: 12,
     growSeconds: 30,
     leaf: 0x6cbf4a,
+    rarity: 'common',
   },
   {
     id: 'radish',
@@ -50,6 +63,7 @@ export const CROPS: CropDef[] = [
     sellPrice: 10,
     growSeconds: 24,
     leaf: 0x6cbf4a,
+    rarity: 'common',
   },
   {
     id: 'potato',
@@ -59,6 +73,7 @@ export const CROPS: CropDef[] = [
     sellPrice: 16,
     growSeconds: 36,
     leaf: 0x6cbf4a,
+    rarity: 'common',
   },
   {
     id: 'corn',
@@ -68,6 +83,7 @@ export const CROPS: CropDef[] = [
     sellPrice: 22,
     growSeconds: 50,
     leaf: 0x8fbf5a,
+    rarity: 'uncommon',
   },
   {
     id: 'tomato',
@@ -77,6 +93,7 @@ export const CROPS: CropDef[] = [
     sellPrice: 26,
     growSeconds: 48,
     leaf: 0x5f9c4a,
+    rarity: 'uncommon',
   },
   {
     id: 'strawberry',
@@ -86,6 +103,7 @@ export const CROPS: CropDef[] = [
     sellPrice: 30,
     growSeconds: 40,
     leaf: 0x5f9c4a,
+    rarity: 'rare',
   },
   {
     id: 'pumpkin',
@@ -95,6 +113,7 @@ export const CROPS: CropDef[] = [
     sellPrice: 55,
     growSeconds: 85,
     leaf: 0x5f8f43,
+    rarity: 'rare',
   },
   {
     id: 'apple',
@@ -104,6 +123,7 @@ export const CROPS: CropDef[] = [
     sellPrice: 110,
     growSeconds: 120,
     leaf: 0x4d7a3a,
+    rarity: 'epic',
   },
   {
     id: 'orange',
@@ -113,6 +133,7 @@ export const CROPS: CropDef[] = [
     sellPrice: 120,
     growSeconds: 130,
     leaf: 0x4d7a3a,
+    rarity: 'epic',
   },
   {
     id: 'pineapple',
@@ -122,6 +143,7 @@ export const CROPS: CropDef[] = [
     sellPrice: 170,
     growSeconds: 160,
     leaf: 0x6cae4a,
+    rarity: 'legendary',
   },
 ];
 

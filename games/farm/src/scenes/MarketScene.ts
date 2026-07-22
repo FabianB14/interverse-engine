@@ -14,8 +14,9 @@ import {
 import { UIButton } from '@interverse/ui';
 import { FARM } from '../theme.js';
 import { makeText } from '../text.js';
-import { cropById } from '../crops.js';
-import { invAdd, invAll, invCount, invRemove } from '../inventory.js';
+import { RARITY, cropById } from '../crops.js';
+import { invAdd, invAll, invClear, invCount, invRemove } from '../inventory.js';
+import { BUNDLE, buyBundle } from '../gifts.js';
 import { loadOrders, saveOrders, topUpOrders } from '../orders.js';
 import type { Order } from '../orders.js';
 import { FarmScene } from './FarmScene.js';
@@ -35,6 +36,7 @@ export class MarketScene extends Scene {
   private basketNote!: Text;
   private toastText!: Text;
   private backBtn!: UIButton;
+  private bundleBtn!: UIButton;
   private W = 720;
   private H = 1280;
 
@@ -89,6 +91,15 @@ export class MarketScene extends Scene {
     });
     this.add(this.backBtn, this.uiLayer);
 
+    this.bundleBtn = new UIButton(`🎁 Bundle ⬡${BUNDLE.cost} → ${BUNDLE.count} crops`, {
+      width: 520,
+      height: 74,
+      fontSize: 24,
+      fill: 0x6b4f8f,
+      onTap: () => this.buyBundleAction(),
+    });
+    this.add(this.bundleBtn, this.uiLayer);
+
     this.layout();
     this.buildOrders();
     this.buildBasket();
@@ -101,14 +112,34 @@ export class MarketScene extends Scene {
       orders: () => this.orders.map((o) => ({ crop: o.crop, qty: o.qty, reward: o.reward })),
       fulfill: (i: number) => this.fulfillOrder(i),
       quickSell: (id: string) => this.quickSellCrop(id),
+      buyBundle: () => this.buyBundleAction(),
       inv: () => invAll(),
       giveItem: (id: string, n: number) => {
         invAdd(id, n);
         this.buildOrders();
         this.buildBasket();
       },
+      clearInv: () => {
+        invClear();
+        this.buildOrders();
+        this.buildBasket();
+      },
       toFarm: () => this.toFarm(),
     };
+  }
+
+  private buyBundleAction(): boolean {
+    if (buyBundle()) {
+      audio.chime();
+      this.toast(`🎁 bundle! +${BUNDLE.count} crops`);
+      this.buildOrders();
+      this.buildBasket();
+      this.updateVerium();
+      return true;
+    }
+    this.toast('not enough Verium for the bundle');
+    audio.buzz();
+    return false;
   }
 
   protected override onExit(): void {
@@ -121,8 +152,9 @@ export class MarketScene extends Scene {
     this.titleText.position.set(W / 2, 54);
     this.veriumText.position.set(W - 28, 54);
     this.ordersLabel.position.set(W / 2, 150);
-    this.basketLabel.position.set(W / 2, this.H - 380);
-    this.basketNote.position.set(W / 2, this.H - 348);
+    this.bundleBtn.position.set(W / 2, this.H - 430);
+    this.basketLabel.position.set(W / 2, this.H - 360);
+    this.basketNote.position.set(W / 2, this.H - 330);
     this.toastText.position.set(W / 2, this.H - 60);
     this.buildOrders();
     this.buildBasket();
@@ -142,14 +174,13 @@ export class MarketScene extends Scene {
       card.position.set(this.W / 2, 250 + i * (ch + 18));
       const bg = new Graphics();
       bg.roundRect(-cw / 2, -ch / 2, cw, ch, 22).fill(FARM.panel);
-      bg.roundRect(-cw / 2, -ch / 2, cw, ch, 22).stroke({
-        color: darken(FARM.panel, 0.3),
-        width: 3,
-      });
+      // A rarity-colored border hints at how prized the requested crop is.
+      const rc = crop ? RARITY[crop.rarity].color : darken(FARM.panel, 0.3);
+      bg.roundRect(-cw / 2, -ch / 2, cw, ch, 22).stroke({ color: rc, width: 3 });
       card.addChild(bg);
       card.addChild(this.cardText(o.who, 60, -cw / 2 + 60, -6));
       const label = crop?.emoji ?? crop?.name ?? '?';
-      card.addChild(this.cardText(`wants ×${o.qty} ${label}`, 28, -cw / 2 + 120, -26, 0));
+      card.addChild(this.cardText(`wants ×${o.qty} ${label}`, 28, -cw / 2 + 120, -26, 0, rc));
       card.addChild(this.cardText(`reward ⬡${o.reward}`, 24, -cw / 2 + 120, 20, 0, FARM.coin));
       const have = invCount(o.crop);
       card.addChild(

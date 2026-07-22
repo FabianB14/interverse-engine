@@ -16,6 +16,10 @@ export function invTotal(): number {
   return Object.values(invAll()).reduce((a, b) => a + b, 0);
 }
 
+export function invClear(): void {
+  store.set('inventory', {});
+}
+
 export function invAdd(id: string, n = 1): void {
   const inv = invAll();
   inv[id] = (inv[id] ?? 0) + n;

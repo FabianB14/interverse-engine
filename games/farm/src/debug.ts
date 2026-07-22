@@ -21,6 +21,7 @@ export interface FarmDebug {
   // Market
   inv?: () => Record<string, number>;
   giveItem?: (id: string, n: number) => void;
+  clearInv?: () => void;
   toMarket?: () => void;
   toFarm?: () => void;
   orders?: () => Array<{ crop: string; qty: number; reward: number }>;
@@ -33,6 +34,9 @@ export interface FarmDebug {
   dialogueOpen?: () => boolean;
   setChar?: (type: string, color: number) => void;
   charType?: () => string;
+  giftReadyMs?: () => number;
+  claimGift?: () => void;
+  buyBundle?: () => boolean;
 }
 
 declare global {

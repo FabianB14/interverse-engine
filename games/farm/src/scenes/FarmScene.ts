@@ -24,8 +24,9 @@ import type { DialogueData, TileMapData } from '@interverse/engine';
 import { DialogueBox, UIButton } from '@interverse/ui';
 import { FARM } from '../theme.js';
 import { makeText } from '../text.js';
-import { CROPS, cropById } from '../crops.js';
+import { CROPS, RARITY, cropById } from '../crops.js';
 import type { CropDef } from '../crops.js';
+import { claimGift, claimWelcome, giftReadyInMs } from '../gifts.js';
 import {
   SEASON_ICON,
   WEATHER_ICON,
@@ -37,7 +38,7 @@ import {
 import type { Season, Weather } from '../weather.js';
 import { music } from '../music.js';
 import { store } from '../store.js';
-import { invAdd, invAll, invTotal } from '../inventory.js';
+import { invAdd, invAll, invClear, invTotal } from '../inventory.js';
 import { makeCharacter } from '../character.js';
 import type { CharType } from '../character.js';
 import { TILE_SIZE, farmLegend, farmPainters, farmRows } from '../map.js';
@@ -82,7 +83,7 @@ const VENDOR_DIALOGUE: DialogueData = {
   },
 };
 
-type Target = { kind: 'plot'; i: number } | { kind: 'vendor' } | null;
+type Target = { kind: 'plot'; i: number } | { kind: 'vendor' } | { kind: 'gift' } | null;
 
 export class FarmScene extends Scene {
   private map!: TileMapData;
@@ -98,6 +99,9 @@ export class FarmScene extends Scene {
   private plotViews: PlotView[] = [];
   private vendor!: Entity;
   private vendorBang!: Text;
+  private giftBox!: Entity;
+  private giftGfx!: Graphics;
+  private giftLabel!: Text;
 
   private box!: DialogueBox;
   private runner: DialogueRunner | null = null;
@@ -172,6 +176,20 @@ export class FarmScene extends Scene {
     makeTappable(this.vendor, () => this.tryTalk(), { hitRadius: 80 });
     this.add(this.vendor, this.mapLayer);
 
+    // Gift box — a recharging free reward you walk up to and open.
+    const gObj = this.map.objects.find((o) => o.name === 'gift') ?? { x: 400, y: 736 };
+    this.giftBox = new Entity();
+    this.giftGfx = new Graphics();
+    this.giftBox.addChild(this.giftGfx);
+    this.giftLabel = makeText('', 18, { color: FARM.accent, weight: '800' });
+    this.giftLabel.position.set(0, -46);
+    this.giftBox.addChild(this.giftLabel);
+    this.giftBox.position.set(gObj.x, gObj.y);
+    this.giftBox.addBehavior(new Wobble({ target: this.giftGfx, amount: 0.06, speed: 3 }));
+    makeTappable(this.giftBox, () => this.claimGiftBox(), { hitRadius: 60 });
+    this.add(this.giftBox, this.mapLayer);
+    this.drawGiftBox();
+
     // Player.
     const spawn = this.map.objects.find((o) => o.name === 'player') ?? { x: 544, y: 672 };
     const charType = store.get<CharType>('charType', 'blob');
@@ -244,6 +262,15 @@ export class FarmScene extends Scene {
     this.updateBasket();
     this.refreshSeedHighlight();
 
+    // Welcome gift so a brand-new farmer can afford their first seeds.
+    if (claimWelcome()) {
+      this.updateVeriumText();
+      this.updateBasket();
+      const back = new Entity();
+      back.addBehavior(new Timer(0.4, () => this.toast('🎁 Welcome gift! +100 ⬡ and free crops')));
+      this.add(back, this.uiLayer);
+    }
+
     window.__farm = {
       scene: () => 'farm',
       verium: () => verium.balance(),
@@ -268,6 +295,10 @@ export class FarmScene extends Scene {
         invAdd(id, n);
         this.updateBasket();
       },
+      clearInv: () => {
+        invClear();
+        this.updateBasket();
+      },
       toMarket: () => this.goMarket(),
       weather: () => this.currentWeather(),
       season: () => this.season,
@@ -288,6 +319,8 @@ export class FarmScene extends Scene {
         this.tryTalk();
       },
       dialogueOpen: () => this.box.isOpen,
+      giftReadyMs: () => giftReadyInMs(),
+      claimGift: () => this.claimGiftBox(),
     };
   }
 
@@ -336,10 +369,16 @@ export class FarmScene extends Scene {
         crop.drawFruit(g, 26);
         chip.addChild(g);
       }
-      const cost = makeText(`⬡${crop.seedCost}`, 18, { color: FARM.coin, weight: '800' });
-      cost.position.set(0, 38);
+      const cost = makeText(`seed ⬡${crop.seedCost}`, 16, { color: FARM.inkSoft, weight: '800' });
+      cost.position.set(0, 36);
       chip.addChild(cost);
-      chip.position.set((col - (cols - 1) / 2) * dx, -46 + row * dy);
+      const worth = makeText(`worth ⬡${crop.sellPrice}`, 16, {
+        color: RARITY[crop.rarity].color,
+        weight: '800',
+      });
+      worth.position.set(0, 56);
+      chip.addChild(worth);
+      chip.position.set((col - (cols - 1) / 2) * dx, -50 + row * dy);
       const id = crop.id;
       makeTappable(chip, () => this.pickSeed(id), { hitRadius: 46 });
       this.seedPanel.addChild(chip);
@@ -368,14 +407,18 @@ export class FarmScene extends Scene {
   }
 
   private refreshSeedHighlight(): void {
+    // Each chip is ringed in its rarity color; the selected one gets a bright
+    // accent ring.
     for (const { id, ring } of this.seedChips) {
       ring.clear();
       const sel = id === this.selectedSeed;
+      const crop = cropById(id);
+      const rc = crop ? RARITY[crop.rarity].color : 0x888888;
       ring
         .circle(0, 0, 46)
         .fill(sel ? 0x3a5a2a : FARM.panel)
         .circle(0, 0, 46)
-        .stroke({ color: FARM.accent, width: sel ? 4 : 0, alpha: sel ? 1 : 0 });
+        .stroke({ color: sel ? FARM.accent : rc, width: sel ? 5 : 3 });
     }
     const crop = cropById(this.selectedSeed);
     if (crop) this.pouchBtn.setLabel(crop.emoji ?? '🌱');
@@ -459,8 +502,14 @@ export class FarmScene extends Scene {
       bestD = dv;
       best = { kind: 'vendor' };
     }
+    const dg = Math.hypot(this.giftBox.x - px, this.giftBox.y - py);
+    if (dg < bestD) {
+      bestD = dg;
+      best = { kind: 'gift' };
+    }
     this.target = best;
     this.vendorBang.visible = best?.kind === 'vendor' && !this.box.isOpen;
+    this.drawGiftBox();
 
     if (!best || this.box.isOpen) {
       this.promptText.visible = false;
@@ -469,16 +518,21 @@ export class FarmScene extends Scene {
     }
     this.interactBtn.alpha = 1;
     let label = 'talk';
+    let icon = '💬';
     let at = { x: this.vendor.x, y: this.vendor.y - 96 };
     if (best.kind === 'plot') {
       const p = this.plots[best.i]!;
       label = !p.crop ? 'plant' : p.growth >= 1 ? 'harvest' : 'water';
+      icon = label === 'plant' ? '🌱' : label === 'water' ? '💧' : '🌾';
       const v = this.plotViews[best.i]!;
       at = { x: v.x, y: v.y - 64 };
+    } else if (best.kind === 'gift') {
+      const ready = giftReadyInMs() <= 0;
+      label = ready ? 'open gift' : 'gift not ready';
+      icon = '🎁';
+      at = { x: this.giftBox.x, y: this.giftBox.y - 66 };
     }
-    this.interactBtn.setLabel(
-      best.kind === 'vendor' ? '💬' : label === 'plant' ? '🌱' : label === 'water' ? '💧' : '🌾',
-    );
+    this.interactBtn.setLabel(icon);
     this.promptText.text = `tap to ${label}`;
     this.promptText.position.set(at.x, at.y);
     this.promptText.visible = true;
@@ -488,7 +542,57 @@ export class FarmScene extends Scene {
     const target = this.target;
     if (this.box.isOpen || !target) return;
     if (target.kind === 'vendor') this.tryTalk();
+    else if (target.kind === 'gift') this.claimGiftBox();
     else this.tapPlot(target.i);
+  }
+
+  private drawGiftBox(): void {
+    const readyMs = giftReadyInMs();
+    const ready = readyMs <= 0;
+    this.giftGfx.clear();
+    const box = ready ? 0xe07a5f : 0x7a6a55;
+    const lid = ready ? 0xffb03a : 0x94856d;
+    this.giftGfx.roundRect(-20, -10, 40, 34, 5).fill(box);
+    this.giftGfx.roundRect(-24, -20, 48, 14, 5).fill(lid);
+    this.giftGfx.rect(-4, -20, 8, 44).fill({ color: 0xfff3e2, alpha: 0.85 });
+    this.giftGfx.rect(-24, -6, 48, 6).fill({ color: 0xfff3e2, alpha: 0.85 });
+    if (ready) {
+      this.giftGfx.star(0, -30, 5, 8, 4).fill(0xffe08a);
+      this.giftLabel.text = 'free gift!';
+    } else {
+      this.giftLabel.text = `${Math.ceil(readyMs / 1000)}s`;
+    }
+  }
+
+  private claimGiftBox(): void {
+    if (
+      Math.hypot(this.giftBox.x - this.player.x, this.giftBox.y - this.player.y) >
+      INTERACT_RANGE + 20
+    ) {
+      this.toast('walk up to the gift box');
+      return;
+    }
+    const reward = claimGift();
+    if (!reward) {
+      this.toast(`gift recharges in ${Math.ceil(giftReadyInMs() / 1000)}s`);
+      audio.buzz();
+      return;
+    }
+    const crop = cropById(reward.crop);
+    audio.chime();
+    this.giftPopup(`+${reward.verium} ⬡  ${crop?.emoji ?? '🌱'}`);
+    this.updateVeriumText();
+    this.updateBasket();
+    this.drawGiftBox();
+  }
+
+  private giftPopup(text: string): void {
+    const e = new Entity();
+    e.position.set(this.giftBox.x, this.giftBox.y - 30);
+    e.addChild(makeText(text, 26, { color: FARM.coin, weight: '900' }));
+    e.addBehavior(new Tween(e, { y: this.giftBox.y - 90, alpha: 0 }, 1, { ease: easings.outQuad }));
+    e.addBehavior(new Timer(1.05, () => this.remove(e)));
+    this.add(e, this.mapLayer);
   }
 
   private currentWeather(): Weather {

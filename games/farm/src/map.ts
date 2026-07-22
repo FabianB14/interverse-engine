@@ -27,7 +27,7 @@ export const farmRows: readonly string[] = [
   '#..o.o.o.o......#'.padEnd(17, '.').slice(0, 17) + '#',
   '#................#',
   '#.......@........#',
-  '#................#',
+  '#.....G..........#',
   '#..wwww.....T....#',
   '#..wwww.........#'.padEnd(17, '.').slice(0, 17) + '#',
   '#..wwww.....F....#',
@@ -50,6 +50,7 @@ export const farmLegend: Record<string, TileLegendEntry> = {
   F: { tile: TILE.FLOWER },
   o: { tile: TILE.GRASS, object: 'plot' },
   V: { tile: TILE.GRASS, object: 'vendor' },
+  G: { tile: TILE.GRASS, object: 'gift' },
   '@': { tile: TILE.GRASS, object: 'player' },
 };
 
