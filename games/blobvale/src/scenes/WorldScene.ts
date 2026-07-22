@@ -246,6 +246,8 @@ export class WorldScene extends Scene {
   private hudText!: Text;
   private hpBar!: Graphics;
   private myBar!: Graphics;
+  private partyPanel!: Container;
+  private partyRows = new Map<string, { body: Container; bar: Graphics; nameT: Text }>();
   private nextMobId = 1;
   private killsSeen = 0;
   private veriumEarned = 0;
@@ -361,6 +363,12 @@ export class WorldScene extends Scene {
     this.hpBar.position.set(16, 96);
     this.uiLayer.addChild(this.hpBar);
 
+    // Party panel: a little portrait + health bar for every adventurer.
+    this.partyPanel = new Container();
+    this.partyPanel.position.set(16, 122);
+    this.uiLayer.addChild(this.partyPanel);
+    this.buildPartyPanel();
+
     for (const id of this.roster.order) {
       this.stats[id] = { hp: maxHpAtLevel(1), max: maxHpAtLevel(1), lvl: 1, xp: 0 };
     }
@@ -409,6 +417,7 @@ export class WorldScene extends Scene {
       kills: () => this.killsSeen,
       verium: () => verium.balance(),
       veriumEarned: () => this.veriumEarned,
+      partySize: () => this.partyRows.size,
       upgradeOpen: () => this.upgradeOverlay !== null,
       pickUpgrade: (i: number) => {
         const card = this.upgradeOverlay?.cards[i];
@@ -565,6 +574,7 @@ export class WorldScene extends Scene {
       // "late-joining cleric does nothing" bug.
       this.stats[from] ??= { hp: maxHpAtLevel(1), max: maxHpAtLevel(1), lvl: 1, xp: 0 };
       this.spawnRemote(from, this.roster.order.indexOf(from));
+      this.buildPartyPanel();
       this.session.broadcast({ type: 'roster', ...this.roster });
       this.session.sendTo(from, { type: 'start', roster: this.roster });
       return;
@@ -604,6 +614,7 @@ export class WorldScene extends Scene {
           }
         }
       });
+      this.buildPartyPanel();
       return;
     }
     if (msg?.type === 'offer' && !this.session.isHost) {
@@ -1612,6 +1623,55 @@ export class WorldScene extends Scene {
     this.myBar.clear();
     this.myBar.rect(-26, 0, 52, 6).fill({ color: 0x000000, alpha: 0.4 });
     this.myBar.rect(-26, 0, 52 * Math.max(0, st.hp / st.max), 6).fill(0x8affc1);
+    this.updateParty();
+  }
+
+  /** One row per party member: mini portrait + name + live health bar. */
+  private buildPartyPanel(): void {
+    for (const old of this.partyPanel.removeChildren()) old.destroy({ children: true });
+    this.partyRows.clear();
+    this.roster.order.forEach((id, i) => {
+      const cls = classById(this.roster.classes[id]);
+      const row = new Container();
+      row.position.set(0, i * 50);
+      const char = blobCharacter({
+        radius: 15,
+        color: shadeFor(cls.color, this.roster.looks?.[id] ?? 2),
+        seed: 5 + i,
+        shadow: false,
+      });
+      char.view.position.set(16, 18);
+      char.body.addChild(accessoryView(this.roster.accs?.[id], 15));
+      row.addChild(char.view);
+      const nameT = makeText('', 16, {
+        color: id === this.session.id ? forestDeep.accent : forestDeep.ink,
+        weight: '800',
+      });
+      nameT.anchor.set(0, 0.5);
+      nameT.position.set(40, 8);
+      row.addChild(nameT);
+      const bar = new Graphics();
+      bar.position.set(40, 24);
+      row.addChild(bar);
+      this.partyPanel.addChild(row);
+      this.partyRows.set(id, { body: char.body, bar, nameT });
+    });
+  }
+
+  private updateParty(): void {
+    for (const [id, row] of this.partyRows) {
+      const st = this.stats[id];
+      const w = 132;
+      row.bar.clear();
+      row.bar.rect(0, 0, w, 8).fill({ color: 0x000000, alpha: 0.45 });
+      if (st) {
+        const down = st.hp <= 0;
+        row.bar.rect(0, 0, w * Math.max(0, st.hp / st.max), 8).fill(down ? 0x8a8a9a : 0x8affc1);
+        const label = `Lv${st.lvl} ${this.roster.names[id] ?? '?'}${down ? ' 💫' : ''}`;
+        if (row.nameT.text !== label) row.nameT.text = label;
+        row.body.alpha = down ? 0.4 : 1;
+      }
+    }
   }
 
   // -------------------------------------------------- upgrade cards (M3/M4)

@@ -16,6 +16,7 @@ export interface UIButtonOptions {
 export class UIButton extends Entity {
   readonly buttonWidth: number;
   readonly buttonHeight: number;
+  private readonly labelText: Text;
 
   constructor(label: string, opts: UIButtonOptions) {
     super();
@@ -28,7 +29,7 @@ export class UIButton extends Entity {
     bg.roundRect(-width / 2, -height / 2, width, height, height / 2).fill(fill);
     this.addChild(bg);
 
-    const text = new Text({
+    const text = (this.labelText = new Text({
       text: label,
       style: {
         fontFamily: 'system-ui, "Segoe UI", sans-serif',
@@ -37,7 +38,7 @@ export class UIButton extends Entity {
         fill: textColor,
         align: 'center',
       },
-    });
+    }));
     text.anchor.set(0.5);
     this.addChild(text);
 
@@ -58,5 +59,10 @@ export class UIButton extends Entity {
         },
       },
     );
+  }
+
+  /** Update the button's label text in place. */
+  setLabel(label: string): void {
+    this.labelText.text = label;
   }
 }

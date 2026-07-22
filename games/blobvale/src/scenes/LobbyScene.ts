@@ -30,6 +30,8 @@ export interface RosterState {
   accs?: Record<string, number>;
   /** Voice index per player (index into VOICES). */
   voices?: Record<string, number>;
+  /** Which non-host players have tapped Ready. */
+  ready?: Record<string, boolean>;
 }
 
 interface RosterMessage extends RosterState {
@@ -56,6 +58,16 @@ interface VoiceMessage {
   voice: number;
 }
 
+interface ReadyMessage {
+  type: 'ready';
+  ready: boolean;
+}
+
+interface CountdownMessage {
+  type: 'countdown';
+  secs: number | null;
+}
+
 interface StartMessage {
   type: 'start';
   roster: RosterState;
@@ -71,6 +83,8 @@ type LobbyMessage =
   | LookMessage
   | AccMessage
   | VoiceMessage
+  | ReadyMessage
+  | CountdownMessage
   | StartMessage
   | InProgressMessage;
 
@@ -94,6 +108,11 @@ export class LobbyScene extends Scene {
   private classBtns: UIButton[] = [];
   private classBlurbs: Text[] = [];
   private startBtn: UIButton | null = null;
+  private readyBtn: UIButton | null = null;
+  private myReady = false;
+  private countdownText!: Text;
+  private countdownSecs: number | null = null;
+  private countdownAcc = 0;
   private veriumChip!: Text;
   private customizeBtn!: UIButton;
   // Customize overlay ("different screen" with a close-up).
@@ -152,8 +171,10 @@ export class LobbyScene extends Scene {
     this.veriumChip.position.set(landscape ? 120 : 110, landscape ? 40 : 48);
     this.customizeBtn.position.set(W / 2, landscape ? 560 : 880);
     this.statusText.position.set(W / 2, landscape ? 620 : 990);
+    this.countdownText.position.set(W / 2, landscape ? 300 : 700);
     this.startBtn?.position.set(W / 2, H - (landscape ? 60 : 100));
-    this.waitText?.position.set(W / 2, H - (landscape ? 46 : 96));
+    this.readyBtn?.position.set(W / 2, H - (landscape ? 60 : 100));
+    this.waitText?.position.set(W / 2, H - (landscape ? 120 : 190));
     this.layoutCustomize(W, H);
   }
 
@@ -204,6 +225,11 @@ export class LobbyScene extends Scene {
       buyAcc: (i: number) => this.buyAccessory(i),
       openCustomize: () => this.openCustomize(),
       customizeOpen: () => this.customizeRoot.visible,
+      setReady: (r: boolean) => {
+        if (!this.session.isHost && this.myReady !== r) this.toggleReady();
+      },
+      ready: () => ({ ...(this.roster.ready ?? {}) }),
+      countdown: () => this.countdownSecs,
       ...(session.isHost ? { start: () => this.startAdventure() } : {}),
     };
 
@@ -298,6 +324,9 @@ export class LobbyScene extends Scene {
     this.statusText = makeText('', 28, { color: partyPop.inkSoft, weight: 'bold', wrapWidth: 620 });
     this.stage.addChild(this.statusText);
 
+    this.countdownText = makeText('', 40, { color: partyPop.accent, weight: '900' });
+    this.stage.addChild(this.countdownText);
+
     if (session.isHost) {
       this.startBtn = new UIButton('START ADVENTURE', {
         width: 480,
@@ -307,11 +336,19 @@ export class LobbyScene extends Scene {
       });
       this.add(this.startBtn);
     } else {
-      this.waitText = makeText('the host starts the adventure', 28, {
+      this.waitText = makeText('tap READY when you are set', 24, {
         color: partyPop.inkSoft,
         weight: 'bold',
       });
       this.stage.addChild(this.waitText);
+      this.readyBtn = new UIButton("I'M READY", {
+        width: 480,
+        height: 100,
+        fontSize: 38,
+        fill: 0x8affc1,
+        onTap: () => this.toggleReady(),
+      });
+      this.add(this.readyBtn);
     }
     this.layout(W, H);
 
@@ -349,13 +386,16 @@ export class LobbyScene extends Scene {
         this.roster.names[p.id] = this.uniqueName(p.name);
         this.shareRoster();
         this.refreshRoster();
+        this.checkAllReady(); // a fresh un-ready player cancels any countdown
         audio.chime();
       });
       session.onPlayerLeave((id) => {
         this.roster.order = this.roster.order.filter((x) => x !== id);
         delete this.roster.classes[id];
+        if (this.roster.ready) delete this.roster.ready[id];
         this.shareRoster();
         this.refreshRoster();
+        this.checkAllReady();
       });
       session.onMessage((from, data) => {
         const msg = data as LobbyMessage;
@@ -375,6 +415,11 @@ export class LobbyScene extends Scene {
           (this.roster.voices ??= {})[from] = msg.voice;
           this.shareRoster();
           this.refreshRoster();
+        } else if (msg?.type === 'ready') {
+          (this.roster.ready ??= {})[from] = msg.ready;
+          this.shareRoster();
+          this.refreshRoster();
+          this.checkAllReady();
         }
       });
     } else {
@@ -390,6 +435,8 @@ export class LobbyScene extends Scene {
             voices: msg.voices ?? {},
           };
           this.refreshRoster();
+        } else if (msg?.type === 'countdown') {
+          this.setCountdownText(msg.secs);
         } else if (msg?.type === 'start') {
           this.game.scenes.replace(new WorldScene(this.session, msg.roster));
         } else if (msg?.type === 'inprogress' && this.waitText) {
@@ -647,6 +694,51 @@ export class LobbyScene extends Scene {
     }
   }
 
+  /** Non-host: flip my Ready flag and tell the host. */
+  private toggleReady(): void {
+    this.myReady = !this.myReady;
+    audio.blip(this.myReady ? 1.4 : 0.9);
+    this.readyBtn?.setLabel(this.myReady ? '✓ READY' : "I'M READY");
+    if (this.waitText) {
+      this.waitText.text = this.myReady
+        ? 'waiting for the rest of the party…'
+        : 'tap READY when you are set';
+    }
+    (this.roster.ready ??= {})[this.session.id] = this.myReady;
+    this.session.send({ type: 'ready', ready: this.myReady });
+  }
+
+  /** Host: once every non-host is Ready, count down and auto-start. */
+  private checkAllReady(): void {
+    if (!this.session.isHost) return;
+    const others = this.roster.order.filter((id) => id !== this.session.id);
+    const allReady = others.length > 0 && others.every((id) => this.roster.ready?.[id]);
+    if (allReady) this.startCountdown();
+    else this.cancelCountdown();
+  }
+
+  private startCountdown(): void {
+    if (this.countdownSecs !== null) return; // already counting
+    this.countdownAcc = 0;
+    this.setCountdown(3);
+  }
+
+  private cancelCountdown(): void {
+    if (this.countdownSecs === null) return;
+    this.setCountdown(null);
+  }
+
+  /** Host: set the shared countdown value (null = hidden) and broadcast it. */
+  private setCountdown(secs: number | null): void {
+    this.countdownSecs = secs;
+    this.setCountdownText(secs);
+    this.session.broadcast({ type: 'countdown', secs });
+  }
+
+  private setCountdownText(secs: number | null): void {
+    this.countdownText.text = secs && secs > 0 ? `Starting in ${secs}…` : '';
+  }
+
   private startAdventure(): void {
     for (const id of this.roster.order) {
       this.roster.classes[id] ??= 'knight'; // undecided adventurers get a sword
@@ -709,6 +801,11 @@ export class LobbyScene extends Scene {
       });
       clsName.position.set(0, 78);
       chip.addChild(clsName);
+      if (this.roster.ready?.[id]) {
+        const rdy = makeText('✓ ready', 15, { color: 0x8affc1, weight: '800' });
+        rdy.position.set(0, 98);
+        chip.addChild(rdy);
+      }
       this.rosterRow.addChild(chip);
     });
     this.redrawSwatches();
@@ -726,6 +823,21 @@ export class LobbyScene extends Scene {
     if (this.customizeRoot.visible && this.previewBody) {
       const s = Math.sin(this.t * 2.2) * 0.05;
       this.previewBody.scale.set(1 + s, 1 - s);
+    }
+    // Host drives the pre-start countdown once everyone is ready.
+    if (this.session.isHost && this.countdownSecs !== null) {
+      this.countdownAcc += dt;
+      if (this.countdownAcc >= 1) {
+        this.countdownAcc -= 1;
+        const next = this.countdownSecs - 1;
+        if (next <= 0) {
+          this.countdownSecs = null;
+          this.setCountdownText(null);
+          this.startAdventure();
+          return;
+        }
+        this.setCountdown(next);
+      }
     }
     this.updateVerium();
   }

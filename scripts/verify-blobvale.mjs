@@ -116,6 +116,19 @@ const storeOk =
   Object.values(accsAfterBuy).includes(9) &&
   veriumPostBuy === veriumPreBuy - 30;
 
+// READY + COUNTDOWN: both non-hosts ready -> the host begins a countdown;
+// un-readying one cancels it (so no auto-start and we can drive start()).
+await p2.evaluate(() => window.__blobvale.setReady(true));
+await p3.evaluate(() => window.__blobvale.setReady(true));
+await sleep(500);
+const cdStarted = await p1.evaluate(() => window.__blobvale.countdown());
+await p3.evaluate(() => window.__blobvale.setReady(false));
+await sleep(400);
+const cdCancelled = await p1.evaluate(() => window.__blobvale.countdown());
+await p2.evaluate(() => window.__blobvale.setReady(false));
+await sleep(150);
+const readyOk = typeof cdStarted === 'number' && cdCancelled === null;
+
 // Host starts the adventure -> everyone lands in the world.
 await p1.evaluate(() => window.__blobvale.start());
 for (const p of [p1, p2, p3]) {
@@ -151,6 +164,10 @@ await p4.waitForFunction(() => window.__blobvale?.scene() === 'world', null, { t
 await sleep(900);
 const lateJoinerInWorld = await p4.evaluate(() => window.__blobvale.playerCount());
 const remotesSeenByP2 = await p2.evaluate(() => window.__blobvale.remoteIds().length);
+// PARTY PANEL (M7): a portrait+health row per adventurer, incl. the late one.
+const partySizeHost = await p1.evaluate(() => window.__blobvale.partySize());
+const partySizeJoiner = await p2.evaluate(() => window.__blobvale.partySize());
+const partyOk = partySizeHost === 4 && partySizeJoiner === 4;
 // COMBAT (M2): host warps to a mob camp and fights until a kill lands.
 // M4: the host owns the 'bomb' mod, so every attack also drops a bomb —
 // booms seen proves move-changing mods resolve host-side.
@@ -290,6 +307,8 @@ const ok =
   zoneOk &&
   veriumOk &&
   storeOk &&
+  readyOk &&
+  partyOk &&
   errors.length === 0;
 console.log(
   JSON.stringify(
@@ -326,6 +345,10 @@ console.log(
       veriumJoiner,
       storeOk,
       ownedHost,
+      readyOk,
+      cdStarted,
+      partyOk,
+      partySizeHost,
       bossBefore,
       bossAfter,
       bossBeforeCleric,

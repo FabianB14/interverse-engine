@@ -50,11 +50,15 @@ interface LobbyDebug {
   enterPortal?: () => void;
   verium?: () => number;
   veriumEarned?: () => number;
+  partySize?: () => number;
   grantVerium?: (n: number) => number;
   owned?: () => number[];
   buyAcc?: (i: number) => void;
   openCustomize?: () => void;
   customizeOpen?: () => boolean;
+  setReady?: (r: boolean) => void;
+  ready?: () => Record<string, boolean>;
+  countdown?: () => number | null;
 }
 
 declare global {
