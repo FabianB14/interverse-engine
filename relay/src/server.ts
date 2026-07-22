@@ -34,7 +34,7 @@ const BLOCKED_NAME_PARTS = ['fuck', 'shit', 'bitch', 'cunt', 'nigg', 'fag', 'ass
 interface Player {
   id: string;
   name: string;
-  ws: WebSocket & { isAlive?: boolean };
+  ws: WebSocket & { missedPongs?: number };
   isHost: boolean;
 }
 
@@ -103,10 +103,10 @@ const httpServer = createServer((req, res) => {
 
 const wss = new WebSocketServer({ server: httpServer, maxPayload: MAX_MESSAGE_BYTES });
 
-wss.on('connection', (ws: WebSocket & { isAlive?: boolean }) => {
-  ws.isAlive = true;
+wss.on('connection', (ws: WebSocket & { missedPongs?: number }) => {
+  ws.missedPongs = 0;
   ws.on('pong', () => {
-    ws.isAlive = true;
+    ws.missedPongs = 0;
   });
 
   let me: Player | null = null;
@@ -191,6 +191,13 @@ wss.on('connection', (ws: WebSocket & { isAlive?: boolean }) => {
         return;
       }
 
+      // App-level keepalive from clients: keeps proxies from idling the
+      // socket and refreshes the room's TTL while players sit in menus.
+      case 'ping': {
+        send(ws, { t: 'pong' });
+        return;
+      }
+
       default:
         fail('unknown-type', `unknown message type ${String(msg.t)}`);
     }
@@ -213,13 +220,17 @@ wss.on('connection', (ws: WebSocket & { isAlive?: boolean }) => {
 });
 
 // Heartbeat: drop dead sockets (browsers auto-answer protocol pings).
+// Tolerant on purpose — phones miss pongs when briefly backgrounded or on
+// patchy Wi-Fi, and terminating the HOST closes the room for everyone.
+// Three missed beats (~90s of silence) before we give up on a socket.
+const MAX_MISSED_PONGS = 3;
 const heartbeat = setInterval(() => {
-  for (const ws of wss.clients as Set<WebSocket & { isAlive?: boolean }>) {
-    if (ws.isAlive === false) {
+  for (const ws of wss.clients as Set<WebSocket & { missedPongs?: number }>) {
+    ws.missedPongs = (ws.missedPongs ?? 0) + 1;
+    if (ws.missedPongs > MAX_MISSED_PONGS) {
       ws.terminate();
       continue;
     }
-    ws.isAlive = false;
     ws.ping();
   }
 }, 30_000);

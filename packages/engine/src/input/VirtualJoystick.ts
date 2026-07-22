@@ -18,6 +18,12 @@ export interface VirtualJoystickOptions {
   dynamic?: boolean;
   hitWidth?: number;
   hitHeight?: number;
+  /**
+   * Dynamic mode: pixels the finger must travel from the press point before
+   * movement engages. Below it, `value` stays (0,0) — so a TAP never nudges
+   * the player (and never shifts the camera under the finger). Default 0.
+   */
+  tapThreshold?: number;
 }
 
 /**
@@ -37,11 +43,14 @@ export class VirtualJoystick extends Entity {
   private pointerId: number | null = null;
   private originX = 0;
   private originY = 0;
+  private readonly tapThreshold: number;
+  private engaged = false;
 
   constructor(opts: VirtualJoystickOptions = {}) {
     super();
     this.radius = opts.radius ?? 100;
     this.dynamic = opts.dynamic ?? false;
+    this.tapThreshold = opts.tapThreshold ?? 0;
     const knobR = opts.knobRadius ?? 46;
     const color = opts.color ?? 0xffffff;
     const alpha = opts.alpha ?? 0.2;
@@ -94,12 +103,13 @@ export class VirtualJoystick extends Entity {
   private onDown(e: FederatedPointerEvent): void {
     if (this.pointerId !== null) return;
     this.pointerId = e.pointerId;
+    this.engaged = this.tapThreshold <= 0;
     if (this.dynamic) {
       const p = this.toLocal(e.global);
       this.originX = p.x;
       this.originY = p.y;
       this.stick.position.set(p.x, p.y);
-      this.stick.visible = true;
+      this.stick.visible = this.engaged;
     }
     this.track(e);
   }
@@ -115,6 +125,7 @@ export class VirtualJoystick extends Entity {
     this.value.x = 0;
     this.value.y = 0;
     this.knob.position.set(0, 0);
+    this.engaged = false;
     if (this.dynamic) this.stick.visible = false;
   }
 
@@ -123,6 +134,16 @@ export class VirtualJoystick extends Entity {
     let dx = p.x - (this.dynamic ? this.originX : 0);
     let dy = p.y - (this.dynamic ? this.originY : 0);
     let len = Math.hypot(dx, dy);
+    // Taps don't move: hold still until the finger clearly commits to a drag.
+    if (this.dynamic && !this.engaged) {
+      if (len < this.tapThreshold) {
+        this.value.x = 0;
+        this.value.y = 0;
+        return;
+      }
+      this.engaged = true;
+      this.stick.visible = true;
+    }
     if (this.dynamic && len > this.radius) {
       // Trailing origin: drag the ring along behind the finger so reversing
       // direction responds immediately instead of after crossing the whole

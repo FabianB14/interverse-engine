@@ -258,16 +258,12 @@ export class FarmScene extends Scene {
     if (this.plots.length !== plotObjs.length) {
       this.plots = plotObjs.map(() => ({ crop: null, growth: 0, moisture: 0 }));
     }
-    plotObjs.forEach((o, i) => {
+    plotObjs.forEach((o) => {
       const root = new Entity();
       root.position.set(o.x, o.y);
       const soil = new Graphics();
       const leaves = new Graphics();
       root.addChild(soil, leaves);
-      const idx = i;
-      makeTappable(root, () => this.tapPlot(idx), {
-        hitRect: { x: -PLOT_SIZE / 2, y: -PLOT_SIZE / 2, width: PLOT_SIZE, height: PLOT_SIZE },
-      });
       this.add(root, this.mapLayer);
       this.plotViews.push({ root, soil, leaves, fruit: null, fruitCrop: null, x: o.x, y: o.y });
     });
@@ -283,7 +279,6 @@ export class FarmScene extends Scene {
     this.vendorBang.position.set(0, -76);
     this.vendorBang.visible = false;
     this.vendor.addChild(this.vendorBang);
-    makeTappable(this.vendor, () => this.tryTalk(), { hitRadius: 80 });
     this.add(this.vendor, this.mapLayer);
 
     // Gift box — a recharging free reward you walk up to and open.
@@ -296,7 +291,6 @@ export class FarmScene extends Scene {
     this.giftBox.addChild(this.giftLabel);
     this.giftBox.position.set(gObj.x, gObj.y);
     this.giftBox.addBehavior(new Wobble({ target: this.giftGfx, amount: 0.06, speed: 3 }));
-    makeTappable(this.giftBox, () => this.claimGiftBox(), { hitRadius: 60 });
     this.add(this.giftBox, this.mapLayer);
     this.drawGiftBox();
 
@@ -325,11 +319,35 @@ export class FarmScene extends Scene {
     // tapping coexist. Also used for build-mode tile taps.
     this.stage.eventMode = 'static';
     this.stage.hitArea = { contains: () => true };
-    this.joystick = new VirtualJoystick({ radius: 70, dynamic: true });
+    this.joystick = new VirtualJoystick({ radius: 70, dynamic: true, tapThreshold: 14 });
     this.joystick.listen(this.stage);
     this.add(this.joystick, this.uiLayer);
-    this.stage.on('pointertap', (e) => {
-      if (this.placing) this.placeAtPointer(e.global.x, e.global.y);
+    // Tap resolver: a press that barely moves is a TAP. We resolve it against
+    // the WORLD ourselves (nearest plot/vendor/gift to the press point) instead
+    // of relying on display-object hit testing, which breaks the moment the
+    // camera shifts beneath the finger.
+    let tapDown = { x: 0, y: 0 };
+    let tapOnUi = false;
+    this.stage.on('pointerdown', (e) => {
+      tapDown = { x: e.global.x, y: e.global.y };
+      let n = e.target as Container | null;
+      tapOnUi = false;
+      while (n) {
+        if (n === this.uiLayer) {
+          tapOnUi = true;
+          break;
+        }
+        n = n.parent;
+      }
+    });
+    this.stage.on('pointerup', (e) => {
+      if (Math.hypot(e.global.x - tapDown.x, e.global.y - tapDown.y) > 14) return;
+      if (tapOnUi) return; // buttons/panels handle their own taps
+      if (this.placing) {
+        this.placeAtPointer(tapDown.x, tapDown.y);
+        return;
+      }
+      this.resolveWorldTap(tapDown.x, tapDown.y);
     });
 
     this.rainLayer = new Graphics();
@@ -1120,6 +1138,36 @@ export class FarmScene extends Scene {
 
   // ------------------------------------------------------------ actions
 
+  /**
+   * A screen tap resolved directly against the world: find the nearest
+   * interactable to the tapped point and use it if the player is in range.
+   * (Tap-near-something = interact; drag = walk — they never fight.)
+   */
+  private resolveWorldTap(gx: number, gy: number): void {
+    if (this.box.isOpen) return;
+    if (this.seedPanel.visible || this.invPanel.visible || this.buildPanel.visible) return;
+    if (this.tradePanel.visible) return;
+    const w = this.mapLayer.toLocal({ x: gx, y: gy });
+    let best: Target = null;
+    let bestD = PLOT_SIZE; // how close the TAP must be to the thing itself
+    for (let i = 0; i < this.plotViews.length; i++) {
+      const v = this.plotViews[i]!;
+      const d = Math.hypot(v.x - w.x, v.y - w.y);
+      if (d < bestD) {
+        bestD = d;
+        best = { kind: 'plot', i };
+      }
+    }
+    const dv = Math.hypot(this.vendor.x - w.x, this.vendor.y - (w.y + 30));
+    if (dv < Math.max(bestD, 80)) best = { kind: 'vendor' };
+    const dg = Math.hypot(this.giftBox.x - w.x, this.giftBox.y - w.y);
+    if (dg < Math.min(bestD, 70)) best = { kind: 'gift' };
+    if (!best) return;
+    if (best.kind === 'vendor') this.tryTalk();
+    else if (best.kind === 'gift') this.claimGiftBox();
+    else this.tapPlot(best.i);
+  }
+
   private tapPlot(i: number): void {
     if (this.placing) return; // build-mode taps place structures instead
     const v = this.plotViews[i];
@@ -1449,9 +1497,6 @@ export class FarmScene extends Scene {
       const leaves = new Graphics();
       root.addChild(soil, leaves);
       const idx = this.plotViews.length;
-      makeTappable(root, () => this.tapPlot(idx), {
-        hitRect: { x: -PLOT_SIZE / 2, y: -PLOT_SIZE / 2, width: PLOT_SIZE, height: PLOT_SIZE },
-      });
       this.add(root, this.mapLayer);
       this.plotViews.push({ root, soil, leaves, fruit: null, fruitCrop: null, x, y });
       this.renderPlot(idx);
@@ -1622,9 +1667,6 @@ export class FarmScene extends Scene {
       const soil = new Graphics();
       const leaves = new Graphics();
       root.addChild(soil, leaves);
-      makeTappable(root, () => this.tapPlot(i), {
-        hitRect: { x: -PLOT_SIZE / 2, y: -PLOT_SIZE / 2, width: PLOT_SIZE, height: PLOT_SIZE },
-      });
       this.add(root, this.mapLayer);
       this.plotViews.push({ root, soil, leaves, fruit: null, fruitCrop: null, x: o.x, y: o.y });
       this.renderPlot(i);

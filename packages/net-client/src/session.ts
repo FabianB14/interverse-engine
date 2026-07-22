@@ -44,6 +44,8 @@ export class Session {
   private readonly closeHandlers: CloseHandler[] = [];
   private closed = false;
 
+  private keepalive: ReturnType<typeof setInterval> | null = null;
+
   constructor(
     private readonly ws: WebSocket,
     readonly code: string,
@@ -53,7 +55,19 @@ export class Session {
   ) {
     this.players.push(...initialPlayers);
     ws.addEventListener('message', (event) => this.handle(String(event.data)));
-    ws.addEventListener('close', () => this.emitClose('connection closed'));
+    ws.addEventListener('close', () => {
+      this.stopKeepalive();
+      this.emitClose('connection closed');
+    });
+    // Keepalive: steady app-level pings so proxies never see the socket as
+    // idle (menus and quiet scenes send no game traffic) and the relay's
+    // room TTL keeps refreshing while everyone is still connected.
+    this.keepalive = setInterval(() => this.raw({ t: 'ping' }), 20_000);
+  }
+
+  private stopKeepalive(): void {
+    if (this.keepalive) clearInterval(this.keepalive);
+    this.keepalive = null;
   }
 
   onMessage(handler: MessageHandler): void {
@@ -88,6 +102,7 @@ export class Session {
   }
 
   leave(): void {
+    this.stopKeepalive();
     this.raw({ t: 'leave' });
     this.ws.close();
   }
