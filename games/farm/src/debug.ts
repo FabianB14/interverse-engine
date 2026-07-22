@@ -33,6 +33,14 @@ export interface FarmDebug {
   storm?: () => boolean;
   openInv?: () => void;
   invOpen?: () => boolean;
+  // Shop
+  toShop?: () => void;
+  tab?: () => string;
+  setTab?: (t: string) => void;
+  buyUpgrade?: (id: string) => boolean;
+  upLevel?: (id: string) => number;
+  buyCosmetic?: (id: string) => boolean;
+  owned?: (id: string) => boolean;
   // Market
   inv?: () => Record<string, number>;
   giveItem?: (id: string, n: number) => void;

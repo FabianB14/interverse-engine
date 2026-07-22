@@ -17,9 +17,11 @@ import { makeText } from '../text.js';
 import { RARITY, cropById } from '../crops.js';
 import { invAdd, invAll, invClear, invCount, invRemove } from '../inventory.js';
 import { BUNDLE, buyBundle } from '../gifts.js';
+import { sellMultiplier } from '../upgrades.js';
 import { loadOrders, saveOrders, topUpOrders } from '../orders.js';
 import type { Order } from '../orders.js';
 import { FarmScene } from './FarmScene.js';
+import { ShopScene } from './ShopScene.js';
 import { TitleScene } from './TitleScene.js';
 import '../debug.js';
 
@@ -39,6 +41,7 @@ export class MarketScene extends Scene {
   private backBtn!: UIButton;
   private homeBtn!: UIButton;
   private bundleBtn!: UIButton;
+  private shopBtn!: UIButton;
   private W = 720;
   private H = 1280;
 
@@ -66,7 +69,7 @@ export class MarketScene extends Scene {
     this.uiLayer = new Container();
     this.stage.addChild(this.ordersLayer, this.basketLayer, this.fxLayer, this.uiLayer);
 
-    this.titleText = makeText('🧺 Farmers Market', 40, { color: FARM.accent });
+    this.titleText = makeText('🧺 Market', 40, { color: FARM.accent });
     this.uiLayer.addChild(this.titleText);
     this.veriumText = makeText('', 28, { color: FARM.coin, weight: '900' });
     this.veriumText.anchor.set(1, 0.5);
@@ -104,13 +107,23 @@ export class MarketScene extends Scene {
     this.add(this.homeBtn, this.uiLayer);
 
     this.bundleBtn = new UIButton(`🎁 Bundle ⬡${BUNDLE.cost} → ${BUNDLE.count} crops`, {
-      width: 520,
+      width: 340,
       height: 74,
-      fontSize: 24,
+      fontSize: 22,
       fill: 0x6b4f8f,
       onTap: () => this.buyBundleAction(),
     });
     this.add(this.bundleBtn, this.uiLayer);
+
+    this.shopBtn = new UIButton('🛒 Shop', {
+      width: 170,
+      height: 74,
+      fontSize: 24,
+      fill: FARM.accent,
+      textColor: 0x2a2016,
+      onTap: () => this.toShop(),
+    });
+    this.add(this.shopBtn, this.uiLayer);
 
     this.layout();
     this.buildOrders();
@@ -138,6 +151,7 @@ export class MarketScene extends Scene {
       },
       toFarm: () => this.toFarm(),
       home: () => this.toHome(),
+      toShop: () => this.toShop(),
     };
   }
 
@@ -166,7 +180,8 @@ export class MarketScene extends Scene {
     this.titleText.position.set(W / 2, 54);
     this.veriumText.position.set(W - 108, 54);
     this.ordersLabel.position.set(W / 2, 150);
-    this.bundleBtn.position.set(W / 2, this.H - 430);
+    this.bundleBtn.position.set(W / 2 - 110, this.H - 430);
+    this.shopBtn.position.set(W / 2 + 190, this.H - 430);
     this.basketLabel.position.set(W / 2, this.H - 360);
     this.basketNote.position.set(W / 2, this.H - 330);
     this.toastText.position.set(W / 2, this.H - 60);
@@ -291,9 +306,10 @@ export class MarketScene extends Scene {
       return false;
     }
     invRemove(o.crop, o.qty);
-    verium.add(o.reward);
+    const reward = Math.round(o.reward * sellMultiplier());
+    verium.add(reward);
     audio.chime();
-    this.happy(250 + i * 156, `+⬡${o.reward}`);
+    this.happy(250 + i * 156, `+⬡${reward}`);
     this.orders.splice(i, 1);
     this.orders = topUpOrders(this.orders);
     saveOrders(this.orders);
@@ -307,7 +323,7 @@ export class MarketScene extends Scene {
     const n = invCount(id);
     const crop = cropById(id);
     if (n <= 0 || !crop) return 0;
-    const gain = n * crop.sellPrice;
+    const gain = Math.round(n * crop.sellPrice * sellMultiplier());
     invRemove(id, n);
     verium.add(gain);
     audio.chime();
@@ -350,5 +366,11 @@ export class MarketScene extends Scene {
     if (this.game.scenes.isTransitioning) return;
     audio.blip(0.9);
     this.game.scenes.replace(new TitleScene());
+  }
+
+  private toShop(): void {
+    if (this.game.scenes.isTransitioning) return;
+    audio.blip(0.9);
+    this.game.scenes.replace(new ShopScene());
   }
 }

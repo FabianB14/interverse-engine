@@ -221,9 +221,47 @@ const ordersAfter = await page.evaluate(() => window.__farm.orders().length);
 const fulfillOk =
   filled === true && vPostFill === vPreFill + order0.reward && ordersAfter === ordersLen;
 await page.screenshot({ path: `${outDir}/farm-2-market.png` });
+
+// SHOP: buy a farm upgrade and unlock a cosmetic.
+await page.waitForFunction(
+  () => {
+    if (window.__farm?.scene() === 'shop') return true;
+    window.__farm?.toShop?.();
+    return false;
+  },
+  null,
+  { timeout: 8_000, polling: 200 },
+);
+await page.evaluate(() => window.__farm.grantVerium(1000));
+const soilBefore = await page.evaluate(() => window.__farm.upLevel('soil'));
+const boughtUpgrade = await page.evaluate(() => window.__farm.buyUpgrade('soil'));
+const soilAfter = await page.evaluate(() => window.__farm.upLevel('soil'));
+const upgradeOk = soilBefore === 0 && boughtUpgrade === true && soilAfter === 1;
+await page.evaluate(() => window.__farm.setTab('cosmetics'));
+const boughtCosmetic = await page.evaluate(() => window.__farm.buyCosmetic('tophat'));
+const cosmeticOwned = await page.evaluate(() => window.__farm.owned('tophat'));
+const cosmeticOk = boughtCosmetic === true && cosmeticOwned === true;
+await page.screenshot({ path: `${outDir}/farm-shop.png` });
+// Back to the market, then the farm.
+await page.waitForFunction(
+  () => {
+    if (window.__farm?.scene() === 'market') return true;
+    window.__farm?.toMarket?.();
+    return false;
+  },
+  null,
+  { timeout: 8_000, polling: 200 },
+);
 // Back to the farm.
-await page.evaluate(() => window.__farm.toFarm());
-await page.waitForFunction(() => window.__farm?.scene() === 'farm', null, { timeout: 8_000 });
+await page.waitForFunction(
+  () => {
+    if (window.__farm?.scene() === 'farm') return true;
+    window.__farm?.toFarm?.();
+    return false;
+  },
+  null,
+  { timeout: 8_000, polling: 200 },
+);
 const backOk = (await page.evaluate(() => window.__farm.scene())) === 'farm';
 
 // Storm: force a storm and confirm the flag flips (drives lightning/thunder).
@@ -272,6 +310,8 @@ const ok =
   bundleOk &&
   quickSellOk &&
   fulfillOk &&
+  upgradeOk &&
+  cosmeticOk &&
   backOk &&
   errors.length === 0;
 console.log(
@@ -308,6 +348,8 @@ console.log(
       bundleBought,
       quickSellOk,
       fulfillOk,
+      upgradeOk,
+      cosmeticOk,
       order0,
       backOk,
       errors: errors.slice(0, 5),

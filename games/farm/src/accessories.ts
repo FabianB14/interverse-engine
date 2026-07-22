@@ -1,5 +1,6 @@
 import { Container, Graphics } from 'pixi.js';
-import { darken, lighten } from '@interverse/engine';
+import { darken, lighten, verium } from '@interverse/engine';
+import { store } from './store.js';
 
 /**
  * Farm accessories — code-drawn hats, ears and bows you wear on your avatar.
@@ -12,6 +13,8 @@ export interface AccessoryDef {
   id: string;
   name: string;
   emoji: string;
+  /** Verium price in the cosmetic shop; omit for free starter accessories. */
+  price?: number;
   /** Code-drawn decoration, sized to a head of `radius`. */
   draw: (radius: number) => Container;
 }
@@ -249,7 +252,59 @@ function starHat(r: number): Container {
   return (c.addChild(g), c);
 }
 
-/** Cozy wardrobe — all free; the straw hat is the farm signature. */
+function topHat(r: number): Container {
+  const c = new Container();
+  const black = 0x2b2b33;
+  c.addChild(
+    new Graphics()
+      .roundRect(-r * 0.75, -r * 0.78, r * 1.5, r * 0.18, r * 0.08)
+      .fill(black)
+      .roundRect(-r * 0.42, -r * 1.5, r * 0.84, r * 0.78, r * 0.08)
+      .fill(black)
+      .roundRect(-r * 0.42, -r * 1.02, r * 0.84, r * 0.14, r * 0.04)
+      .fill(0xe9c46a),
+  );
+  return c;
+}
+
+function tiara(r: number): Container {
+  const c = new Container();
+  const g = new Graphics();
+  g.moveTo(-r * 0.5, -r * 0.62)
+    .quadraticCurveTo(0, -r * 0.9, r * 0.5, -r * 0.62)
+    .stroke({ color: 0xffd166, width: Math.max(4, r * 0.12) });
+  g.circle(0, -r * 0.85, r * 0.12).fill(0xff6f91);
+  g.circle(-r * 0.32, -r * 0.66, r * 0.08).fill(0x9ad8ff);
+  g.circle(r * 0.32, -r * 0.66, r * 0.08).fill(0x9ad8ff);
+  return (c.addChild(g), c);
+}
+
+function halo(r: number): Container {
+  const c = new Container();
+  c.addChild(
+    new Graphics()
+      .ellipse(0, -r * 1.08, r * 0.5, r * 0.16)
+      .stroke({ color: 0xffe08a, width: Math.max(4, r * 0.13) })
+      .ellipse(0, -r * 1.08, r * 0.5, r * 0.16)
+      .stroke({ color: 0xffffff, width: Math.max(1, r * 0.04), alpha: 0.8 }),
+  );
+  return c;
+}
+
+function propellerCap(r: number): Container {
+  const c = new Container();
+  const g = new Graphics();
+  g.arc(0, -r * 0.55, r * 0.6, Math.PI, 0).fill(0x59d0c0);
+  g.rect(-r * 0.6, -r * 0.6, r * 1.2, r * 0.14).fill(0xffd166);
+  g.rect(-r * 0.5, -r * 1.2, r * 1.0, r * 0.1).fill(0x2b2b33);
+  g.rect(-r * 0.06, -r * 1.32, r * 0.12, r * 0.24).fill(0x2b2b33);
+  return (c.addChild(g), c);
+}
+
+/**
+ * Cozy wardrobe. Free starters first (no price), then premium cosmetics
+ * you unlock in the shop with Verium — the straw hat is the farm signature.
+ */
 export const ACCESSORIES: AccessoryDef[] = [
   { id: 'none', name: 'None', emoji: '🚫', draw: none },
   { id: 'straw', name: 'Straw Hat', emoji: '👒', draw: strawHat },
@@ -267,12 +322,20 @@ export const ACCESSORIES: AccessoryDef[] = [
   { id: 'bunnyears', name: 'Bunny Ears', emoji: '🐰', draw: bunnyEars },
   { id: 'star', name: 'Star Hat', emoji: '🌟', draw: starHat },
   { id: 'party', name: 'Party Hat', emoji: '🎉', draw: partyHat },
+  // Premium — unlock in the cosmetic shop with Verium.
+  { id: 'tophat', name: 'Top Hat', emoji: '🎩', price: 120, draw: topHat },
+  { id: 'tiara', name: 'Tiara', emoji: '👸', price: 160, draw: tiara },
+  { id: 'propeller', name: 'Propeller Cap', emoji: '🚁', price: 220, draw: propellerCap },
+  { id: 'halo', name: 'Halo', emoji: '😇', price: 300, draw: halo },
 ];
 
 export function accessoryIndex(id: string): number {
   const i = ACCESSORIES.findIndex((a) => a.id === id);
   return i >= 0 ? i : 0;
 }
+
+/** Ids that cost Verium (everything with a price). */
+export const PREMIUM_ACCESSORIES = ACCESSORIES.filter((a) => a.price).map((a) => a.id);
 
 export function accessoryById(id: string): AccessoryDef {
   return ACCESSORIES[accessoryIndex(id)]!;
@@ -281,4 +344,29 @@ export function accessoryById(id: string): AccessoryDef {
 /** Draw the accessory `id` for a head of `radius`; empty container for 'none'. */
 export function accessoryView(id: string, radius: number): Container {
   return accessoryById(id).draw(radius);
+}
+
+// --- Cosmetic ownership (premium accessories unlocked with Verium) ---
+const OWNED_KEY = 'ownedAcc';
+
+/** Free starters are always owned; premium ones once bought. */
+export function isAccessoryOwned(id: string): boolean {
+  const def = accessoryById(id);
+  if (!def.price) return true;
+  return store.get<string[]>(OWNED_KEY, []).includes(id);
+}
+
+export function ownedAccessoryIds(): string[] {
+  return ACCESSORIES.filter((a) => isAccessoryOwned(a.id)).map((a) => a.id);
+}
+
+/** Buy a premium accessory with Verium; false if free, owned, or too poor. */
+export function buyAccessory(id: string): boolean {
+  const def = accessoryById(id);
+  if (!def.price || isAccessoryOwned(id)) return false;
+  if (!verium.spend(def.price)) return false;
+  const owned = store.get<string[]>(OWNED_KEY, []);
+  owned.push(id);
+  store.set(OWNED_KEY, owned);
+  return true;
 }

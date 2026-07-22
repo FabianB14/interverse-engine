@@ -38,6 +38,7 @@ import {
 import type { Season, Weather } from '../weather.js';
 import { music } from '../music.js';
 import { ambience } from '../ambience.js';
+import { growthMultiplier, moistureDecayMultiplier } from '../upgrades.js';
 import { savedAcc, savedName, savedSkin, store } from '../store.js';
 import { invAdd, invAll, invClear, invTotal } from '../inventory.js';
 import { makeCharacter } from '../character.js';
@@ -629,14 +630,16 @@ export class FarmScene extends Scene {
       }
     }
 
-    // Growth.
+    // Growth (Sprinklers slow moisture loss; Rich Soil speeds growth).
+    const decay = MOISTURE_DECAY * moistureDecayMultiplier();
+    const grow = growthMultiplier();
     for (const p of this.plots) {
       if (!p.crop) continue;
       if (raining) p.moisture = Math.min(1, p.moisture + dt * 0.5);
-      else p.moisture = Math.max(0, p.moisture - dt * MOISTURE_DECAY);
+      else p.moisture = Math.max(0, p.moisture - dt * decay);
       const crop = cropById(p.crop);
       if (crop && p.moisture > GROW_MOISTURE && p.growth < 1) {
-        p.growth = Math.min(1, p.growth + dt / crop.growSeconds);
+        p.growth = Math.min(1, p.growth + (dt / crop.growSeconds) * grow);
       }
     }
     for (let i = 0; i < this.plotViews.length; i++) this.renderPlot(i);

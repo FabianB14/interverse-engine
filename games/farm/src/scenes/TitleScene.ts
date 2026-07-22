@@ -8,7 +8,7 @@ import { music } from '../music.js';
 import { ACC_KEY, SKIN_KEY, savedAcc, savedName, savedSkin, store } from '../store.js';
 import { makeCharacter } from '../character.js';
 import type { CharType } from '../character.js';
-import { ACCESSORIES, accessoryIndex } from '../accessories.js';
+import { ACCESSORIES, accessoryIndex, ownedAccessoryIds } from '../accessories.js';
 import { GAME_TITLE } from '../game.js';
 import { FarmScene } from './FarmScene.js';
 import { NameScene } from './NameScene.js';
@@ -284,9 +284,12 @@ export class TitleScene extends Scene {
   }
 
   private cycleAcc(dir: number): void {
-    const n = ACCESSORIES.length;
-    const next = ACCESSORIES[(accessoryIndex(this.accId) + dir + n) % n]!;
-    this.applyAcc(next.id);
+    // Only cycle through accessories you own (free starters + bought ones).
+    const owned = ownedAccessoryIds();
+    const cur = owned.indexOf(this.accId);
+    const from = cur >= 0 ? cur : 0;
+    const next = owned[(from + dir + owned.length) % owned.length]!;
+    this.applyAcc(next);
     audio.blip(1.2);
   }
 
