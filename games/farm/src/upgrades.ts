@@ -49,6 +49,14 @@ export const UPGRADES: readonly UpgradeDef[] = [
     maxLevel: 2,
     cost: (l) => 150 + l * 200,
   },
+  {
+    id: 'expand',
+    name: 'Expand Farm',
+    emoji: '🗺️',
+    desc: 'grow the whole farm map',
+    maxLevel: 2,
+    cost: (l) => 300 + l * 250,
+  },
 ];
 
 export function upgradeById(id: string): UpgradeDef | undefined {

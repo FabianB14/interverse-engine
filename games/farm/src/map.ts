@@ -40,6 +40,28 @@ export const farmRows: readonly string[] = [
   '##################',
 ];
 
+/**
+ * The farm map, grown by the Expand Farm upgrade: each level adds open
+ * meadow — level 1 widens the farm by 6 tiles, level 2 also deepens it by
+ * 6 rows. The tree border moves out with it.
+ */
+export function expandedFarmRows(level: number): string[] {
+  let rows = [...farmRows];
+  if (level >= 1) {
+    rows = rows.map((row, i) =>
+      i === 0 || i === rows.length - 1 ? row + '######' : row.slice(0, -1) + '......#',
+    );
+  }
+  if (level >= 2) {
+    const width = rows[0]!.length;
+    const meadow = '#' + '.'.repeat(width - 2) + '#';
+    const last = rows.pop()!;
+    for (let i = 0; i < 6; i++) rows.push(meadow);
+    rows.push(last);
+  }
+  return rows;
+}
+
 export const farmLegend: Record<string, TileLegendEntry> = {
   '#': { tile: TILE.TREE, solid: true },
   '.': { tile: TILE.GRASS },

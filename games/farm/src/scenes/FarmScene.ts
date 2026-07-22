@@ -38,8 +38,13 @@ import {
 import type { Season, Weather } from '../weather.js';
 import { music } from '../music.js';
 import { ambience } from '../ambience.js';
-import { extraPlotTiles, growthMultiplier, moistureDecayMultiplier } from '../upgrades.js';
-import { currentTheme } from '../themes.js';
+import {
+  extraPlotTiles,
+  growthMultiplier,
+  moistureDecayMultiplier,
+  upgradeLevel,
+} from '../upgrades.js';
+import { currentTheme, themeById } from '../themes.js';
 import { activePet, petById } from '../pets.js';
 import { BUILDS, buildById, placeBuild, savedBuilds } from '../build.js';
 import type { Placed } from '../build.js';
@@ -55,7 +60,14 @@ import { savedAcc, savedName, savedSkin, store } from '../store.js';
 import { invAdd, invAll, invClear, invCount, invRemove, invTotal } from '../inventory.js';
 import { makeCharacter } from '../character.js';
 import type { CharType } from '../character.js';
-import { TILE, TILE_SIZE, farmLegend, farmPainters, farmRows, setMapTheme } from '../map.js';
+import {
+  TILE,
+  TILE_SIZE,
+  expandedFarmRows,
+  farmLegend,
+  farmPainters,
+  setMapTheme,
+} from '../map.js';
 import { MarketScene } from './MarketScene.js';
 import { TitleScene } from './TitleScene.js';
 import '../debug.js';
@@ -171,6 +183,9 @@ export class FarmScene extends Scene {
 
   // Building
   private buildLayer!: Container;
+  private tileView!: Container;
+  private mapExpand = 0;
+  private mapThemeId = 'meadow';
   private buildBtn!: UIButton;
   private buildPanel!: Container;
   private placing: string | null = null;
@@ -214,11 +229,14 @@ export class FarmScene extends Scene {
     if (!this.visiting) this.load();
 
     setMapTheme(currentTheme());
-    this.map = tileMapFromRows(farmRows, TILE_SIZE, farmLegend);
+    this.mapExpand = this.visiting ? 0 : upgradeLevel('expand');
+    this.mapThemeId = currentTheme().id;
+    this.map = tileMapFromRows(expandedFarmRows(this.mapExpand), TILE_SIZE, farmLegend);
     this.mapLayer = new Container();
     this.uiLayer = new Container();
     this.stage.addChild(this.mapLayer, this.uiLayer);
-    this.mapLayer.addChild(buildTileMapView(this.map, farmPainters));
+    this.tileView = buildTileMapView(this.map, farmPainters);
+    this.mapLayer.addChild(this.tileView);
 
     // Placed buildings render above tiles, below plots/players.
     this.buildLayer = new Container();
@@ -505,6 +523,14 @@ export class FarmScene extends Scene {
       // Building + pets
       buildStart: (id: string) => {
         this.placing = id;
+        this.buildBtn.setLabel('✕');
+      },
+      placingId: () => this.placing,
+      plotScreen: (i: number) => {
+        const v = this.plotViews[i];
+        if (!v) return null;
+        const g = this.mapLayer.toGlobal({ x: v.x, y: v.y });
+        return { x: g.x, y: g.y };
       },
       placeAt: (col: number, row: number) => this.tryPlace(col, row),
       buildCount: () => savedBuilds().length,
@@ -1284,10 +1310,16 @@ export class FarmScene extends Scene {
     }
     this.buildLayer.addChild(water);
 
+    // Per-item art scale (in tiles) — ponds and the farmhouse read as big
+    // landmarks, bridges and fences stay tile-sized.
+    const ART_TILES: Record<string, number> = { pond: 2.0, shed: 2.3, bridge: 1.25, fence: 1.2 };
     for (const b of list) {
       const def = buildById(b.id);
       if (!def || b.id === 'plot' || b.id === 'stream') continue;
-      const view = def.draw(TILE_SIZE * 1.2, { water: theme.water, trunk: theme.trunk });
+      const view = def.draw(TILE_SIZE * (ART_TILES[b.id] ?? 1.2), {
+        water: theme.water,
+        trunk: theme.trunk,
+      });
       view.position.set((b.col + 0.5) * TILE_SIZE, (b.row + 0.5) * TILE_SIZE);
       this.buildLayer.addChild(view);
     }
@@ -1322,8 +1354,9 @@ export class FarmScene extends Scene {
         textColor: FARM.ink,
         onTap: () => {
           this.placing = b.id;
+          this.buildBtn.setLabel('✕');
           this.buildPanel.visible = false;
-          this.toast(`tap a grassy tile to place the ${b.name.toLowerCase()}`);
+          this.toast(`tap a grassy tile to place it — or ✕ to cancel`);
           audio.blip(1.2);
         },
       });
@@ -1345,7 +1378,12 @@ export class FarmScene extends Scene {
 
   private toggleBuildPanel(): void {
     if (this.visiting) return;
-    this.placing = null;
+    // While placing, the 🔨 button shows ✕ and tapping it cancels the mode.
+    if (this.placing) {
+      this.cancelPlacing('build cancelled');
+      audio.blip(0.8);
+      return;
+    }
     this.buildPanel.visible = !this.buildPanel.visible;
     audio.blip();
   }
@@ -1355,13 +1393,29 @@ export class FarmScene extends Scene {
     this.tryPlace(Math.floor(p.x / TILE_SIZE), Math.floor(p.y / TILE_SIZE));
   }
 
+  /** Leave build-placing mode (taps go back to farming). */
+  private cancelPlacing(msg?: string): void {
+    this.placing = null;
+    this.buildBtn.setLabel('🔨');
+    if (msg) this.toast(msg);
+  }
+
   private tryPlace(col: number, row: number): boolean {
     const id = this.placing;
     if (!id || this.visiting) return false;
     const def = buildById(id);
     if (!def) return false;
+    // Any failed placement CANCELS build mode — otherwise the invisible
+    // placing flag eats every later tap and the farm feels broken.
     if (this.map.solid[row]?.[col] !== false) {
-      this.toast('needs an open grassy tile');
+      this.cancelPlacing('needs an open grassy tile — build cancelled');
+      audio.buzz();
+      return false;
+    }
+    const px = (col + 0.5) * TILE_SIZE;
+    const py = (row + 0.5) * TILE_SIZE;
+    if (this.plotViews.some((v) => Math.abs(v.x - px) < 1 && Math.abs(v.y - py) < 1)) {
+      this.cancelPlacing("that's a crop plot — build cancelled");
       audio.buzz();
       return false;
     }
@@ -1371,16 +1425,16 @@ export class FarmScene extends Scene {
       col === Math.floor(this.player.x / TILE_SIZE) &&
       row === Math.floor(this.player.y / TILE_SIZE)
     ) {
-      this.toast("can't place water under your feet");
+      this.cancelPlacing("can't place water under your feet — build cancelled");
       audio.buzz();
       return false;
     }
     if (!placeBuild(id, col, row)) {
-      this.toast(`needs ⬡${def.cost} and a free tile`);
+      this.cancelPlacing(`needs ⬡${def.cost} — build cancelled`);
       audio.buzz();
       return false;
     }
-    this.placing = null;
+    this.cancelPlacing();
     audio.chime();
     this.updateVeriumText();
     this.renderBuilds(savedBuilds());
@@ -1527,7 +1581,24 @@ export class FarmScene extends Scene {
       spots: this.plotViews.map((v) => ({ x: v.x, y: v.y })),
       plots: this.plots.map((p) => ({ c: p.crop, g: p.growth, m: p.moisture })),
       builds: savedBuilds(),
+      expand: upgradeLevel('expand'),
+      theme: currentTheme().id,
     });
+  }
+
+  /** Visitor: rebuild the tile world to the host's map size + theme. */
+  private rebuildMap(expand: number, theme: string): void {
+    if (expand === this.mapExpand && theme === this.mapThemeId) return;
+    this.mapExpand = expand;
+    this.mapThemeId = theme;
+    setMapTheme(themeById(theme));
+    this.map = tileMapFromRows(expandedFarmRows(expand), TILE_SIZE, farmLegend);
+    const idx = this.mapLayer.getChildIndex(this.tileView);
+    this.tileView.destroy({ children: true });
+    this.tileView = buildTileMapView(this.map, farmPainters);
+    this.mapLayer.addChildAt(this.tileView, idx);
+    this.baseSolid = null;
+    this.camera.setBounds(0, 0, this.map.width * TILE_SIZE, this.map.height * TILE_SIZE);
   }
 
   /** Visitor: adopt the host's plots/builds wholesale. */
@@ -1535,8 +1606,12 @@ export class FarmScene extends Scene {
     spots: { x: number; y: number }[],
     plots: { c: string | null; g: number; m: number }[],
     builds: Placed[],
+    expand: number,
+    theme: string,
   ): void {
     if (!this.visiting) return;
+    // Match the host's map size + theme before laying anything on it.
+    this.rebuildMap(expand, theme);
     // Rebuild plot views to match the host's layout.
     for (const v of this.plotViews) this.remove(v.root);
     this.plotViews = [];
@@ -1599,6 +1674,8 @@ export class FarmScene extends Scene {
           (msg.spots as { x: number; y: number }[]) ?? [],
           (msg.plots as { c: string | null; g: number; m: number }[]) ?? [],
           (msg.builds as Placed[]) ?? [],
+          Number(msg.expand ?? 0),
+          typeof msg.theme === 'string' ? msg.theme : 'meadow',
         );
         return;
       case 'plot-act': {

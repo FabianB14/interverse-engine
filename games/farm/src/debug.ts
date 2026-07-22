@@ -51,6 +51,8 @@ export interface FarmDebug {
   buildStart?: (id: string) => void;
   placeAt?: (col: number, row: number) => boolean;
   buildCount?: () => number;
+  placingId?: () => string | null;
+  plotScreen?: (i: number) => { x: number; y: number } | null;
   petActive?: () => string;
   buyPet?: (id: string) => boolean;
   buyTheme?: (id: string) => boolean;

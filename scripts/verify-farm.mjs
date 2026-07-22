@@ -166,6 +166,27 @@ await page.evaluate(() => window.__farm.waterAll());
 await sleep(80);
 const moistOk = (await page.evaluate(() => window.__farm.plotInfo()[1])).m > 0.9;
 
+// REAL tap-to-interact: physically tap plot 2 on screen and it should plant.
+await page.evaluate(() => window.__farm.teleport(480, 480));
+await page.evaluate(() => window.__farm.selectSeed('carrot'));
+await sleep(700); // let the camera settle so screen coords are stable
+const p2 = await page.evaluate(() => window.__farm.plotScreen(2));
+await page.mouse.click(p2.x, p2.y);
+await sleep(200);
+const tapPlantOk = (await page.evaluate(() => window.__farm.plotInfo()[2])).c === 'carrot';
+
+// A FAILED build placement must cancel placing mode (the old bug left the
+// invisible placing flag set, which silently ate every later tap).
+await page.evaluate(() => window.__farm.buildStart('pond'));
+const badPlace = await page.evaluate(() => window.__farm.placeAt(0, 0)); // solid border
+const placingCleared = (await page.evaluate(() => window.__farm.placingId())) === null;
+// ...and taps still work afterwards: tap plot 3 and it plants.
+const p3 = await page.evaluate(() => window.__farm.plotScreen(3));
+await page.mouse.click(p3.x, p3.y);
+await sleep(200);
+const tapAfterCancelOk = (await page.evaluate(() => window.__farm.plotInfo()[3])).c === 'carrot';
+const buildCancelOk = badPlace === false && placingCleared && tapAfterCancelOk;
+
 // Building: place a pond on an open tile and confirm it stuck.
 await page.evaluate(() => window.__farm.grantVerium(300));
 await page.evaluate(() => window.__farm.buildStart('pond'));
@@ -337,6 +358,8 @@ const ok =
   fulfillOk &&
   upgradeOk &&
   cosmeticOk &&
+  tapPlantOk &&
+  buildCancelOk &&
   buildOk &&
   streamOk &&
   themeOk &&
@@ -379,6 +402,8 @@ console.log(
       fulfillOk,
       upgradeOk,
       cosmeticOk,
+      tapPlantOk,
+      buildCancelOk,
       buildOk,
       streamOk,
       themeOk,
