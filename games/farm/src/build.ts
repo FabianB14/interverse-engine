@@ -12,12 +12,15 @@ export interface BuildDef {
   name: string;
   emoji: string;
   cost: number;
+  /** Footprint in tiles (defaults 1×1). The pond is a proper 2×2 pool. */
+  w?: number;
+  h?: number;
   draw: (s: number, theme: { water: number; trunk: number }) => Container;
 }
 
 export interface Placed {
   id: string;
-  /** Tile coords. */
+  /** Tile coords (anchor = top-left of the footprint). */
   col: number;
   row: number;
 }
@@ -72,7 +75,7 @@ function fence(s: number, t: { trunk: number }): Container {
 
 export const BUILDS: readonly BuildDef[] = [
   { id: 'plot', name: 'Crop Plot', emoji: '🟫', cost: 80, draw: () => new Container() },
-  { id: 'pond', name: 'Pond', emoji: '🪷', cost: 120, draw: (s, t) => pond(s, t) },
+  { id: 'pond', name: 'Pond', emoji: '🪷', cost: 200, w: 2, h: 2, draw: (s, t) => pond(s, t) },
   // Streams are drawn tile-aware by the farm (they flow into neighbors),
   // so like plots they carry no standalone art here.
   { id: 'stream', name: 'Stream', emoji: '💧', cost: 40, draw: () => new Container() },
@@ -91,14 +94,66 @@ export function savedBuilds(): Placed[] {
   return store.get<Placed[]>(KEY, []);
 }
 
-/** Pay for and record a placement; false if broke or the tile is taken. */
+/** All tiles covered by a placement's footprint. */
+export function footprint(p: Placed): { col: number; row: number }[] {
+  const def = buildById(p.id);
+  const tiles: { col: number; row: number }[] = [];
+  for (let dy = 0; dy < (def?.h ?? 1); dy++)
+    for (let dx = 0; dx < (def?.w ?? 1); dx++) tiles.push({ col: p.col + dx, row: p.row + dy });
+  return tiles;
+}
+
+const isWaterBuild = (id: string): boolean => id === 'stream' || id === 'pond';
+
+/** The placement (if any) whose footprint covers a tile. */
+export function buildAt(col: number, row: number): Placed | null {
+  for (const p of savedBuilds()) {
+    if (footprint(p).some((t) => t.col === col && t.row === row)) return p;
+  }
+  return null;
+}
+
+/**
+ * Can `id` occupy (col,row)? Overlap is allowed for exactly one pairing:
+ * a bridge over water (stream/pond) — in either build order.
+ */
+function tilesFree(id: string, col: number, row: number): boolean {
+  const probe: Placed = { id, col, row };
+  for (const t of footprint(probe)) {
+    const existing = buildAt(t.col, t.row);
+    if (!existing) continue;
+    const bridgeOverWater =
+      (id === 'bridge' && isWaterBuild(existing.id)) ||
+      (isWaterBuild(id) && existing.id === 'bridge');
+    if (!bridgeOverWater) return false;
+  }
+  return true;
+}
+
+/** Pay for and record a placement; false if broke or the space is taken. */
 export function placeBuild(id: string, col: number, row: number): boolean {
   const def = buildById(id);
   if (!def) return false;
-  const list = savedBuilds();
-  if (list.some((p) => p.col === col && p.row === row)) return false;
+  if (!tilesFree(id, col, row)) return false;
   if (!verium.spend(def.cost)) return false;
+  const list = savedBuilds();
   list.push({ id, col, row });
   store.set(KEY, list);
   return true;
+}
+
+/**
+ * Deconstruct whatever covers (col,row) — refunds half the cost.
+ * Returns the removed placement, or null if the tile was empty.
+ */
+export function removeBuild(col: number, row: number): Placed | null {
+  const target = buildAt(col, row);
+  if (!target) return null;
+  const list = savedBuilds().filter(
+    (p) => !(p.id === target.id && p.col === target.col && p.row === target.row),
+  );
+  store.set(KEY, list);
+  const def = buildById(target.id);
+  if (def) verium.add(Math.ceil(def.cost / 2));
+  return target;
 }

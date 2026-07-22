@@ -124,6 +124,7 @@ export class LobbyScene extends Scene {
   private swatchRow!: Entity;
   private accLabel!: Text;
   private accRow!: Entity;
+  private accExpanded = false;
   private voiceLabel!: Text;
   private voiceRow!: Entity;
   private storeLabel!: Text;
@@ -564,23 +565,90 @@ export class LobbyScene extends Scene {
     });
   }
 
-  /** Equip row: only the accessories you own (free + purchased). */
+  /**
+   * Equip bar, collapsed by default: one chip shows what you're wearing and
+   * how big your wardrobe is; tapping it expands a grid of everything you
+   * own (a long row of 20+ hats squeezed into one line was unusable).
+   */
   private redrawAccs(): void {
     for (const old of this.accRow.removeChildren()) old.destroy({ children: true });
     const owned = [...this.ownedAccessories()].sort((a, b) => a - b);
     const cur = this.roster.accs?.[this.session.id] ?? store.get<number>('acc', 0);
-    const spacing = Math.min(72, 640 / Math.max(1, owned.length));
-    const total = (owned.length - 1) * spacing;
+
+    if (!this.accExpanded) {
+      const bar = new Entity();
+      const g = new Graphics()
+        .roundRect(-170, -30, 340, 60, 16)
+        .fill(0x243a2a)
+        .roundRect(-170, -30, 340, 60, 16)
+        .stroke({ color: 0xffffff, width: 2, alpha: 0.25 });
+      bar.addChild(g);
+      const curDef = ACCESSORIES[cur];
+      const label = makeText(
+        `${curDef?.emoji ?? '🚫'} ${curDef?.name ?? 'None'} · ${owned.length} owned ▾`,
+        22,
+        { color: partyPop.ink, weight: 'bold' },
+      );
+      bar.addChild(label);
+      makeTappable(
+        bar,
+        () => {
+          this.accExpanded = true;
+          this.redrawAccs();
+        },
+        { hitRect: { x: -170, y: -30, width: 340, height: 60 } },
+      );
+      this.accRow.addChild(bar);
+      return;
+    }
+
+    // Expanded: bring the row above the rows below it and lay out a grid.
+    this.accRow.parent?.addChild(this.accRow);
+    const cols = 8;
+    const dx = 80;
+    const dy = 74;
+    const rows = Math.ceil(owned.length / cols);
+    const panelW = cols * dx + 30;
+    const panelH = rows * dy + 86;
+    const bg = new Graphics()
+      .roundRect(-panelW / 2, -40, panelW, panelH, 18)
+      .fill({ color: 0x141d16, alpha: 0.97 })
+      .roundRect(-panelW / 2, -40, panelW, panelH, 18)
+      .stroke({ color: 0x8affc1, width: 2, alpha: 0.6 });
+    this.accRow.addChild(bg);
     owned.forEach((accIdx, i) => {
       const chip = new Entity();
+      const col = i % cols;
+      const row = Math.floor(i / cols);
       const g = new Graphics().circle(0, 0, 28).fill(accIdx === cur ? 0x2e6b3e : 0x243a2a);
       if (accIdx === cur) g.circle(0, 0, 31).stroke({ color: 0xffffff, width: 4 });
       chip.addChild(g);
       chip.addChild(makeText(ACCESSORIES[accIdx]?.emoji ?? '?', 24));
-      chip.position.set(-total / 2 + i * spacing, 0);
-      makeTappable(chip, () => this.pickAcc(accIdx), { hitRadius: 32 });
+      chip.position.set((col - (cols - 1) / 2) * dx, 8 + row * dy);
+      makeTappable(
+        chip,
+        () => {
+          this.accExpanded = false;
+          this.pickAcc(accIdx);
+        },
+        { hitRadius: 32 },
+      );
       this.accRow.addChild(chip);
     });
+    const closeBar = new Entity();
+    const cg = new Graphics().roundRect(-90, -22, 180, 44, 12).fill(0x2e6b3e);
+    closeBar.addChild(cg);
+    closeBar.addChild(makeText('▴ close', 20, { color: partyPop.ink, weight: 'bold' }));
+    closeBar.position.set(0, panelH - 70);
+    makeTappable(
+      closeBar,
+      () => {
+        this.accExpanded = false;
+        this.redrawAccs();
+      },
+      { hitRect: { x: -90, y: -22, width: 180, height: 44 } },
+    );
+    this.accRow.addChild(closeBar);
   }
 
   /** Store grid: locked (purchasable) accessories with their Verium price. */

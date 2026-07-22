@@ -53,10 +53,9 @@ export class TitleScene extends Scene {
   private hueDragging = false;
   private skinCap!: Text;
   private skinRow!: Entity;
-  private accRow!: Entity;
-  private accPrev!: UIButton;
-  private accNext!: UIButton;
-  private accLabel!: Text;
+  private accBtn!: UIButton;
+  private accPanel!: Container;
+  private accGrid!: Container;
   private playBtn!: UIButton;
   private friendsBtn!: UIButton;
   private busy = false;
@@ -72,8 +71,6 @@ export class TitleScene extends Scene {
   }
 
   private layout(W: number, H: number): void {
-    this.accPrev.position.set(-200, 0);
-    this.accNext.position.set(200, 0);
     if (W > H) {
       // Landscape: avatar preview on the left, controls in a right column.
       const lx = W * 0.28;
@@ -89,7 +86,9 @@ export class TitleScene extends Scene {
       this.hueBar.scale.set(Math.min(1, (W * 0.6) / this.hueWidth));
       this.skinCap.position.set(rx, H * 0.62);
       this.skinRow.position.set(rx, H * 0.72);
-      this.accRow.position.set(rx, H * 0.84);
+      this.accBtn.position.set(rx, H * 0.84);
+      this.accPanel.position.set(W / 2, H / 2);
+      this.accPanel.scale.set(Math.min(1, (H - 40) / 640, (W - 20) / 700));
       this.playBtn.position.set(lx, H * 0.94);
       this.friendsBtn.position.set(130, 50);
       return;
@@ -105,7 +104,9 @@ export class TitleScene extends Scene {
     this.hueBar.scale.set(1);
     this.skinCap.position.set(W / 2, H * 0.675);
     this.skinRow.position.set(W / 2, H * 0.71);
-    this.accRow.position.set(W / 2, H * 0.775);
+    this.accBtn.position.set(W / 2, H * 0.775);
+    this.accPanel.position.set(W / 2, H / 2);
+    this.accPanel.scale.set(Math.min(1, (H - 40) / 640, (W - 20) / 700));
     this.playBtn.position.set(W / 2, H * 0.875);
     this.friendsBtn.position.set(130, 50);
   }
@@ -170,29 +171,18 @@ export class TitleScene extends Scene {
     this.add(this.skinRow);
     this.redrawSkins();
 
-    // Accessory cycler: ◀  [emoji Name]  ▶
-    this.accRow = new Entity();
-    this.add(this.accRow);
-    this.accPrev = new UIButton('◀', {
-      width: 84,
-      height: 80,
-      fontSize: 34,
+    // Accessory bar: collapsed by default — tap to open a grid of everything
+    // you own (scales to any wardrobe size), pick one, and it collapses.
+    this.accBtn = new UIButton('', {
+      width: 420,
+      height: 76,
+      fontSize: 26,
       fill: FARM.panel,
       textColor: FARM.ink,
-      onTap: () => this.cycleAcc(-1),
+      onTap: () => this.toggleAccPanel(),
     });
-    this.accNext = new UIButton('▶', {
-      width: 84,
-      height: 80,
-      fontSize: 34,
-      fill: FARM.panel,
-      textColor: FARM.ink,
-      onTap: () => this.cycleAcc(1),
-    });
-    this.add(this.accPrev, this.accRow);
-    this.add(this.accNext, this.accRow);
-    this.accLabel = makeText('', 26, { color: FARM.ink, weight: '800' });
-    this.accRow.addChild(this.accLabel);
+    this.add(this.accBtn);
+    this.buildAccPanel();
     this.updateAccLabel();
 
     this.playBtn = new UIButton('🌱  PLAY', {
@@ -407,14 +397,73 @@ export class TitleScene extends Scene {
     });
   }
 
-  private cycleAcc(dir: number): void {
-    // Only cycle through accessories you own (free starters + bought ones).
+  private buildAccPanel(): void {
+    this.accPanel = new Container();
+    this.accPanel.visible = false;
+    const bg = new Graphics();
+    bg.roundRect(-330, -320, 660, 640, 26).fill(0x2a2016);
+    bg.roundRect(-330, -320, 660, 640, 26).stroke({ color: FARM.accent, width: 3 });
+    this.accPanel.addChild(bg);
+    const title = makeText('🎩 your wardrobe', 28, { color: FARM.accent, weight: '900' });
+    title.position.set(0, -282);
+    this.accPanel.addChild(title);
+    this.accGrid = new Container();
+    this.accPanel.addChild(this.accGrid);
+    const close = new UIButton('✕ close', {
+      width: 190,
+      height: 60,
+      fontSize: 24,
+      fill: 0x5a4632,
+      textColor: FARM.ink,
+      onTap: () => this.toggleAccPanel(),
+    });
+    close.position.set(0, 282);
+    this.add(close, this.accPanel);
+    this.stage.addChild(this.accPanel);
+  }
+
+  private toggleAccPanel(): void {
+    if (!this.accPanel.visible) this.refreshAccGrid();
+    this.accPanel.visible = !this.accPanel.visible;
+    // Keep the wardrobe above everything else on the title.
+    if (this.accPanel.visible) this.stage.addChild(this.accPanel);
+    audio.blip();
+  }
+
+  private refreshAccGrid(): void {
+    for (const old of this.accGrid.removeChildren()) old.destroy({ children: true });
     const owned = ownedAccessoryIds();
-    const cur = owned.indexOf(this.accId);
-    const from = cur >= 0 ? cur : 0;
-    const next = owned[(from + dir + owned.length) % owned.length]!;
-    this.applyAcc(next);
-    audio.blip(1.2);
+    const cols = 5;
+    const dx = 122;
+    const dy = 116;
+    owned.forEach((id, k) => {
+      const def = ACCESSORIES[accessoryIndex(id)]!;
+      const col = k % cols;
+      const row = Math.floor(k / cols);
+      const chip = new Entity();
+      const sel = id === this.accId;
+      const ring = new Graphics();
+      ring
+        .roundRect(-54, -48, 108, 96, 16)
+        .fill(sel ? 0x3a5a2a : FARM.panel)
+        .roundRect(-54, -48, 108, 96, 16)
+        .stroke({ color: sel ? FARM.accent : 0x5a4632, width: sel ? 4 : 2 });
+      chip.addChild(ring);
+      chip.addChild(makeText(def.emoji, 38));
+      const lbl = makeText(def.name, 13, { color: FARM.inkSoft, weight: '800' });
+      lbl.position.set(0, 34);
+      chip.addChild(lbl);
+      chip.position.set((col - (cols - 1) / 2) * dx, -210 + row * dy);
+      makeTappable(
+        chip,
+        () => {
+          this.applyAcc(id);
+          this.toggleAccPanel();
+        },
+        { hitRadius: 54 },
+      );
+      this.accGrid.addChild(chip);
+    });
   }
 
   private applyAcc(id: string): void {
@@ -426,7 +475,10 @@ export class TitleScene extends Scene {
 
   private updateAccLabel(): void {
     const a = ACCESSORIES[accessoryIndex(this.accId)]!;
-    this.accLabel.text = a.id === 'none' ? '🚫 No accessory' : `${a.emoji}  ${a.name}`;
+    const n = ownedAccessoryIds().length;
+    this.accBtn.setLabel(
+      a.id === 'none' ? `🚫 No accessory (${n} owned) ▾` : `${a.emoji} ${a.name} ▾`,
+    );
   }
 
   protected override onUpdate(dt: number): void {

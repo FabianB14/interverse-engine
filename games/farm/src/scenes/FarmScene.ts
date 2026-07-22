@@ -46,7 +46,15 @@ import {
 } from '../upgrades.js';
 import { currentTheme, themeById } from '../themes.js';
 import { activePet, petById } from '../pets.js';
-import { BUILDS, buildById, placeBuild, savedBuilds } from '../build.js';
+import {
+  BUILDS,
+  buildAt,
+  buildById,
+  footprint,
+  placeBuild,
+  removeBuild,
+  savedBuilds,
+} from '../build.js';
 import type { Placed } from '../build.js';
 import {
   accessoryById,
@@ -190,6 +198,7 @@ export class FarmScene extends Scene {
   private buildPanel!: Container;
   private placing: string | null = null;
   private baseSolid: boolean[][] | null = null;
+  private placeMarkers!: Graphics;
 
   // Pet companion
   private pet: Entity | null = null;
@@ -241,6 +250,8 @@ export class FarmScene extends Scene {
     // Placed buildings render above tiles, below plots/players.
     this.buildLayer = new Container();
     this.mapLayer.addChild(this.buildLayer);
+    this.placeMarkers = new Graphics();
+    this.mapLayer.addChild(this.placeMarkers);
     if (!this.visiting) this.renderBuilds(savedBuilds());
 
     // Plots: map 'o' markers + More Land upgrade tiles + built Crop Plots.
@@ -544,6 +555,8 @@ export class FarmScene extends Scene {
         this.buildBtn.setLabel('✕');
       },
       placingId: () => this.placing,
+      cancelBuild: () => this.cancelPlacing(),
+      removeAt: (col: number, row: number) => this.doRemove(col, row),
       plotScreen: (i: number) => {
         const v = this.plotViews[i];
         if (!v) return null;
@@ -592,7 +605,7 @@ export class FarmScene extends Scene {
     this.tradePanel.position.set(W / 2, H / 2);
     this.tradePanel.scale.set(Math.min(1, (H - 40) / 620, (W - 20) / 680));
     this.invPanel.scale.set(Math.min(1, (H - 40) / 620, (W - 20) / 680));
-    this.buildPanel.scale.set(Math.min(1, (H - 40) / 620, (W - 20) / 680));
+    this.buildPanel.scale.set(Math.min(1, (H - 40) / 660, (W - 20) / 680));
     this.box.position.set((W - 656) / 2, H - 300 - 36);
   }
 
@@ -668,7 +681,7 @@ export class FarmScene extends Scene {
       textColor: FARM.ink,
       onTap: () => this.toggleInventory(),
     });
-    close.position.set(0, 250);
+    close.position.set(0, 282);
     this.add(close, this.invPanel);
     this.uiLayer.addChild(this.invPanel);
   }
@@ -847,6 +860,7 @@ export class FarmScene extends Scene {
     this.updateWeatherText(weather);
     this.drawRain(raining, storm);
     this.updatePet(dt);
+    this.updatePlaceMarkers();
 
     // Multiplayer sync: positions at 10Hz, host farm-state at 1Hz.
     const sess = farmNet.session();
@@ -1341,26 +1355,31 @@ export class FarmScene extends Scene {
     );
     const wet = (c: number, r: number): boolean =>
       streamSet.has(`${c},${r}`) || this.map.ground[r]?.[c] === TILE.WATER;
+    // Full-bleed water: stream tiles fill their whole tile and flow
+    // seamlessly into neighbors, so a run reads as one wide river.
     const water = new Graphics();
     for (const b of list) {
       if (b.id !== 'stream') continue;
       const x = b.col * s;
       const y = b.row * s;
-      water.roundRect(x + 5, y + 5, s - 10, s - 10, 16).fill(darken(theme.water, 0.12));
-      water.roundRect(x + 8, y + 8, s - 16, s - 16, 12).fill(theme.water);
-      if (wet(b.col - 1, b.row)) water.rect(x, y + 8, 10, s - 16).fill(theme.water);
-      if (wet(b.col + 1, b.row)) water.rect(x + s - 10, y + 8, 10, s - 16).fill(theme.water);
-      if (wet(b.col, b.row - 1)) water.rect(x + 8, y, s - 16, 10).fill(theme.water);
-      if (wet(b.col, b.row + 1)) water.rect(x + 8, y + s - 10, s - 16, 10).fill(theme.water);
+      water.roundRect(x + 1, y + 1, s - 2, s - 2, 14).fill(darken(theme.water, 0.12));
+      water.roundRect(x + 4, y + 4, s - 8, s - 8, 10).fill(theme.water);
+      if (wet(b.col - 1, b.row)) water.rect(x, y + 4, 6, s - 8).fill(theme.water);
+      if (wet(b.col + 1, b.row)) water.rect(x + s - 6, y + 4, 6, s - 8).fill(theme.water);
+      if (wet(b.col, b.row - 1)) water.rect(x + 4, y, s - 8, 6).fill(theme.water);
+      if (wet(b.col, b.row + 1)) water.rect(x + 4, y + s - 6, s - 8, 6).fill(theme.water);
       water
-        .ellipse(x + s * 0.38, y + s * 0.42, 7, 3)
+        .ellipse(x + s * 0.38, y + s * 0.42, 8, 3)
         .fill({ color: lighten(theme.water, 0.25), alpha: 0.7 });
+      water
+        .ellipse(x + s * 0.66, y + s * 0.7, 6, 2.5)
+        .fill({ color: lighten(theme.water, 0.2), alpha: 0.6 });
     }
     this.buildLayer.addChild(water);
 
     // Per-item art scale (in tiles) — ponds and the farmhouse read as big
     // landmarks, bridges and fences stay tile-sized.
-    const ART_TILES: Record<string, number> = { pond: 2.0, shed: 2.3, bridge: 1.25, fence: 1.2 };
+    const ART_TILES: Record<string, number> = { pond: 2.9, shed: 2.3, bridge: 1.25, fence: 1.2 };
     for (const b of list) {
       const def = buildById(b.id);
       if (!def || b.id === 'plot' || b.id === 'stream') continue;
@@ -1368,7 +1387,11 @@ export class FarmScene extends Scene {
         water: theme.water,
         trunk: theme.trunk,
       });
-      view.position.set((b.col + 0.5) * TILE_SIZE, (b.row + 0.5) * TILE_SIZE);
+      // Center the art on the placement's FOOTPRINT (the pond is 2×2).
+      view.position.set(
+        (b.col + (def.w ?? 1) / 2) * TILE_SIZE,
+        (b.row + (def.h ?? 1) / 2) * TILE_SIZE,
+      );
       this.buildLayer.addChild(view);
     }
 
@@ -1376,7 +1399,12 @@ export class FarmScene extends Scene {
     // bridge on a stream tile makes it crossable again.
     if (!this.baseSolid) this.baseSolid = this.map.solid.map((r) => [...r]);
     this.map.solid = this.baseSolid.map((r) => [...r]);
-    for (const b of list) if (b.id === 'stream') this.map.solid[b.row]![b.col] = true;
+    for (const b of list) {
+      if (b.id !== 'stream' && b.id !== 'pond') continue;
+      for (const t of footprint(b)) {
+        if (this.map.solid[t.row]) this.map.solid[t.row]![t.col] = true;
+      }
+    }
     for (const b of list) if (b.id === 'bridge') this.map.solid[b.row]![b.col] = false;
   }
 
@@ -1384,14 +1412,14 @@ export class FarmScene extends Scene {
     this.buildPanel = new Container();
     this.buildPanel.visible = false;
     const bg = new Graphics();
-    bg.roundRect(-330, -290, 660, 580, 26).fill(0x2a2016);
-    bg.roundRect(-330, -290, 660, 580, 26).stroke({ color: FARM.accent, width: 3 });
+    bg.roundRect(-330, -320, 660, 640, 26).fill(0x2a2016);
+    bg.roundRect(-330, -320, 660, 640, 26).stroke({ color: FARM.accent, width: 3 });
     this.buildPanel.addChild(bg);
     const title = makeText('🔨 Build — pick, then tap a tile', 26, {
       color: FARM.accent,
       weight: '900',
     });
-    title.position.set(0, -252);
+    title.position.set(0, -282);
     this.buildPanel.addChild(title);
     BUILDS.forEach((b, i) => {
       const btn = new UIButton(`${b.emoji} ${b.name} — ⬡${b.cost}`, {
@@ -1408,9 +1436,25 @@ export class FarmScene extends Scene {
           audio.blip(1.2);
         },
       });
-      btn.position.set(0, -192 + i * 72);
+      btn.position.set(0, -222 + i * 72);
       this.add(btn, this.buildPanel);
     });
+    const removeBtn = new UIButton('🧹 Remove — half cost back', {
+      width: 560,
+      height: 62,
+      fontSize: 23,
+      fill: 0x6e3a3a,
+      textColor: FARM.ink,
+      onTap: () => {
+        this.placing = 'remove';
+        this.buildBtn.setLabel('✕');
+        this.buildPanel.visible = false;
+        this.toast('tap a glowing red tile to remove it — or ✕ to cancel');
+        audio.blip(1.2);
+      },
+    });
+    removeBtn.position.set(0, -222 + BUILDS.length * 72);
+    this.add(removeBtn, this.buildPanel);
     const close = new UIButton('✕ close', {
       width: 190,
       height: 60,
@@ -1419,7 +1463,7 @@ export class FarmScene extends Scene {
       textColor: FARM.ink,
       onTap: () => this.toggleBuildPanel(),
     });
-    close.position.set(0, 250);
+    close.position.set(0, 282);
     this.add(close, this.buildPanel);
     this.uiLayer.addChild(this.buildPanel);
   }
@@ -1438,42 +1482,139 @@ export class FarmScene extends Scene {
 
   private placeAtPointer(gx: number, gy: number): void {
     const p = this.mapLayer.toLocal({ x: gx, y: gy });
-    this.tryPlace(Math.floor(p.x / TILE_SIZE), Math.floor(p.y / TILE_SIZE));
+    const col = Math.floor(p.x / TILE_SIZE);
+    const row = Math.floor(p.y / TILE_SIZE);
+    // Placement is deliberate: only the glowing tiles NEXT TO the player are
+    // selectable, so you walk to where you want the thing and pick a side.
+    if (!this.adjacentTargets().some((t) => t.col === col && t.row === row)) {
+      this.toast('tap a glowing tile next to you');
+      audio.buzz();
+      return;
+    }
+    this.tryPlace(col, row);
+  }
+
+  /** The 8 tiles around the player that the current build/remove can use. */
+  private adjacentTargets(): { col: number; row: number }[] {
+    const id = this.placing;
+    if (!id) return [];
+    const pc = Math.floor(this.player.x / TILE_SIZE);
+    const pr = Math.floor(this.player.y / TILE_SIZE);
+    const out: { col: number; row: number }[] = [];
+    for (const [dx, dy] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+      [1, 1],
+      [1, -1],
+      [-1, 1],
+      [-1, -1],
+    ] as const) {
+      const col = pc + dx;
+      const row = pr + dy;
+      if (id === 'remove' ? buildAt(col, row) !== null : this.canPlaceAt(id, col, row)) {
+        out.push({ col, row });
+      }
+    }
+    return out;
+  }
+
+  /** Tile-validity for a build (no adjacency — the markers add that). */
+  private canPlaceAt(id: string, col: number, row: number): boolean {
+    const def = buildById(id);
+    if (!def) return false;
+    const pc = Math.floor(this.player.x / TILE_SIZE);
+    const pr = Math.floor(this.player.y / TILE_SIZE);
+    for (const t of footprint({ id, col, row })) {
+      const base = this.baseSolid?.[t.row]?.[t.col];
+      const onGroundWater = this.map.ground[t.row]?.[t.col] === TILE.WATER;
+      const existing = buildAt(t.col, t.row);
+      const waterBuild = existing && (existing.id === 'stream' || existing.id === 'pond');
+      if (id === 'bridge') {
+        // Bridges span water (built streams/ponds or the map's own lake) or
+        // sit on open grass; anything else is out.
+        const openGrass = base === false && !existing;
+        if (!(onGroundWater || waterBuild || openGrass)) return false;
+      } else {
+        if (base !== false) return false;
+        if (existing) return false;
+        // Water can't flood the tile the player stands on.
+        if ((id === 'stream' || id === 'pond') && t.col === pc && t.row === pr) return false;
+      }
+      // Never build over a crop plot.
+      const px = (t.col + 0.5) * TILE_SIZE;
+      const py = (t.row + 0.5) * TILE_SIZE;
+      if (this.plotViews.some((v) => Math.abs(v.x - px) < 1 && Math.abs(v.y - py) < 1))
+        return false;
+    }
+    return true;
+  }
+
+  /** Glowing selectable tiles around the player while placing/removing. */
+  private updatePlaceMarkers(): void {
+    this.placeMarkers.clear();
+    if (!this.placing || this.visiting) return;
+    const pulse = 0.35 + Math.sin(this.t * 5) * 0.15;
+    const removing = this.placing === 'remove';
+    for (const t of this.adjacentTargets()) {
+      const x = t.col * TILE_SIZE;
+      const y = t.row * TILE_SIZE;
+      this.placeMarkers
+        .roundRect(x + 4, y + 4, TILE_SIZE - 8, TILE_SIZE - 8, 10)
+        .fill({ color: removing ? 0xff5470 : 0x8fd06a, alpha: pulse * 0.5 })
+        .roundRect(x + 4, y + 4, TILE_SIZE - 8, TILE_SIZE - 8, 10)
+        .stroke({ color: removing ? 0xff8fa0 : 0xd9ffb0, width: 3, alpha: pulse + 0.3 });
+    }
+  }
+
+  /** Deconstruct whatever covers the tile — half the cost comes back. */
+  private doRemove(col: number, row: number): boolean {
+    const removed = removeBuild(col, row);
+    if (!removed) {
+      this.toast('nothing to remove there');
+      audio.buzz();
+      return false;
+    }
+    const def = buildById(removed.id);
+    this.cancelPlacing();
+    audio.chime();
+    this.updateVeriumText();
+    if (removed.id === 'plot') {
+      // Retire the live plot too (any crop on it is lost).
+      const x = (removed.col + 0.5) * TILE_SIZE;
+      const y = (removed.row + 0.5) * TILE_SIZE;
+      const idx = this.plotViews.findIndex((v) => Math.abs(v.x - x) < 1 && Math.abs(v.y - y) < 1);
+      if (idx >= 0) {
+        const [v] = this.plotViews.splice(idx, 1);
+        if (v) this.remove(v.root);
+        this.plots.splice(idx, 1);
+      }
+    }
+    this.renderBuilds(savedBuilds());
+    this.save();
+    this.toast(`${def?.emoji ?? '🧹'} removed — +⬡${def ? Math.ceil(def.cost / 2) : 0} back`);
+    return true;
   }
 
   /** Leave build-placing mode (taps go back to farming). */
   private cancelPlacing(msg?: string): void {
     this.placing = null;
     this.buildBtn.setLabel('🔨');
+    this.placeMarkers?.clear();
     if (msg) this.toast(msg);
   }
 
   private tryPlace(col: number, row: number): boolean {
     const id = this.placing;
     if (!id || this.visiting) return false;
+    if (id === 'remove') return this.doRemove(col, row);
     const def = buildById(id);
     if (!def) return false;
-    // Any failed placement CANCELS build mode — otherwise the invisible
-    // placing flag eats every later tap and the farm feels broken.
-    if (this.map.solid[row]?.[col] !== false) {
-      this.cancelPlacing('needs an open grassy tile — build cancelled');
-      audio.buzz();
-      return false;
-    }
-    const px = (col + 0.5) * TILE_SIZE;
-    const py = (row + 0.5) * TILE_SIZE;
-    if (this.plotViews.some((v) => Math.abs(v.x - px) < 1 && Math.abs(v.y - py) < 1)) {
-      this.cancelPlacing("that's a crop plot — build cancelled");
-      audio.buzz();
-      return false;
-    }
-    // Don't let a stream flood the tile you're standing on.
-    if (
-      id === 'stream' &&
-      col === Math.floor(this.player.x / TILE_SIZE) &&
-      row === Math.floor(this.player.y / TILE_SIZE)
-    ) {
-      this.cancelPlacing("can't place water under your feet — build cancelled");
+    // An invalid tile keeps build mode alive (the glowing markers show where
+    // it CAN go); only running out of Verium cancels it.
+    if (!this.canPlaceAt(id, col, row)) {
+      this.toast('tap a glowing tile next to you');
       audio.buzz();
       return false;
     }

@@ -175,31 +175,49 @@ await page.mouse.click(p2.x, p2.y);
 await sleep(200);
 const tapPlantOk = (await page.evaluate(() => window.__farm.plotInfo()[2])).c === 'carrot';
 
-// A FAILED build placement must cancel placing mode (the old bug left the
-// invisible placing flag set, which silently ate every later tap).
+// Invalid tiles keep build mode alive (glowing markers show valid spots);
+// the ✕ / cancelBuild clears it — and taps must work again right after.
 await page.evaluate(() => window.__farm.buildStart('pond'));
 const badPlace = await page.evaluate(() => window.__farm.placeAt(0, 0)); // solid border
+const placingKept = (await page.evaluate(() => window.__farm.placingId())) === 'pond';
+await page.evaluate(() => window.__farm.cancelBuild());
 const placingCleared = (await page.evaluate(() => window.__farm.placingId())) === null;
-// ...and taps still work afterwards: tap plot 3 and it plants.
 const p3 = await page.evaluate(() => window.__farm.plotScreen(3));
 await page.mouse.click(p3.x, p3.y);
 await sleep(200);
 const tapAfterCancelOk = (await page.evaluate(() => window.__farm.plotInfo()[3])).c === 'carrot';
-const buildCancelOk = badPlace === false && placingCleared && tapAfterCancelOk;
+const buildCancelOk = badPlace === false && placingKept && placingCleared && tapAfterCancelOk;
 
 // Building: place a pond on an open tile and confirm it stuck.
-await page.evaluate(() => window.__farm.grantVerium(300));
+await page.evaluate(() => window.__farm.grantVerium(500));
 await page.evaluate(() => window.__farm.buildStart('pond'));
 const placed = await page.evaluate(() => window.__farm.placeAt(8, 15));
 const buildOk = placed === true && (await page.evaluate(() => window.__farm.buildCount())) === 1;
 
-// Streams: two adjacent tiles route a little river next to the pond.
+// Streams: two adjacent tiles route a little river beside the 2x2 pond.
 await page.evaluate(() => window.__farm.buildStart('stream'));
-const s1 = await page.evaluate(() => window.__farm.placeAt(9, 15));
+const s1 = await page.evaluate(() => window.__farm.placeAt(10, 15));
 await page.evaluate(() => window.__farm.buildStart('stream'));
-const s2 = await page.evaluate(() => window.__farm.placeAt(10, 15));
+const s2 = await page.evaluate(() => window.__farm.placeAt(11, 15));
 const streamOk =
   s1 === true && s2 === true && (await page.evaluate(() => window.__farm.buildCount())) === 3;
+
+// Bridges span water: place one ON a stream tile.
+await page.evaluate(() => window.__farm.buildStart('bridge'));
+const b1 = await page.evaluate(() => window.__farm.placeAt(10, 15));
+const bridgeOk = b1 === true && (await page.evaluate(() => window.__farm.buildCount())) === 4;
+
+// Deconstruct: place a fence, remove it, get half the cost back.
+await page.evaluate(() => window.__farm.buildStart('fence'));
+const fencePlaced = await page.evaluate(() => window.__farm.placeAt(8, 13));
+const vPreRemove = await page.evaluate(() => window.__farm.verium());
+const removed = await page.evaluate(() => window.__farm.removeAt(8, 13));
+const vPostRemove = await page.evaluate(() => window.__farm.verium());
+const removeOk =
+  fencePlaced === true &&
+  removed === true &&
+  vPostRemove === vPreRemove + 30 &&
+  (await page.evaluate(() => window.__farm.buildCount())) === 4;
 
 // Weather: force rain and confirm it registers.
 await page.evaluate(() => window.__farm.rainNow());
@@ -362,6 +380,8 @@ const ok =
   buildCancelOk &&
   buildOk &&
   streamOk &&
+  bridgeOk &&
+  removeOk &&
   themeOk &&
   petOk &&
   backOk &&
@@ -406,6 +426,8 @@ console.log(
       buildCancelOk,
       buildOk,
       streamOk,
+      bridgeOk,
+      removeOk,
       themeOk,
       petOk,
       order0,
