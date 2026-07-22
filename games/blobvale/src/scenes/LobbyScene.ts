@@ -1,11 +1,20 @@
 import type { Text } from 'pixi.js';
-import { Entity, Scene, Timer, Wobble, audio, blobCharacter, partyPop } from '@interverse/engine';
+import {
+  Entity,
+  Scene,
+  Timer,
+  Wobble,
+  audio,
+  blobCharacter,
+  partyPop,
+  verium,
+} from '@interverse/engine';
 import type { Session } from '@interverse/net';
 import { UIButton } from '@interverse/ui';
 import { CLASSES, classById, shadeFor } from '../classes.js';
-import { ACCESSORIES, accessoryView } from '../accessories.js';
+import { ACCESSORIES, FREE_ACCESSORIES, accessoryView } from '../accessories.js';
 import { VOICES, playVoice } from '../voice.js';
-import { Graphics } from 'pixi.js';
+import { Container, Graphics } from 'pixi.js';
 import { makeTappable } from '@interverse/engine';
 import { store } from '../store.js';
 import { makeText } from '../text.js';
@@ -85,15 +94,35 @@ export class LobbyScene extends Scene {
   private classBtns: UIButton[] = [];
   private classBlurbs: Text[] = [];
   private startBtn: UIButton | null = null;
+  private veriumChip!: Text;
+  private customizeBtn!: UIButton;
+  // Customize overlay ("different screen" with a close-up).
+  private customizeRoot!: Container;
+  private customizeBg!: Graphics;
+  private customizeTitle!: Text;
+  private previewEntity!: Entity;
   private styleLabel!: Text;
   private swatchRow!: Entity;
   private accLabel!: Text;
   private accRow!: Entity;
   private voiceLabel!: Text;
   private voiceRow!: Entity;
+  private storeLabel!: Text;
+  private storeRow!: Entity;
+  private storeVeriumText!: Text;
+  private storeNote!: Text;
+  private doneBtn!: UIButton;
+  private previewBody: Container | null = null;
+  private t = 0;
 
   protected override onResize(w: number, h: number): void {
     this.layout(w, h);
+  }
+
+  /** Free starter accessories + anything purchased (persisted per device). */
+  private ownedAccessories(): Set<number> {
+    const bought = store.get<number[]>('ownedAccs', []);
+    return new Set<number>([...FREE_ACCESSORIES, ...bought]);
   }
 
   private layout(W: number, H: number): void {
@@ -120,26 +149,31 @@ export class LobbyScene extends Scene {
         this.classBlurbs[i]?.position.set(cx, cy + 62);
       }
     });
-    // Customize band: color / accessory / sound, stacked under the classes.
-    if (landscape) {
-      this.styleLabel.position.set(W / 2 - 300, 452);
-      this.swatchRow.position.set(W / 2 - 300, 492);
-      this.accLabel.position.set(W / 2, 452);
-      this.accRow.position.set(W / 2, 492);
-      this.voiceLabel.position.set(W / 2 + 300, 452);
-      this.voiceRow.position.set(W / 2 + 300, 492);
-      this.statusText.position.set(W / 2, 540);
-    } else {
-      this.styleLabel.position.set(W / 2, 848);
-      this.swatchRow.position.set(W / 2, 882);
-      this.accLabel.position.set(W / 2, 926);
-      this.accRow.position.set(W / 2, 960);
-      this.voiceLabel.position.set(W / 2, 1002);
-      this.voiceRow.position.set(W / 2, 1036);
-      this.statusText.position.set(W / 2, 1080);
-    }
-    this.startBtn?.position.set(W / 2, H - (landscape ? 60 : 74));
-    this.waitText?.position.set(W / 2, H - (landscape ? 46 : 62));
+    this.veriumChip.position.set(landscape ? 120 : 110, landscape ? 40 : 48);
+    this.customizeBtn.position.set(W / 2, landscape ? 560 : 880);
+    this.statusText.position.set(W / 2, landscape ? 620 : 990);
+    this.startBtn?.position.set(W / 2, H - (landscape ? 60 : 100));
+    this.waitText?.position.set(W / 2, H - (landscape ? 46 : 96));
+    this.layoutCustomize(W, H);
+  }
+
+  /** Full-screen customize overlay: close-up + color/accessory/sound + store. */
+  private layoutCustomize(W: number, H: number): void {
+    this.customizeBg.clear();
+    this.customizeBg.rect(0, 0, W, H).fill(0x140f1e);
+    this.customizeTitle.position.set(W / 2, 60);
+    this.previewEntity.position.set(W / 2, 220);
+    this.styleLabel.position.set(W / 2, 348);
+    this.swatchRow.position.set(W / 2, 388);
+    this.accLabel.position.set(W / 2, 450);
+    this.accRow.position.set(W / 2, 492);
+    this.voiceLabel.position.set(W / 2, 556);
+    this.voiceRow.position.set(W / 2, 596);
+    this.storeLabel.position.set(W / 2 - 150, 668);
+    this.storeVeriumText.position.set(W / 2 + 150, 668);
+    this.storeNote.position.set(W / 2, 700);
+    this.storeRow.position.set(W / 2, 776);
+    this.doneBtn.position.set(W / 2, H - 80);
   }
 
   constructor(private readonly session: Session) {
@@ -164,6 +198,12 @@ export class LobbyScene extends Scene {
       setAcc: (i: number) => this.pickAcc(i),
       voices: () => ({ ...(this.roster.voices ?? {}) }),
       setVoice: (i: number) => this.pickVoice(i),
+      verium: () => verium.balance(),
+      grantVerium: (n: number) => verium.add(n),
+      owned: () => [...this.ownedAccessories()],
+      buyAcc: (i: number) => this.buyAccessory(i),
+      openCustomize: () => this.openCustomize(),
+      customizeOpen: () => this.customizeRoot.visible,
       ...(session.isHost ? { start: () => this.startAdventure() } : {}),
     };
 
@@ -196,18 +236,64 @@ export class LobbyScene extends Scene {
       this.classBlurbs.push(blurb);
     });
 
+    // Lobby: a Verium chip + a CUSTOMIZE button that opens the close-up.
+    this.veriumChip = makeText('⬡ 0', 24, { color: 0x9ad8ff, weight: '800' });
+    this.stage.addChild(this.veriumChip);
+    this.customizeBtn = new UIButton('✨ CUSTOMIZE BLOB', {
+      width: 480,
+      height: 88,
+      fontSize: 32,
+      fill: 0xc9a0ff,
+      textColor: 0x1c1c28,
+      onTap: () => this.openCustomize(),
+    });
+    this.customizeBtn.visible = false; // appears once you've picked a class
+    this.add(this.customizeBtn);
+
+    // The customize overlay ("a different screen") — hidden until opened.
+    this.customizeRoot = new Container();
+    this.customizeRoot.visible = false;
+    this.customizeBg = new Graphics();
+    this.customizeBg.eventMode = 'static'; // block taps to the lobby behind
+    this.customizeRoot.addChild(this.customizeBg);
+    this.customizeTitle = makeText('CUSTOMIZE YOUR BLOB', 34, { color: partyPop.accent });
+    this.previewEntity = new Entity();
     this.styleLabel = makeText('COLOR', 22, { color: partyPop.inkSoft, weight: 'bold' });
-    this.stage.addChild(this.styleLabel);
     this.swatchRow = new Entity();
-    this.add(this.swatchRow);
     this.accLabel = makeText('ACCESSORY', 22, { color: partyPop.inkSoft, weight: 'bold' });
-    this.stage.addChild(this.accLabel);
     this.accRow = new Entity();
-    this.add(this.accRow);
     this.voiceLabel = makeText('SOUND', 22, { color: partyPop.inkSoft, weight: 'bold' });
-    this.stage.addChild(this.voiceLabel);
     this.voiceRow = new Entity();
-    this.add(this.voiceRow);
+    this.storeLabel = makeText('STORE', 24, { color: 0xffd166, weight: '800' });
+    this.storeVeriumText = makeText('⬡ 0', 24, { color: 0x9ad8ff, weight: '800' });
+    this.storeNote = makeText('tap to buy with Verium', 18, {
+      color: partyPop.inkSoft,
+      weight: 'bold',
+    });
+    this.storeRow = new Entity();
+    this.doneBtn = new UIButton('DONE', {
+      width: 300,
+      height: 90,
+      fontSize: 34,
+      fill: 0x8affc1,
+      onTap: () => this.closeCustomize(),
+    });
+    this.customizeRoot.addChild(
+      this.customizeTitle,
+      this.previewEntity,
+      this.styleLabel,
+      this.swatchRow,
+      this.accLabel,
+      this.accRow,
+      this.voiceLabel,
+      this.voiceRow,
+      this.storeLabel,
+      this.storeVeriumText,
+      this.storeNote,
+      this.storeRow,
+      this.doneBtn,
+    );
+    this.stage.addChild(this.customizeRoot);
 
     this.statusText = makeText('', 28, { color: partyPop.inkSoft, weight: 'bold', wrapWidth: 620 });
     this.stage.addChild(this.statusText);
@@ -341,6 +427,7 @@ export class LobbyScene extends Scene {
       this.session.send(msg);
     }
     this.redrawSwatches();
+    if (this.customizeRoot?.visible) this.redrawPreview();
   }
 
   private pickLook(i: number, silent = false): void {
@@ -355,6 +442,7 @@ export class LobbyScene extends Scene {
       this.session.send(msg);
     }
     this.redrawSwatches();
+    if (this.customizeRoot?.visible) this.redrawPreview();
   }
 
   private pickAcc(i: number, silent = false): void {
@@ -369,6 +457,7 @@ export class LobbyScene extends Scene {
       this.session.send(msg);
     }
     this.redrawAccs();
+    if (this.customizeRoot?.visible) this.redrawPreview();
   }
 
   private pickVoice(i: number, silent = false): void {
@@ -409,15 +498,122 @@ export class LobbyScene extends Scene {
     });
   }
 
+  /** Equip row: only the accessories you own (free + purchased). */
   private redrawAccs(): void {
+    for (const old of this.accRow.removeChildren()) old.destroy({ children: true });
+    const owned = [...this.ownedAccessories()].sort((a, b) => a - b);
     const cur = this.roster.accs?.[this.session.id] ?? store.get<number>('acc', 0);
-    this.redrawIconRow(
-      this.accRow,
-      ACCESSORIES.map((a) => a.emoji),
-      cur,
-      74,
-      (i) => this.pickAcc(i),
+    const spacing = Math.min(72, 640 / Math.max(1, owned.length));
+    const total = (owned.length - 1) * spacing;
+    owned.forEach((accIdx, i) => {
+      const chip = new Entity();
+      const g = new Graphics().circle(0, 0, 28).fill(accIdx === cur ? 0x2e6b3e : 0x243a2a);
+      if (accIdx === cur) g.circle(0, 0, 31).stroke({ color: 0xffffff, width: 4 });
+      chip.addChild(g);
+      chip.addChild(makeText(ACCESSORIES[accIdx]?.emoji ?? '?', 24));
+      chip.position.set(-total / 2 + i * spacing, 0);
+      makeTappable(chip, () => this.pickAcc(accIdx), { hitRadius: 32 });
+      this.accRow.addChild(chip);
+    });
+  }
+
+  /** Store grid: locked (purchasable) accessories with their Verium price. */
+  private redrawStore(): void {
+    for (const old of this.storeRow.removeChildren()) old.destroy({ children: true });
+    const owned = this.ownedAccessories();
+    const locked = ACCESSORIES.map((a, i) => ({ a, i })).filter(
+      ({ a, i }) => a.price !== undefined && !owned.has(i),
     );
+    const cols = 4;
+    const dx = 156;
+    const dy = 120;
+    locked.forEach(({ a, i }, k) => {
+      const col = k % cols;
+      const row = Math.floor(k / cols);
+      const chip = new Entity();
+      const g = new Graphics()
+        .circle(0, 0, 34)
+        .fill(0x243a2a)
+        .circle(0, 0, 34)
+        .stroke({ color: 0x4a4a5a, width: 2 });
+      chip.addChild(g);
+      chip.addChild(makeText(a.emoji, 30));
+      const price = makeText(`⬡${a.price}`, 18, { color: 0x9ad8ff, weight: '800' });
+      price.position.set(0, 48);
+      chip.addChild(price);
+      chip.position.set((col - (cols - 1) / 2) * dx, row * dy);
+      makeTappable(chip, () => this.buyAccessory(i), { hitRadius: 42 });
+      this.storeRow.addChild(chip);
+    });
+    if (locked.length === 0) {
+      this.storeNote.text = 'you own every accessory! 🎉';
+      this.storeNote.style.fill = partyPop.accent;
+    }
+    this.updateVerium();
+  }
+
+  private buyAccessory(i: number): void {
+    const def = ACCESSORIES[i];
+    if (!def) return;
+    if (this.ownedAccessories().has(i)) {
+      this.pickAcc(i); // already owned — just equip it
+      return;
+    }
+    if (def.price === undefined) return;
+    if (!verium.spend(def.price)) {
+      this.storeNote.text = 'not enough Verium — go earn some!';
+      this.storeNote.style.fill = 0xff8f9c;
+      audio.buzz();
+      this.updateVerium();
+      return;
+    }
+    const bought = store.get<number[]>('ownedAccs', []);
+    if (!bought.includes(i)) store.set('ownedAccs', [...bought, i]);
+    audio.chime();
+    this.storeNote.text = `unlocked ${def.name}!`;
+    this.storeNote.style.fill = partyPop.accent;
+    this.pickAcc(i); // auto-equip the new one
+    this.redrawStore();
+    this.redrawAccs();
+  }
+
+  private updateVerium(): void {
+    const label = `⬡ ${verium.balance()}`;
+    if (this.veriumChip.text !== label) this.veriumChip.text = label;
+    this.storeVeriumText.text = label;
+  }
+
+  /** Big close-up blob reflecting the current class + color + accessory. */
+  private redrawPreview(): void {
+    for (const old of this.previewEntity.removeChildren()) old.destroy({ children: true });
+    const cls = classById(this.roster.classes[this.session.id]);
+    const look = this.roster.looks?.[this.session.id] ?? store.get<number>('look', 2);
+    const char = blobCharacter({
+      radius: 92,
+      color: shadeFor(cls.color, look),
+      seed: 7,
+      strokeWidth: 6,
+    });
+    char.body.addChild(cls.accessory(92));
+    char.body.addChild(accessoryView(this.roster.accs?.[this.session.id], 92));
+    this.previewEntity.addChild(char.view);
+    this.previewBody = char.body;
+  }
+
+  private openCustomize(): void {
+    audio.blip();
+    this.customizeRoot.visible = true;
+    this.stage.addChild(this.customizeRoot); // bring the overlay to the front
+    this.redrawPreview();
+    this.redrawSwatches();
+    this.redrawAccs();
+    this.redrawVoices();
+    this.redrawStore();
+  }
+
+  private closeCustomize(): void {
+    audio.blip(0.9);
+    this.customizeRoot.visible = false;
   }
 
   private redrawVoices(): void {
@@ -518,11 +714,19 @@ export class LobbyScene extends Scene {
     this.redrawSwatches();
     this.redrawAccs();
     this.redrawVoices();
+    // The customize close-up unlocks once you've chosen a class.
+    this.customizeBtn.visible = this.roster.classes[this.session.id] !== undefined;
   }
 
   protected override onUpdate(dt: number): void {
+    this.t += dt;
     for (const chip of this.rosterRow.children) {
       if (chip instanceof Entity) chip.update(dt);
     }
+    if (this.customizeRoot.visible && this.previewBody) {
+      const s = Math.sin(this.t * 2.2) * 0.05;
+      this.previewBody.scale.set(1 + s, 1 - s);
+    }
+    this.updateVerium();
   }
 }

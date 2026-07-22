@@ -50,6 +50,11 @@ interface LobbyDebug {
   enterPortal?: () => void;
   verium?: () => number;
   veriumEarned?: () => number;
+  grantVerium?: (n: number) => number;
+  owned?: () => number[];
+  buyAcc?: (i: number) => void;
+  openCustomize?: () => void;
+  customizeOpen?: () => boolean;
 }
 
 declare global {

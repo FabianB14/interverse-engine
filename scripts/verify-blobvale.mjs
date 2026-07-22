@@ -96,6 +96,25 @@ const accOk = Object.values(accsOnHost).includes(3);
 const voicesOnHost = await p1.evaluate(() => window.__blobvale.voices());
 const voiceOk = Object.values(voicesOnHost).includes(5);
 await p1.screenshot({ path: `${outDir}/bv-1-lobby.png` });
+// STORE (economy): grant Verium, open the customize close-up, buy a locked
+// accessory — it deducts, persists to owned, and auto-equips.
+await p1.evaluate(() => window.__blobvale.grantVerium(200));
+const custOpened = await p1.evaluate(() => {
+  window.__blobvale.openCustomize();
+  return window.__blobvale.customizeOpen();
+});
+await p1.screenshot({ path: `${outDir}/bv-8-customize.png` });
+const veriumPreBuy = await p1.evaluate(() => window.__blobvale.verium());
+await p1.evaluate(() => window.__blobvale.buyAcc(9)); // tiara, price 30
+await sleep(200);
+const ownedHost = await p1.evaluate(() => window.__blobvale.owned());
+const accsAfterBuy = await p1.evaluate(() => window.__blobvale.accs());
+const veriumPostBuy = await p1.evaluate(() => window.__blobvale.verium());
+const storeOk =
+  custOpened &&
+  ownedHost.includes(9) &&
+  Object.values(accsAfterBuy).includes(9) &&
+  veriumPostBuy === veriumPreBuy - 30;
 
 // Host starts the adventure -> everyone lands in the world.
 await p1.evaluate(() => window.__blobvale.start());
@@ -270,6 +289,7 @@ const ok =
   clericOk &&
   zoneOk &&
   veriumOk &&
+  storeOk &&
   errors.length === 0;
 console.log(
   JSON.stringify(
@@ -304,6 +324,8 @@ console.log(
       veriumOk,
       veriumHost,
       veriumJoiner,
+      storeOk,
+      ownedHost,
       bossBefore,
       bossAfter,
       bossBeforeCleric,
