@@ -1,7 +1,7 @@
 // Minimal app-shell cache (stale-while-revalidate). Multiplayer still
 // needs the network; this makes launches instant and single-player usable
 // offline.
-const CACHE = 'interverse-v2';
+const CACHE = 'interverse-v3';
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) =>
   e.waitUntil(
