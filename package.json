@@ -25,7 +25,8 @@
     "dev:blobvale": "pnpm --filter @interverse/blobvale dev",
     "verify:blobvale": "node scripts/verify-blobvale.mjs",
     "dev:farm": "pnpm --filter @interverse/farm dev",
-    "verify:farm": "node scripts/verify-farm.mjs"
+    "verify:farm": "node scripts/verify-farm.mjs",
+    "verify:visit": "node scripts/verify-visit.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",

@@ -33,6 +33,18 @@ export interface FarmDebug {
   storm?: () => boolean;
   openInv?: () => void;
   invOpen?: () => boolean;
+  // Friends / visit / trade (multiplayer)
+  friends?: (() => void) | (() => string[]);
+  openFarm?: () => void;
+  visitByCode?: (c: string) => void;
+  setCode?: (c: string) => void;
+  visit?: () => void;
+  code?: () => string;
+  remoteIds?: () => string[];
+  startTrade?: () => void;
+  offerItem?: (id: string) => void;
+  confirmTrade?: () => void;
+  tradeOpen?: () => boolean;
   // Shop
   toShop?: () => void;
   tab?: () => string;

@@ -73,6 +73,9 @@ importers:
       '@interverse/engine':
         specifier: workspace:*
         version: link:../../packages/engine
+      '@interverse/net':
+        specifier: workspace:*
+        version: link:../../packages/net-client
       '@interverse/ui':
         specifier: workspace:*
         version: link:../../packages/ui-kit

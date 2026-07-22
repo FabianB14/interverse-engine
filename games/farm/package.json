@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@interverse/engine": "workspace:*",
+    "@interverse/net": "workspace:*",
     "@interverse/ui": "workspace:*",
     "pixi.js": "^8.6.6"
   },

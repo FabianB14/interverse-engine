@@ -12,6 +12,7 @@ import { ACCESSORIES, accessoryIndex, ownedAccessoryIds } from '../accessories.j
 import { GAME_TITLE } from '../game.js';
 import { FarmScene } from './FarmScene.js';
 import { NameScene } from './NameScene.js';
+import { FriendsScene } from './FriendsScene.js';
 import '../debug.js';
 
 // Outfit / blob-body colors, and a range of skin tones for the person.
@@ -35,6 +36,7 @@ export class TitleScene extends Scene {
   private accNext!: UIButton;
   private accLabel!: Text;
   private playBtn!: UIButton;
+  private friendsBtn!: UIButton;
   private busy = false;
   private t = 0;
 
@@ -65,6 +67,7 @@ export class TitleScene extends Scene {
       this.skinRow.position.set(rx, H * 0.7);
       this.accRow.position.set(rx, H * 0.82);
       this.playBtn.position.set(lx, H * 0.94);
+      this.friendsBtn.position.set(W - 130, 50);
       return;
     }
     this.title.position.set(W / 2, H * 0.085);
@@ -78,6 +81,7 @@ export class TitleScene extends Scene {
     this.skinRow.position.set(W / 2, H * 0.69);
     this.accRow.position.set(W / 2, H * 0.765);
     this.playBtn.position.set(W / 2, H * 0.88);
+    this.friendsBtn.position.set(W - 130, 50);
   }
 
   protected override onEnter(): void {
@@ -174,6 +178,16 @@ export class TitleScene extends Scene {
     });
     this.add(this.playBtn);
 
+    this.friendsBtn = new UIButton('👥 Friends', {
+      width: 220,
+      height: 68,
+      fontSize: 26,
+      fill: FARM.panel,
+      textColor: FARM.ink,
+      onTap: () => this.goFriends(),
+    });
+    this.add(this.friendsBtn);
+
     this.updateOutfitCap();
     this.updateSkinVisibility();
     this.layout(W, H);
@@ -200,7 +214,14 @@ export class TitleScene extends Scene {
       setSkin: (c: number) => this.pickSkin(c),
       name: () => savedName() ?? '',
       editName: () => this.editName(),
+      friends: () => this.goFriends(),
     };
+  }
+
+  private goFriends(): void {
+    if (this.busy || this.game.scenes.isTransitioning) return;
+    audio.blip(1.2);
+    this.game.scenes.replace(new FriendsScene());
   }
 
   protected override onExit(): void {
