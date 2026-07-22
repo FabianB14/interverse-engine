@@ -44,6 +44,10 @@ interface LobbyDebug {
   casts?: () => number;
   booms?: () => number;
   giveMod?: (id: string) => void;
+  zone?: () => number;
+  portalOpen?: () => boolean;
+  killBoss?: () => void;
+  enterPortal?: () => void;
 }
 
 declare global {

@@ -211,6 +211,25 @@ const clericOk =
 // Retreat so slimes/boss stop chasing during rotation checks.
 await p4.evaluate(() => window.__blobvale.warp(900, 1400));
 
+// ZONES (M6): fell the boss -> a portal opens -> stepping in takes the whole
+// party to the next level (host and joiner both repaint to zone 1).
+const zoneBefore = await p1.evaluate(() => window.__blobvale.zone());
+await p1.evaluate(() => window.__blobvale.revive());
+await p1.evaluate(() => window.__blobvale.warp(770, 290));
+await sleep(300);
+await p1.evaluate(() => window.__blobvale.killBoss());
+await sleep(400);
+const portalUp = await p1.evaluate(() => window.__blobvale.portalOpen());
+await p1.evaluate(() => window.__blobvale.enterPortal());
+await sleep(700);
+const zoneHost = await p1.evaluate(() => window.__blobvale.zone());
+await sleep(500);
+const zoneJoiner = await p2.evaluate(() => window.__blobvale.zone());
+const mobsAfterZone = await p1.evaluate(() => window.__blobvale.mobCount());
+const zoneOk =
+  zoneBefore === 0 && portalUp && zoneHost === 1 && zoneJoiner === 1 && mobsAfterZone > 0;
+await p2.screenshot({ path: `${outDir}/bv-7-zone2.png` });
+
 // LANDSCAPE: rotate p3 mid-game; UI must reflow and the game keeps running.
 const joyBefore = await p3.evaluate(() => window.__blobvale.joystickScreen());
 await p3.setViewportSize({ width: 844, height: 390 });
@@ -244,6 +263,7 @@ const ok =
   modOk &&
   castZoneOk &&
   clericOk &&
+  zoneOk &&
   errors.length === 0;
 console.log(
   JSON.stringify(
@@ -271,6 +291,10 @@ console.log(
       boomsHost,
       castZoneOk,
       clericOk,
+      zoneOk,
+      zoneHost,
+      zoneJoiner,
+      mobsAfterZone,
       bossBefore,
       bossAfter,
       bossBeforeCleric,

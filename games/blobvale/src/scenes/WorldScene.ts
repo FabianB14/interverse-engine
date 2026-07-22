@@ -40,7 +40,7 @@ import {
   xpForLevel,
 } from '../combat.js';
 import type { MobState } from '../combat.js';
-import { TILE_SIZE, valeLegend, valePainters, valeRows } from '../map.js';
+import { TILE_SIZE, ZONES, valeLegend, valeRows } from '../map.js';
 import { makeText } from '../text.js';
 import { MenuScene } from './MenuScene.js';
 import type { RosterState } from './LobbyScene.js';
@@ -69,6 +69,15 @@ interface SnapMessage {
   players: Record<string, { x: number; y: number }>;
   mobs?: Record<string, MobSnap>;
   stats?: Record<string, PlayerStats>;
+  /** Current zone index, so late joiners repaint to match. */
+  zone?: number;
+  /** Portal to the next level (appears once the zone boss falls). */
+  portal?: { x: number; y: number } | null;
+}
+
+interface ZoneMsg {
+  type: 'zone';
+  index: number;
 }
 
 interface CastMessage {
@@ -158,7 +167,8 @@ type WorldMessage =
   | CastMessage
   | FxMessage
   | OfferMsg
-  | UpgradeMsg;
+  | UpgradeMsg
+  | ZoneMsg;
 
 interface RemotePlayer {
   entity: Entity;
@@ -176,6 +186,10 @@ interface RemotePlayer {
 export class WorldScene extends Scene {
   private map!: TileMapData;
   private mapLayer!: Container;
+  private tileView!: Container;
+  private zone = 0;
+  private portal: { x: number; y: number } | null = null;
+  private portalView: Entity | null = null;
   private uiLayer!: Container;
   private camera!: Camera;
   private me!: Entity;
@@ -195,13 +209,7 @@ export class WorldScene extends Scene {
   private spawnPoint = { x: 800, y: 1200 };
   // Combat (M2)
   private hostMobs = new Map<number, MobState>();
-  private mobRespawns: {
-    at: number;
-    homeX: number;
-    homeY: number;
-    boss?: boolean;
-    bossKind?: number;
-  }[] = [];
+  private mobRespawns: { at: number; homeX: number; homeY: number }[] = [];
   private stats: Record<string, PlayerStats> = {};
   private upgradeOverlay: {
     root: Entity;
@@ -272,7 +280,9 @@ export class WorldScene extends Scene {
     this.mapLayer = new Container();
     this.uiLayer = new Container();
     this.stage.addChild(this.mapLayer, this.uiLayer);
-    this.mapLayer.addChild(buildTileMapView(this.map, valePainters));
+    this.tileView = buildTileMapView(this.map, ZONES[this.zone]!.painters);
+    this.mapLayer.addChildAt(this.tileView, 0);
+    this.applyZoneBackdrop();
 
     const spawn = this.map.objects.find((o) => o.name === 'spawn') ?? { x: 800, y: 1200 };
 
@@ -353,7 +363,7 @@ export class WorldScene extends Scene {
         for (let i = 0; i < MOB.PER_CAMP; i++) this.hostSpawnMob(camp.x, camp.y);
       }
       const lair = this.map.objects.find((o) => o.name === 'boss');
-      if (lair) this.hostSpawnBoss(lair.x, lair.y + 60);
+      if (lair) this.hostSpawnBoss(lair.x, lair.y + 60, this.zone);
     }
 
     const hud = makeText(
@@ -401,6 +411,16 @@ export class WorldScene extends Scene {
       booms: () => this.boomsSeen,
       giveMod: (id: string) => {
         if (this.session.isHost) this.applyUpgrade(this.session.id, id);
+      },
+      zone: () => this.zone,
+      portalOpen: () => this.portal !== null || this.portalView !== null,
+      killBoss: () => {
+        if (!this.session.isHost) return;
+        const b = this.hostMobs.get(BOSS.ID);
+        if (b) this.hostHitMob(b, b.hp);
+      },
+      enterPortal: () => {
+        if (this.session.isHost && this.portal) this.me.position.set(this.portal.x, this.portal.y);
       },
       bossHp: () => {
         if (this.session.isHost) return this.hostMobs.get(BOSS.ID)?.hp ?? null;
@@ -507,7 +527,18 @@ export class WorldScene extends Scene {
         }
       }
       if (msg.stats) this.stats = msg.stats;
+      // Late joiners (or anyone out of sync) repaint to the host's zone.
+      if (msg.zone !== undefined && msg.zone !== this.zone) {
+        this.loadZone(msg.zone);
+        this.me.position.set(this.spawnPoint.x, this.spawnPoint.y);
+      }
       if (msg.mobs) this.syncMobViews(msg.mobs);
+      this.syncPortal(msg.portal ?? null);
+      return;
+    }
+    if (msg?.type === 'zone' && !this.session.isHost) {
+      this.loadZone(msg.index);
+      this.me.position.set(this.spawnPoint.x, this.spawnPoint.y);
       return;
     }
     if (msg?.type === 'cast' && this.session.isHost) {
@@ -757,9 +788,13 @@ export class WorldScene extends Scene {
           players: this.hostPositions,
           mobs,
           stats: this.stats,
+          zone: this.zone,
+          portal: this.portal,
         };
         this.session.broadcast(snap);
         this.syncMobViews(mobs);
+        this.syncPortal(this.portal);
+        this.hostCheckPortalEntry();
       }
     }
 
@@ -843,6 +878,98 @@ export class WorldScene extends Scene {
     });
   }
 
+  // ------------------------------------------------------------- zones (M6)
+
+  private applyZoneBackdrop(): void {
+    const bg = ZONES[this.zone]?.palette.bg;
+    if (bg !== undefined) {
+      try {
+        this.game.app.renderer.background.color = bg;
+      } catch {
+        /* renderer may not expose a settable background — tiles carry it */
+      }
+    }
+  }
+
+  /** Repaint the world to `index`'s look (collision/spawns are shared). */
+  private loadZone(index: number): void {
+    this.zone = ((index % ZONES.length) + ZONES.length) % ZONES.length;
+    const painters = ZONES[this.zone]!.painters;
+    const next = buildTileMapView(this.map, painters);
+    this.mapLayer.removeChild(this.tileView);
+    this.tileView.destroy({ children: true });
+    this.tileView = next;
+    this.mapLayer.addChildAt(this.tileView, 0);
+    this.applyZoneBackdrop();
+    if (this.codeHud) {
+      this.codeHud.text = `${this.session.code}  ·  ${ZONES[this.zone]!.name}`;
+    }
+    this.announce(`Entering ${ZONES[this.zone]!.name}!`);
+  }
+
+  /** Host: everyone moves to the next level and a fresh boss awaits. */
+  private advanceZone(): void {
+    const next = (this.zone + 1) % ZONES.length;
+    this.portal = null;
+    this.syncPortal(null);
+    this.hostMobs.clear();
+    this.mobRespawns = [];
+    this.session.broadcast({ type: 'zone', index: next });
+    this.loadZone(next);
+    this.me.position.set(this.spawnPoint.x, this.spawnPoint.y);
+    this.hostPositions[this.session.id] = { x: this.me.x, y: this.me.y };
+    for (const camp of this.map.objects.filter((o) => o.name === 'camp')) {
+      for (let i = 0; i < MOB.PER_CAMP; i++) this.hostSpawnMob(camp.x, camp.y);
+    }
+    const lair = this.map.objects.find((o) => o.name === 'boss');
+    if (lair) this.hostSpawnBoss(lair.x, lair.y + 60, next);
+    audio.chime();
+  }
+
+  /** Host: has anyone stepped into the portal to the next level? */
+  private hostCheckPortalEntry(): void {
+    if (!this.portal) return;
+    for (const p of Object.values(this.hostPositions)) {
+      if (Math.hypot(p.x - this.portal.x, p.y - this.portal.y) < 70) {
+        this.advanceZone();
+        return;
+      }
+    }
+  }
+
+  /** Create/move/remove the swirling portal marker (host + clients). */
+  private syncPortal(p: { x: number; y: number } | null): void {
+    if (p) {
+      if (!this.portalView) {
+        const e = new Entity();
+        const g = new Graphics();
+        for (let i = 0; i < 3; i++) {
+          g.circle(0, 0, 46 - i * 12).stroke({ color: 0xc77dff, width: 6, alpha: 0.9 - i * 0.2 });
+        }
+        g.circle(0, 0, 12).fill(0xf2ffe9);
+        e.addChild(g);
+        const label = makeText('NEXT LEVEL ➜', 22, { color: 0xe0c3ff, weight: '800' });
+        label.position.set(0, -70);
+        e.addChild(label);
+        e.addBehavior(new Wobble({ target: e, amount: 0.14, speed: 3 }));
+        this.portalView = e;
+        this.add(e, this.mapLayer);
+      }
+      this.portalView.position.set(p.x, p.y);
+    } else if (this.portalView) {
+      this.remove(this.portalView);
+      this.portalView = null;
+    }
+  }
+
+  /** Brief center-screen announcement (zone name, etc.). */
+  private announce(text: string): void {
+    this.statusText.text = text;
+    const clear = new Entity();
+    clear.addBehavior(new Timer(2.4, () => (this.statusText.text = '')));
+    this.add(clear);
+  }
+
   private hostSimMobs(dt: number): void {
     for (const m of this.hostMobs.values()) {
       const bd = m.kind !== undefined ? BOSSES[m.kind] : undefined;
@@ -910,8 +1037,7 @@ export class WorldScene extends Scene {
     const now = this.t;
     this.mobRespawns = this.mobRespawns.filter((r) => {
       if (now >= r.at) {
-        if (r.boss) this.hostSpawnBoss(r.homeX, r.homeY, r.bossKind ?? 0);
-        else this.hostSpawnMob(r.homeX, r.homeY);
+        this.hostSpawnMob(r.homeX, r.homeY);
         return false;
       }
       return true;
@@ -1080,15 +1206,19 @@ export class WorldScene extends Scene {
       this.hostMobs.delete(m.id);
       const isBoss = m.id === BOSS.ID;
       const bd = m.kind !== undefined ? BOSSES[m.kind] : undefined;
-      this.mobRespawns.push({
-        at: this.t + (isBoss ? BOSS.RESPAWN_SECONDS : MOB.RESPAWN_SECONDS),
-        homeX: m.homeX,
-        homeY: m.homeY,
-        // Each defeated boss summons the NEXT one in the roster.
-        ...(isBoss ? { boss: true, bossKind: ((m.kind ?? 0) + 1) % BOSSES.length } : {}),
-      });
       this.broadcastFx({ type: 'fx', kind: 'die', x: m.x, y: m.y });
       this.hostGrantXp(m.x, m.y, bd ? bd.xp : MOB.XP_PER_KILL);
+      if (isBoss) {
+        // Boss down: open a portal to the next level instead of respawning.
+        this.broadcastFx({ type: 'fx', kind: 'levelup', x: m.x, y: m.y });
+        this.portal = { x: m.homeX, y: m.homeY };
+      } else {
+        this.mobRespawns.push({
+          at: this.t + MOB.RESPAWN_SECONDS,
+          homeX: m.homeX,
+          homeY: m.homeY,
+        });
+      }
     }
   }
 
