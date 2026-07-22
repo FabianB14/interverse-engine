@@ -20,6 +20,7 @@ import { BUNDLE, buyBundle } from '../gifts.js';
 import { loadOrders, saveOrders, topUpOrders } from '../orders.js';
 import type { Order } from '../orders.js';
 import { FarmScene } from './FarmScene.js';
+import { TitleScene } from './TitleScene.js';
 import '../debug.js';
 
 /** The farmers market: fill customer orders for bonus Verium, or quick-sell. */
@@ -36,6 +37,7 @@ export class MarketScene extends Scene {
   private basketNote!: Text;
   private toastText!: Text;
   private backBtn!: UIButton;
+  private homeBtn!: UIButton;
   private bundleBtn!: UIButton;
   private W = 720;
   private H = 1280;
@@ -91,6 +93,16 @@ export class MarketScene extends Scene {
     });
     this.add(this.backBtn, this.uiLayer);
 
+    this.homeBtn = new UIButton('🏠', {
+      width: 76,
+      height: 76,
+      fontSize: 34,
+      fill: FARM.panel,
+      textColor: FARM.ink,
+      onTap: () => this.toHome(),
+    });
+    this.add(this.homeBtn, this.uiLayer);
+
     this.bundleBtn = new UIButton(`🎁 Bundle ⬡${BUNDLE.cost} → ${BUNDLE.count} crops`, {
       width: 520,
       height: 74,
@@ -125,6 +137,7 @@ export class MarketScene extends Scene {
         this.buildBasket();
       },
       toFarm: () => this.toFarm(),
+      home: () => this.toHome(),
     };
   }
 
@@ -149,8 +162,9 @@ export class MarketScene extends Scene {
   private layout(): void {
     const W = this.W;
     this.backBtn.position.set(120, 54);
+    this.homeBtn.position.set(W - 58, 54);
     this.titleText.position.set(W / 2, 54);
-    this.veriumText.position.set(W - 28, 54);
+    this.veriumText.position.set(W - 108, 54);
     this.ordersLabel.position.set(W / 2, 150);
     this.bundleBtn.position.set(W / 2, this.H - 430);
     this.basketLabel.position.set(W / 2, this.H - 360);
@@ -330,5 +344,11 @@ export class MarketScene extends Scene {
     if (this.game.scenes.isTransitioning) return;
     audio.blip(0.9);
     this.game.scenes.replace(new FarmScene());
+  }
+
+  private toHome(): void {
+    if (this.game.scenes.isTransitioning) return;
+    audio.blip(0.9);
+    this.game.scenes.replace(new TitleScene());
   }
 }

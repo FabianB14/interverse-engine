@@ -21,10 +21,16 @@ export interface FarmDebug {
   // Customization
   acc?: () => string;
   setAcc?: (id: string) => void;
+  skin?: () => number;
+  setSkin?: (c: number) => void;
   name?: () => string;
   editName?: () => void;
   setName?: (n: string) => void;
   saveName?: () => void;
+  // Navigation / feedback
+  home?: () => void;
+  tip?: () => string;
+  storm?: () => boolean;
   // Market
   inv?: () => Record<string, number>;
   giveItem?: (id: string, n: number) => void;

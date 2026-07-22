@@ -23,3 +23,10 @@ export function savedName(): string | null {
 export function savedAcc(): string {
   return store.get<string>(ACC_KEY, 'none');
 }
+
+export const SKIN_KEY = 'skinColor';
+
+/** The person avatar's skin tone. */
+export function savedSkin(): number {
+  return store.get<number>(SKIN_KEY, 0xf0c08a);
+}

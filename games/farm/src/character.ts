@@ -10,47 +10,67 @@ export interface Character {
   body: Container;
 }
 
-/** A little code-drawn person: legs, shirt (in `color`), head + face. */
-function personCharacter(color: number, r: number): Character {
+/** Default skin tone if none is chosen. */
+export const DEFAULT_SKIN = 0xf0c08a;
+
+// Person head geometry as multiples of `r` — shared so accessories line up.
+const PERSON_HEAD_Y = -0.98;
+const PERSON_HEAD_R = 0.6;
+
+/** A clearly human little farmer: legs, shirt (in `color`), head in `skin`. */
+function personCharacter(color: number, r: number, skin: number): Character {
   const view = new Container();
-  const shadow = new Graphics().ellipse(0, r * 1.2, r * 0.8, r * 0.28).fill({
-    color: 0x000000,
-    alpha: 0.18,
-  });
-  view.addChild(shadow);
+  view.addChild(
+    new Graphics().ellipse(0, r * 1.24, r * 0.66, r * 0.22).fill({ color: 0x000000, alpha: 0.18 }),
+  );
 
   const body = new Container();
   const g = new Graphics();
-  // legs
-  g.roundRect(-r * 0.42, r * 0.5, r * 0.34, r * 0.7, r * 0.14).fill(0x4a4a55);
-  g.roundRect(r * 0.08, r * 0.5, r * 0.34, r * 0.7, r * 0.14).fill(0x4a4a55);
-  // shoes
-  g.roundRect(-r * 0.46, r * 1.12, r * 0.4, r * 0.2, r * 0.08).fill(0x2b2b33);
-  g.roundRect(r * 0.06, r * 1.12, r * 0.4, r * 0.2, r * 0.08).fill(0x2b2b33);
-  // torso (shirt = chosen color)
-  g.roundRect(-r * 0.66, -r * 0.5, r * 1.32, r * 1.1, r * 0.34).fill(color);
-  g.roundRect(-r * 0.66, -r * 0.5, r * 1.32, r * 1.1, r * 0.34).stroke({
+  const hair = 0x5b3d27;
+  const hy = PERSON_HEAD_Y * r;
+  const hr = PERSON_HEAD_R * r;
+
+  // legs (trousers) + shoes
+  g.roundRect(-r * 0.34, r * 0.56, r * 0.28, r * 0.64, r * 0.12).fill(0x4a5568);
+  g.roundRect(r * 0.06, r * 0.56, r * 0.28, r * 0.64, r * 0.12).fill(0x4a5568);
+  g.roundRect(-r * 0.38, r * 1.12, r * 0.34, r * 0.18, r * 0.08).fill(0x2b2b33);
+  g.roundRect(r * 0.04, r * 1.12, r * 0.34, r * 0.18, r * 0.08).fill(0x2b2b33);
+
+  // arms (sleeves in shirt color) with skin-tone hands
+  g.roundRect(-r * 0.58, -r * 0.28, r * 0.18, r * 0.72, r * 0.09).fill(color);
+  g.roundRect(r * 0.4, -r * 0.28, r * 0.18, r * 0.72, r * 0.09).fill(color);
+  g.circle(-r * 0.49, r * 0.46, r * 0.12).fill(skin);
+  g.circle(r * 0.49, r * 0.46, r * 0.12).fill(skin);
+
+  // torso — a shirt: shoulders in, hem out (trapezoid), so it reads as a body
+  g.poly([-r * 0.4, -r * 0.34, r * 0.4, -r * 0.34, r * 0.5, r * 0.62, -r * 0.5, r * 0.62]).fill(
+    color,
+  );
+  g.poly([-r * 0.4, -r * 0.34, r * 0.4, -r * 0.34, r * 0.5, r * 0.62, -r * 0.5, r * 0.62]).stroke({
     color: darken(color, 0.25),
     width: Math.max(2, r * 0.06),
   });
-  // arms
-  g.circle(-r * 0.66, r * 0.05, r * 0.2).fill(color);
-  g.circle(r * 0.66, r * 0.05, r * 0.2).fill(color);
+
+  // neck
+  g.rect(-r * 0.13, hy + hr * 0.7, r * 0.26, r * 0.24).fill(darken(skin, 0.06));
+
   // head
-  const skin = 0xf2c79a;
-  g.circle(0, -r * 0.95, r * 0.62).fill(skin);
-  g.circle(0, -r * 0.95, r * 0.62).stroke({
-    color: darken(skin, 0.2),
-    width: Math.max(2, r * 0.05),
-  });
-  // hair
-  g.arc(0, -r * 0.95, r * 0.62, Math.PI, Math.PI * 2).fill(0x6b4a2f);
-  g.rect(-r * 0.62, -r * 1.0, r * 1.24, r * 0.12).fill(0x6b4a2f);
+  g.circle(0, hy, hr).fill(skin);
+  g.circle(0, hy, hr).stroke({ color: darken(skin, 0.22), width: Math.max(2, r * 0.05) });
+  // hair — a soft cap over the top of the head only (no full face frame)
+  g.ellipse(0, hy - hr * 0.42, hr * 1.02, hr * 0.7).fill(hair);
+  g.arc(0, hy - hr * 0.05, hr, Math.PI * 1.04, Math.PI * 1.96).fill(hair);
   // face
-  g.circle(-r * 0.22, -r * 0.9, r * 0.09).fill(0x2b2b33);
-  g.circle(r * 0.22, -r * 0.9, r * 0.09).fill(0x2b2b33);
-  g.ellipse(-r * 0.3, -r * 0.72, r * 0.1, r * 0.06).fill({ color: 0xff9fa0, alpha: 0.6 });
-  g.ellipse(r * 0.3, -r * 0.72, r * 0.1, r * 0.06).fill({ color: 0xff9fa0, alpha: 0.6 });
+  g.circle(-hr * 0.34, hy + hr * 0.02, r * 0.075).fill(0x2b2b33);
+  g.circle(hr * 0.34, hy + hr * 0.02, r * 0.075).fill(0x2b2b33);
+  g.circle(-hr * 0.31, hy - hr * 0.02, r * 0.024).fill(0xffffff);
+  g.circle(hr * 0.37, hy - hr * 0.02, r * 0.024).fill(0xffffff);
+  g.moveTo(-hr * 0.28, hy + hr * 0.34)
+    .quadraticCurveTo(0, hy + hr * 0.56, hr * 0.28, hy + hr * 0.34)
+    .stroke({ color: darken(skin, 0.4), width: Math.max(2, r * 0.05), cap: 'round' });
+  g.ellipse(-hr * 0.52, hy + hr * 0.26, r * 0.1, r * 0.06).fill({ color: 0xff9fa0, alpha: 0.5 });
+  g.ellipse(hr * 0.52, hy + hr * 0.26, r * 0.1, r * 0.06).fill({ color: 0xff9fa0, alpha: 0.5 });
+
   body.addChild(g);
   view.addChild(body);
   return { view, body };
@@ -65,10 +85,11 @@ export function makeCharacter(
   r = 30,
   seed = 5,
   accessory = 'none',
+  skin: number = DEFAULT_SKIN,
 ): Character {
   const char =
     type === 'person'
-      ? personCharacter(color, r)
+      ? personCharacter(color, r, skin)
       : (() => {
           const b = blobCharacter({ radius: r, color, seed, strokeWidth: 4 });
           return { view: b.view, body: b.body };
@@ -78,7 +99,9 @@ export function makeCharacter(
     // Head geometry differs by avatar: the blob's head is its whole body
     // (center 0,0 radius r); the person's head sits above the torso.
     const head =
-      type === 'person' ? { cx: 0, cy: -r * 0.95, hr: r * 0.62 } : { cx: 0, cy: 0, hr: r };
+      type === 'person'
+        ? { cx: 0, cy: PERSON_HEAD_Y * r, hr: PERSON_HEAD_R * r }
+        : { cx: 0, cy: 0, hr: r };
     const acc = accessoryView(accessory, head.hr);
     acc.position.set(head.cx, head.cy);
     char.body.addChild(acc);

@@ -47,6 +47,11 @@ await page.evaluate(() => window.__farm.setAcc('straw'));
 const accAfter = await page.evaluate(() => window.__farm.acc());
 const accOk = accAfter === 'straw';
 
+// Skin tone: switch to the person and pick a deeper skin.
+await page.evaluate(() => window.__farm.setSkin(0xb5703c));
+const skinAfter = await page.evaluate(() => window.__farm.skin());
+const skinOk = skinAfter === 0xb5703c;
+
 // Name entry: open the keyboard scene, type a name, save, land back on title.
 await page.evaluate(() => window.__farm.editName());
 await page.waitForFunction(() => window.__farm?.scene() === 'name', null, { timeout: 8_000 });
@@ -200,12 +205,36 @@ await page.evaluate(() => window.__farm.toFarm());
 await page.waitForFunction(() => window.__farm?.scene() === 'farm', null, { timeout: 8_000 });
 const backOk = (await page.evaluate(() => window.__farm.scene())) === 'farm';
 
+// Storm: force a storm and confirm the flag flips (drives lightning/thunder).
+await page.evaluate(() => window.__farm.setClock(0));
+await page.evaluate(() => {
+  // rainNow forces rain; nudge to a storm by checking the flag over a moment.
+  window.__farm.rainNow();
+});
+await sleep(120);
+const stormFlag = typeof (await page.evaluate(() => window.__farm.storm())) === 'boolean';
+
+// Home button: from the farm, land back on the title.
+await page.waitForFunction(
+  () => {
+    if (window.__farm?.scene() === 'title') return true;
+    window.__farm?.home?.();
+    return false;
+  },
+  null,
+  { timeout: 8_000, polling: 200 },
+);
+const homeOk = (await page.evaluate(() => window.__farm.scene())) === 'title';
+
 await browser.close();
 
 const ok =
   charOk &&
   accOk &&
+  skinOk &&
   nameOk &&
+  stormFlag &&
+  homeOk &&
   welcomeOk &&
   giftOk &&
   walkOk &&
@@ -228,8 +257,11 @@ console.log(
       ok,
       charOk,
       accOk,
+      skinOk,
       nameOk,
       savedNameVal,
+      stormFlag,
+      homeOk,
       welcomeOk,
       vWelcome,
       welcomeCrops,

@@ -37,12 +37,14 @@ import {
 } from '../weather.js';
 import type { Season, Weather } from '../weather.js';
 import { music } from '../music.js';
-import { savedAcc, savedName, store } from '../store.js';
+import { ambience } from '../ambience.js';
+import { savedAcc, savedName, savedSkin, store } from '../store.js';
 import { invAdd, invAll, invClear, invTotal } from '../inventory.js';
 import { makeCharacter } from '../character.js';
 import type { CharType } from '../character.js';
 import { TILE_SIZE, farmLegend, farmPainters, farmRows } from '../map.js';
 import { MarketScene } from './MarketScene.js';
+import { TitleScene } from './TitleScene.js';
 import '../debug.js';
 
 const PLAYER_SPEED = 250;
@@ -85,6 +87,16 @@ const VENDOR_DIALOGUE: DialogueData = {
 
 type Target = { kind: 'plot'; i: number } | { kind: 'vendor' } | { kind: 'gift' } | null;
 
+// Rotating gameplay hints so a new farmer knows what to do next.
+const TIPS: readonly string[] = [
+  '💡 Check the market for orders before you plant',
+  '💡 Rarer crops are worth more — and orders pay big',
+  '💡 Keep crops watered (or let the rain do it) to grow',
+  '💡 Open the free gift box when it recharges',
+  '💡 Grab the market bundle for cheap crops',
+  '💡 Talk to the vendor to head to the market',
+];
+
 export class FarmScene extends Scene {
   private map!: TileMapData;
   private mapLayer!: Container;
@@ -94,6 +106,15 @@ export class FarmScene extends Scene {
   private player!: Entity;
   private playerBody!: Container;
   private walkPhase = 0;
+  private facing = 1;
+
+  private homeBtn!: UIButton;
+  private tipText!: Text;
+  private tipIndex = 0;
+  private tipIn = 6;
+
+  private flash = 0;
+  private boltIn = 4;
 
   private plots: Plot[] = [];
   private plotViews: PlotView[] = [];
@@ -196,7 +217,7 @@ export class FarmScene extends Scene {
     const charType = store.get<CharType>('charType', 'blob');
     const charColor = store.get<number>('charColor', 0xe07a5f);
     this.player = new Entity();
-    const pChar = makeCharacter(charType, charColor, 30, 5, savedAcc());
+    const pChar = makeCharacter(charType, charColor, 30, 5, savedAcc(), savedSkin());
     this.playerBody = pChar.body;
     this.player.addChild(pChar.view);
     this.player.position.set(spawn.x, spawn.y);
@@ -230,13 +251,27 @@ export class FarmScene extends Scene {
       weight: '900',
     });
     this.toastText = makeText('', 26, { color: FARM.accent, weight: '900' });
+    this.tipText = makeText(TIPS[0]!, 19, { color: FARM.inkSoft, weight: '800' });
+    this.tipText.alpha = 0.92;
     this.uiLayer.addChild(
       this.veriumText,
       this.basketText,
       this.weatherText,
       this.nameText,
       this.toastText,
+      this.tipText,
     );
+
+    // Home button — back to the title/menu from anywhere.
+    this.homeBtn = new UIButton('🏠', {
+      width: 76,
+      height: 76,
+      fontSize: 34,
+      fill: FARM.panel,
+      textColor: FARM.ink,
+      onTap: () => this.goHome(),
+    });
+    this.add(this.homeBtn, this.uiLayer);
 
     this.pouchBtn = new UIButton('🌱', {
       width: 100,
@@ -333,11 +368,15 @@ export class FarmScene extends Scene {
       dialogueOpen: () => this.box.isOpen,
       giftReadyMs: () => giftReadyInMs(),
       claimGift: () => this.claimGiftBox(),
+      home: () => this.goHome(),
+      tip: () => this.tipText.text,
+      storm: () => this.currentWeather() === 'storm',
     };
   }
 
   protected override onExit(): void {
     this.save();
+    ambience.stop();
     delete window.__farm;
   }
 
@@ -345,11 +384,13 @@ export class FarmScene extends Scene {
 
   private layout(W: number, H: number): void {
     this.camera.setViewSize(W, H);
-    this.veriumText.position.set(20, 40);
-    this.basketText.position.set(20, 74);
+    this.homeBtn.position.set(52, 48);
+    this.veriumText.position.set(100, 40);
+    this.basketText.position.set(100, 74);
     this.weatherText.position.set(W - 20, 44);
     this.nameText.position.set(W / 2, 40);
     this.toastText.position.set(W / 2, 108);
+    this.tipText.position.set(W / 2, H - 26);
     this.joystick.position.set(150, H - 170);
     this.interactBtn.position.set(W - 100, H - 120);
     this.pouchBtn.position.set(W - 100, H - 250);
@@ -464,11 +505,17 @@ export class FarmScene extends Scene {
           jy * PLAYER_SPEED * dt,
         );
         this.player.position.set(moved.x, moved.y);
+        // Face the way we're walking (only flip on a clear horizontal push).
+        if (Math.abs(jx) > 0.3) this.facing = jx > 0 ? 1 : -1;
+        this.player.scale.x = this.facing;
+        // Walk bob: squash/stretch plus a little side-to-side lean.
         this.walkPhase += dt * 11;
-        const s = Math.sin(this.walkPhase) * 0.07;
+        const s = Math.sin(this.walkPhase) * 0.08;
         this.playerBody.scale.set(1 + s, 1 - s);
+        this.playerBody.rotation = Math.sin(this.walkPhase * 0.5) * 0.06;
       } else {
         this.playerBody.scale.set(1, 1);
+        this.playerBody.rotation = 0;
       }
     }
 
@@ -484,9 +531,39 @@ export class FarmScene extends Scene {
     }
     for (let i = 0; i < this.plotViews.length; i++) this.renderPlot(i);
 
+    // Storm: wind ambience, plus lightning flashes with trailing thunder.
+    const storm = weather === 'storm';
+    ambience.setWind(raining && music.playing);
+    if (storm) {
+      this.boltIn -= dt;
+      if (this.boltIn <= 0) {
+        this.boltIn = 3.5 + Math.random() * 6;
+        this.flash = 1;
+        if (music.playing) {
+          // Thunder trails the flash by a beat, like the real thing.
+          const th = new Entity();
+          th.addBehavior(
+            new Timer(0.25 + Math.random() * 0.5, () => {
+              ambience.thunder();
+              this.remove(th);
+            }),
+          );
+          this.add(th, this.uiLayer);
+        }
+      }
+    }
+    this.flash = Math.max(0, this.flash - dt * 2.4);
+
+    // Rotate the gameplay tip every so often.
+    this.tipIn -= dt;
+    if (this.tipIn <= 0) {
+      this.tipIn = 11;
+      this.cycleTip();
+    }
+
     this.updateTarget();
     this.updateWeatherText(weather);
-    this.drawRain(raining, weather === 'storm');
+    this.drawRain(raining, storm);
     this.camera.update(dt);
 
     this.saveIn -= dt;
@@ -640,6 +717,10 @@ export class FarmScene extends Scene {
         .moveTo(x, y)
         .lineTo(x - 6, y + 18)
         .stroke({ color: 0x9ecbe0, width: 2, alpha: 0.5 });
+    }
+    // Lightning: a quick bright wash across the sky.
+    if (this.flash > 0) {
+      this.rainLayer.rect(0, 0, W, H).fill({ color: 0xdfe8ff, alpha: this.flash * 0.55 });
     }
   }
 
@@ -830,6 +911,19 @@ export class FarmScene extends Scene {
     if (this.game.scenes.isTransitioning) return;
     this.save();
     this.game.scenes.replace(new MarketScene());
+  }
+
+  private goHome(): void {
+    if (this.game.scenes.isTransitioning) return;
+    this.save();
+    ambience.stop();
+    audio.blip(0.9);
+    this.game.scenes.replace(new TitleScene());
+  }
+
+  private cycleTip(): void {
+    this.tipIndex = (this.tipIndex + 1) % TIPS.length;
+    this.tipText.text = TIPS[this.tipIndex]!;
   }
 
   private popup(i: number, text: string): void {
