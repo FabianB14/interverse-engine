@@ -41,8 +41,42 @@ const charDefault = await page.evaluate(() => window.__farm.charType());
 await page.evaluate(() => window.__farm.setChar('person', 0x6fb0d8));
 const charAfter = await page.evaluate(() => window.__farm.charType());
 const charOk = charDefault === 'blob' && charAfter === 'person';
-await page.evaluate(() => window.__farm.play());
-await page.waitForFunction(() => window.__farm?.scene() === 'farm', null, { timeout: 10_000 });
+
+// Accessory: wear the straw hat and confirm it sticks.
+await page.evaluate(() => window.__farm.setAcc('straw'));
+const accAfter = await page.evaluate(() => window.__farm.acc());
+const accOk = accAfter === 'straw';
+
+// Name entry: open the keyboard scene, type a name, save, land back on title.
+await page.evaluate(() => window.__farm.editName());
+await page.waitForFunction(() => window.__farm?.scene() === 'name', null, { timeout: 8_000 });
+await sleep(250);
+await page.evaluate(() => window.__farm.setName('Fabian'));
+// saveName() no-ops while the scene is mid-transition, so keep nudging it
+// until we actually land back on the title.
+await page.waitForFunction(
+  () => {
+    if (window.__farm?.scene() === 'title') return true;
+    window.__farm?.saveName?.();
+    return false;
+  },
+  null,
+  { timeout: 8_000, polling: 200 },
+);
+await sleep(250);
+const savedNameVal = await page.evaluate(() => window.__farm.name());
+const nameOk = savedNameVal === 'Fabian';
+
+// play() also no-ops mid-transition; nudge it until the farm loads.
+await page.waitForFunction(
+  () => {
+    if (window.__farm?.scene() === 'farm') return true;
+    window.__farm?.play?.();
+    return false;
+  },
+  null,
+  { timeout: 10_000, polling: 200 },
+);
 await sleep(400);
 
 // A brand-new farmer gets a welcome gift so they can afford their first seeds:
@@ -170,6 +204,8 @@ await browser.close();
 
 const ok =
   charOk &&
+  accOk &&
+  nameOk &&
   welcomeOk &&
   giftOk &&
   walkOk &&
@@ -191,6 +227,9 @@ console.log(
     {
       ok,
       charOk,
+      accOk,
+      nameOk,
+      savedNameVal,
       welcomeOk,
       vWelcome,
       welcomeCrops,

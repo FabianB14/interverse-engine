@@ -1,5 +1,6 @@
 import { Container, Graphics } from 'pixi.js';
 import { blobCharacter, darken, lighten } from '@interverse/engine';
+import { accessoryView } from './accessories.js';
 
 export type CharType = 'blob' | 'person';
 
@@ -55,11 +56,34 @@ function personCharacter(color: number, r: number): Character {
   return { view, body };
 }
 
-/** Build the player/NPC avatar in the chosen style. */
-export function makeCharacter(type: CharType, color: number, r = 30, seed = 5): Character {
-  if (type === 'person') return personCharacter(color, r);
-  const char = blobCharacter({ radius: r, color, seed, strokeWidth: 4 });
-  return { view: char.view, body: char.body };
+/** Build the player/NPC avatar in the chosen style, optionally wearing an
+ *  accessory. Accessory art is drawn relative to a head circle centered at
+ *  (0,0); we translate/scale it onto the head so it fits both avatar types. */
+export function makeCharacter(
+  type: CharType,
+  color: number,
+  r = 30,
+  seed = 5,
+  accessory = 'none',
+): Character {
+  const char =
+    type === 'person'
+      ? personCharacter(color, r)
+      : (() => {
+          const b = blobCharacter({ radius: r, color, seed, strokeWidth: 4 });
+          return { view: b.view, body: b.body };
+        })();
+
+  if (accessory && accessory !== 'none') {
+    // Head geometry differs by avatar: the blob's head is its whole body
+    // (center 0,0 radius r); the person's head sits above the torso.
+    const head =
+      type === 'person' ? { cx: 0, cy: -r * 0.95, hr: r * 0.62 } : { cx: 0, cy: 0, hr: r };
+    const acc = accessoryView(accessory, head.hr);
+    acc.position.set(head.cx, head.cy);
+    char.body.addChild(acc);
+  }
+  return char;
 }
 
 /** A soft daylight shade of a color, for gentle avatars. */

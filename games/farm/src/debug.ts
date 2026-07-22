@@ -18,6 +18,13 @@ export interface FarmDebug {
   musicOn?: () => boolean;
   toggleMusic?: () => boolean;
   play?: () => void;
+  // Customization
+  acc?: () => string;
+  setAcc?: (id: string) => void;
+  name?: () => string;
+  editName?: () => void;
+  setName?: (n: string) => void;
+  saveName?: () => void;
   // Market
   inv?: () => Record<string, number>;
   giveItem?: (id: string, n: number) => void;

@@ -37,7 +37,7 @@ import {
 } from '../weather.js';
 import type { Season, Weather } from '../weather.js';
 import { music } from '../music.js';
-import { store } from '../store.js';
+import { savedAcc, savedName, store } from '../store.js';
 import { invAdd, invAll, invClear, invTotal } from '../inventory.js';
 import { makeCharacter } from '../character.js';
 import type { CharType } from '../character.js';
@@ -118,6 +118,7 @@ export class FarmScene extends Scene {
   private veriumText!: Text;
   private basketText!: Text;
   private weatherText!: Text;
+  private nameText!: Text;
   private toastText!: Text;
   private rainLayer!: Graphics;
 
@@ -195,7 +196,7 @@ export class FarmScene extends Scene {
     const charType = store.get<CharType>('charType', 'blob');
     const charColor = store.get<number>('charColor', 0xe07a5f);
     this.player = new Entity();
-    const pChar = makeCharacter(charType, charColor, 30, 5);
+    const pChar = makeCharacter(charType, charColor, 30, 5, savedAcc());
     this.playerBody = pChar.body;
     this.player.addChild(pChar.view);
     this.player.position.set(spawn.x, spawn.y);
@@ -223,8 +224,19 @@ export class FarmScene extends Scene {
     this.basketText.anchor.set(0, 0.5);
     this.weatherText = makeText('', 24, { color: FARM.ink, weight: '800' });
     this.weatherText.anchor.set(1, 0.5);
+    const farmer = savedName();
+    this.nameText = makeText(farmer ? `${farmer}'s Farm` : '', 24, {
+      color: FARM.accent,
+      weight: '900',
+    });
     this.toastText = makeText('', 26, { color: FARM.accent, weight: '900' });
-    this.uiLayer.addChild(this.veriumText, this.basketText, this.weatherText, this.toastText);
+    this.uiLayer.addChild(
+      this.veriumText,
+      this.basketText,
+      this.weatherText,
+      this.nameText,
+      this.toastText,
+    );
 
     this.pouchBtn = new UIButton('🌱', {
       width: 100,
@@ -336,6 +348,7 @@ export class FarmScene extends Scene {
     this.veriumText.position.set(20, 40);
     this.basketText.position.set(20, 74);
     this.weatherText.position.set(W - 20, 44);
+    this.nameText.position.set(W / 2, 40);
     this.toastText.position.set(W / 2, 108);
     this.joystick.position.set(150, H - 170);
     this.interactBtn.position.set(W - 100, H - 120);
