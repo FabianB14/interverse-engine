@@ -91,7 +91,7 @@ export class TitleScene extends Scene {
       this.skinRow.position.set(rx, H * 0.72);
       this.accRow.position.set(rx, H * 0.84);
       this.playBtn.position.set(lx, H * 0.94);
-      this.friendsBtn.position.set(W - 130, 50);
+      this.friendsBtn.position.set(130, 50);
       return;
     }
     this.title.position.set(W / 2, H * 0.075);
@@ -107,7 +107,7 @@ export class TitleScene extends Scene {
     this.skinRow.position.set(W / 2, H * 0.71);
     this.accRow.position.set(W / 2, H * 0.775);
     this.playBtn.position.set(W / 2, H * 0.875);
-    this.friendsBtn.position.set(W - 130, 50);
+    this.friendsBtn.position.set(130, 50);
   }
 
   protected override onEnter(): void {

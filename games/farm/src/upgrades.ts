@@ -41,6 +41,14 @@ export const UPGRADES: readonly UpgradeDef[] = [
     maxLevel: 3,
     cost: (l) => 100 + l * 130,
   },
+  {
+    id: 'land',
+    name: 'More Land',
+    emoji: '🏞️',
+    desc: '+4 planting plots per level',
+    maxLevel: 2,
+    cost: (l) => 150 + l * 200,
+  },
 ];
 
 export function upgradeById(id: string): UpgradeDef | undefined {
@@ -83,6 +91,22 @@ export function moistureDecayMultiplier(): number {
 /** Crops sell for more with Golden Tools (+20% per level). */
 export function sellMultiplier(): number {
   return 1 + upgradeLevel('tools') * 0.2;
+}
+
+/** Extra plot tile coords (col,row) unlocked by More Land — visual + real. */
+export function extraPlotTiles(): { col: number; row: number }[] {
+  const lvl = upgradeLevel('land');
+  const tiles: { col: number; row: number }[] = [];
+  if (lvl >= 1)
+    tiles.push({ col: 3, row: 16 }, { col: 5, row: 16 }, { col: 7, row: 16 }, { col: 9, row: 16 });
+  if (lvl >= 2)
+    tiles.push(
+      { col: 11, row: 16 },
+      { col: 13, row: 16 },
+      { col: 11, row: 6 },
+      { col: 13, row: 6 },
+    );
+  return tiles;
 }
 
 export function resetUpgrades(): void {

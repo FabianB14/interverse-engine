@@ -45,6 +45,16 @@ export interface FarmDebug {
   offerItem?: (id: string) => void;
   confirmTrade?: () => void;
   tradeOpen?: () => boolean;
+  isVisiting?: () => boolean;
+  addFriendCode?: (name: string, code: string) => boolean;
+  // Building / pets / themes
+  buildStart?: (id: string) => void;
+  placeAt?: (col: number, row: number) => boolean;
+  buildCount?: () => number;
+  petActive?: () => string;
+  buyPet?: (id: string) => boolean;
+  buyTheme?: (id: string) => boolean;
+  themeActive?: () => string;
   // Shop
   toShop?: () => void;
   tab?: () => string;

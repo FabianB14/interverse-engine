@@ -13,11 +13,13 @@ import {
   isAccessoryOwned,
 } from '../accessories.js';
 import { UPGRADES, buyUpgrade, nextCost, upgradeLevel } from '../upgrades.js';
+import { THEMES, applyTheme, buyTheme, currentTheme, isThemeOwned } from '../themes.js';
+import { PETS, activePet, buyPet, isPetOwned, setActivePet } from '../pets.js';
 import { MarketScene } from './MarketScene.js';
 import { TitleScene } from './TitleScene.js';
 import '../debug.js';
 
-type Tab = 'upgrades' | 'cosmetics';
+type Tab = 'upgrades' | 'cosmetics' | 'themes' | 'pets';
 
 /** The farm shop: spend Verium on permanent upgrades or premium cosmetics. */
 export class ShopScene extends Scene {
@@ -31,6 +33,8 @@ export class ShopScene extends Scene {
   private homeBtn!: UIButton;
   private upTab!: UIButton;
   private cosTab!: UIButton;
+  private themeTab!: UIButton;
+  private petTab!: UIButton;
   private tab: Tab = 'upgrades';
   private W = 720;
   private H = 1280;
@@ -83,24 +87,23 @@ export class ShopScene extends Scene {
     });
     this.add(this.homeBtn, this.uiLayer);
 
-    this.upTab = new UIButton('🌾 Upgrades', {
-      width: 300,
-      height: 72,
-      fontSize: 26,
-      fill: FARM.panel,
-      textColor: FARM.ink,
-      onTap: () => this.setTab('upgrades'),
-    });
-    this.cosTab = new UIButton('🎩 Cosmetics', {
-      width: 300,
-      height: 72,
-      fontSize: 26,
-      fill: FARM.panel,
-      textColor: FARM.ink,
-      onTap: () => this.setTab('cosmetics'),
-    });
+    const tabDef = (label: string, tab: Tab): UIButton =>
+      new UIButton(label, {
+        width: 168,
+        height: 68,
+        fontSize: 22,
+        fill: FARM.panel,
+        textColor: FARM.ink,
+        onTap: () => this.setTab(tab),
+      });
+    this.upTab = tabDef('🌾 Upgrades', 'upgrades');
+    this.cosTab = tabDef('🎩 Hats', 'cosmetics');
+    this.themeTab = tabDef('🌸 Themes', 'themes');
+    this.petTab = tabDef('🐤 Pets', 'pets');
     this.add(this.upTab, this.uiLayer);
     this.add(this.cosTab, this.uiLayer);
+    this.add(this.themeTab, this.uiLayer);
+    this.add(this.petTab, this.uiLayer);
 
     this.layout();
     this.rebuild();
@@ -116,6 +119,10 @@ export class ShopScene extends Scene {
       upLevel: (id: string) => upgradeLevel(id),
       buyCosmetic: (id: string) => this.buyCosmeticAction(id),
       owned: (id: string) => isAccessoryOwned(id),
+      buyTheme: (id: string) => this.buyThemeAction(id),
+      themeActive: () => currentTheme().id,
+      buyPet: (id: string) => this.buyPetAction(id),
+      petActive: () => activePet(),
       toMarket: () => this.toMarket(),
       home: () => this.toHome(),
     };
@@ -125,15 +132,19 @@ export class ShopScene extends Scene {
     delete window.__farm;
   }
 
+  private get land(): boolean {
+    return this.W > this.H;
+  }
+
   private layout(): void {
     const W = this.W;
     this.backBtn.position.set(130, 54);
     this.homeBtn.position.set(W - 58, 54);
     this.titleText.position.set(W / 2, 54);
     this.veriumText.position.set(W - 108, 54);
-    this.upTab.position.set(W / 2 - 158, 138);
-    this.cosTab.position.set(W / 2 + 158, 138);
-    this.toastText.position.set(W / 2, this.H - 50);
+    const tabs = [this.upTab, this.cosTab, this.themeTab, this.petTab];
+    tabs.forEach((t, i) => t.position.set(W / 2 + (i - 1.5) * 178, 134));
+    this.toastText.position.set(W / 2, this.H - 40);
   }
 
   private setTab(t: Tab): void {
@@ -147,18 +158,153 @@ export class ShopScene extends Scene {
     // Highlight the active tab.
     this.upTab.alpha = this.tab === 'upgrades' ? 1 : 0.55;
     this.cosTab.alpha = this.tab === 'cosmetics' ? 1 : 0.55;
+    this.themeTab.alpha = this.tab === 'themes' ? 1 : 0.55;
+    this.petTab.alpha = this.tab === 'pets' ? 1 : 0.55;
     for (const old of this.content.removeChildren()) old.destroy({ children: true });
     if (this.tab === 'upgrades') this.buildUpgrades();
-    else this.buildCosmetics();
+    else if (this.tab === 'cosmetics') this.buildCosmetics();
+    else if (this.tab === 'themes') this.buildThemes();
+    else this.buildPets();
+  }
+
+  /** Whole-farm looks: preview swatch strip + buy/apply. */
+  private buildThemes(): void {
+    const W = this.W;
+    const cols = this.land ? 4 : 2;
+    const cw = this.land ? W * 0.22 : W * 0.42;
+    const ch = 200;
+    const dx = this.land ? W * 0.24 : W * 0.46;
+    THEMES.forEach((t, i) => {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const card = new Container();
+      card.position.set(W / 2 + (col - (cols - 1) / 2) * dx, 300 + row * (ch + 20));
+      const bg = new Graphics();
+      bg.roundRect(-cw / 2, -ch / 2, cw, ch, 20).fill(FARM.panel);
+      bg.roundRect(-cw / 2, -ch / 2, cw, ch, 20).stroke({ color: FARM.accent, width: 2 });
+      card.addChild(bg);
+      // Mini landscape preview: grass, water, a tree.
+      const prev = new Graphics();
+      prev.roundRect(-cw / 2 + 14, -ch / 2 + 14, cw - 28, 64, 10).fill(t.grass);
+      prev.ellipse(-cw * 0.2, -ch / 2 + 58, cw * 0.16, 12).fill(t.water);
+      prev.circle(cw * 0.18, -ch / 2 + 40, 16).fill(t.foliage);
+      prev.rect(cw * 0.16, -ch / 2 + 52, 5, 14).fill(t.trunk);
+      if (t.blossom) {
+        prev.circle(cw * 0.12, -ch / 2 + 32, 3).fill(t.blossom);
+        prev.circle(cw * 0.24, -ch / 2 + 36, 3).fill(t.blossom);
+      }
+      card.addChild(prev);
+      const name = makeText(`${t.emoji} ${t.name}`, 22, { color: FARM.ink, weight: '800' });
+      name.position.set(0, 22);
+      card.addChild(name);
+      const owned = isThemeOwned(t.id);
+      const active = currentTheme().id === t.id;
+      const btn = new UIButton(active ? 'ACTIVE' : owned ? 'APPLY' : `⬡${t.price}`, {
+        width: cw - 28,
+        height: 56,
+        fontSize: 22,
+        fill: active ? 0x5a4632 : owned ? FARM.grass : FARM.accent,
+        textColor: active ? FARM.inkSoft : owned ? 0x1c2a12 : 0x2a2016,
+        onTap: () => this.buyThemeAction(t.id),
+      });
+      btn.position.set(0, 62);
+      this.add(btn, card);
+      this.content.addChild(card);
+    });
+  }
+
+  /** AI pals that trot along behind you on the farm. */
+  private buildPets(): void {
+    const W = this.W;
+    const cols = this.land ? 4 : 2;
+    const cw = this.land ? W * 0.22 : W * 0.42;
+    const ch = 210;
+    const dx = this.land ? W * 0.24 : W * 0.46;
+    PETS.forEach((p, i) => {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const card = new Container();
+      card.position.set(W / 2 + (col - (cols - 1) / 2) * dx, 300 + row * (ch + 20));
+      const bg = new Graphics();
+      bg.roundRect(-cw / 2, -ch / 2, cw, ch, 20).fill(FARM.panel);
+      bg.roundRect(-cw / 2, -ch / 2, cw, ch, 20).stroke({ color: FARM.accent, width: 2 });
+      card.addChild(bg);
+      const view = p.draw(34);
+      view.position.set(0, -30);
+      card.addChild(view);
+      const name = makeText(`${p.emoji} ${p.name}`, 22, { color: FARM.ink, weight: '800' });
+      name.position.set(0, 34);
+      card.addChild(name);
+      const owned = isPetOwned(p.id);
+      const active = activePet() === p.id;
+      const btn = new UIButton(active ? 'WITH YOU' : owned ? 'BRING' : `⬡${p.price}`, {
+        width: cw - 28,
+        height: 56,
+        fontSize: 22,
+        fill: active ? 0x5a4632 : owned ? FARM.grass : FARM.accent,
+        textColor: active ? FARM.inkSoft : owned ? 0x1c2a12 : 0x2a2016,
+        onTap: () => this.buyPetAction(p.id),
+      });
+      btn.position.set(0, 72);
+      this.add(btn, card);
+      this.content.addChild(card);
+    });
+  }
+
+  private buyThemeAction(id: string): boolean {
+    if (isThemeOwned(id)) {
+      applyTheme(id);
+      audio.chime();
+      this.toast('theme applied — see it on the farm! 🌸');
+      this.rebuild();
+      return true;
+    }
+    if (buyTheme(id)) {
+      applyTheme(id);
+      audio.chime();
+      this.toast('theme unlocked + applied! 🌸');
+      this.rebuild();
+      this.updateVerium();
+      return true;
+    }
+    this.toast('not enough Verium');
+    audio.buzz();
+    return false;
+  }
+
+  private buyPetAction(id: string): boolean {
+    if (isPetOwned(id)) {
+      setActivePet(activePet() === id ? '' : id);
+      audio.blip(1.2);
+      this.rebuild();
+      return true;
+    }
+    if (buyPet(id)) {
+      audio.chime();
+      this.toast('a new friend joins your farm! 🐾');
+      this.rebuild();
+      this.updateVerium();
+      return true;
+    }
+    this.toast('not enough Verium');
+    audio.buzz();
+    return false;
   }
 
   private buildUpgrades(): void {
     const W = this.W;
-    const cw = W * 0.88;
-    const ch = 150;
+    const land = this.land;
+    const cols = land ? 2 : 1;
+    const cw = land ? W * 0.45 : W * 0.88;
+    const ch = land ? 132 : 150;
     UPGRADES.forEach((u, i) => {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
       const card = new Container();
-      card.position.set(W / 2, 280 + i * (ch + 18));
+      card.position.set(
+        land ? W / 2 + (col - (cols - 1) / 2) * (W * 0.47) : W / 2,
+        (land ? 260 : 280) + row * (ch + 18),
+      );
       const bg = new Graphics();
       bg.roundRect(-cw / 2, -ch / 2, cw, ch, 22).fill(FARM.panel);
       bg.roundRect(-cw / 2, -ch / 2, cw, ch, 22).stroke({
@@ -196,10 +342,10 @@ export class ShopScene extends Scene {
   private buildCosmetics(): void {
     const W = this.W;
     const premium = ACCESSORIES.filter((a) => a.price);
-    const cols = 2;
-    const cw = W * 0.42;
+    const cols = this.land ? 4 : 2;
+    const cw = this.land ? W * 0.22 : W * 0.42;
     const ch = 210;
-    const dx = W * 0.46;
+    const dx = this.land ? W * 0.24 : W * 0.46;
     const dy = ch + 20;
     premium.forEach((a, i) => {
       const col = i % cols;

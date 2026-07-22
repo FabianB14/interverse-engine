@@ -301,6 +301,67 @@ function propellerCap(r: number): Container {
   return (c.addChild(g), c);
 }
 
+function sprout(r: number): Container {
+  const c = new Container();
+  const g = new Graphics();
+  g.moveTo(0, -r * 0.6)
+    .lineTo(0, -r * 1.0)
+    .stroke({ color: 0x4f7a34, width: Math.max(3, r * 0.09), cap: 'round' });
+  g.ellipse(-r * 0.16, -r * 1.05, r * 0.18, r * 0.1).fill(0x8fd06a);
+  g.ellipse(r * 0.16, -r * 1.1, r * 0.18, r * 0.1).fill(0x6fbf4f);
+  return (c.addChild(g), c);
+}
+
+function scarf(r: number): Container {
+  const c = new Container();
+  const wool = 0xd94f6a;
+  const g = new Graphics();
+  g.roundRect(-r * 0.62, r * 0.42, r * 1.24, r * 0.26, r * 0.1).fill(wool);
+  g.roundRect(r * 0.18, r * 0.55, r * 0.24, r * 0.55, r * 0.08).fill(darken(wool, 0.1));
+  g.rect(r * 0.18, r * 1.0, r * 0.24, r * 0.1).fill(lighten(wool, 0.2));
+  return (c.addChild(g), c);
+}
+
+function wizardHat(r: number): Container {
+  const c = new Container();
+  const blue = 0x3a4fb0;
+  const g = new Graphics();
+  g.poly([-r * 0.52, -r * 0.6, r * 0.52, -r * 0.6, r * 0.08, -r * 1.5]).fill(blue);
+  g.roundRect(-r * 0.66, -r * 0.68, r * 1.32, r * 0.2, r * 0.08).fill(darken(blue, 0.2));
+  g.circle(-r * 0.1, -r * 1.0, r * 0.07).fill(0xffd166);
+  g.circle(r * 0.12, -r * 0.8, r * 0.06).fill(0xffd166);
+  return (c.addChild(g), c);
+}
+
+function santaHat(r: number): Container {
+  const c = new Container();
+  c.addChild(
+    new Graphics()
+      .poly([-r * 0.5, -r * 0.58, r * 0.5, -r * 0.58, r * 0.82, -r * 1.4])
+      .fill(0xcc3344)
+      .roundRect(-r * 0.56, -r * 0.7, r * 1.12, r * 0.2, r * 0.1)
+      .fill(0xf2f2ee)
+      .circle(r * 0.82, -r * 1.4, r * 0.15)
+      .fill(0xf2f2ee),
+  );
+  return c;
+}
+
+function sunflower(r: number): Container {
+  const c = new Container();
+  const g = new Graphics();
+  const x = r * 0.45;
+  const y = -r * 0.7;
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    g.ellipse(x + Math.cos(a) * r * 0.22, y + Math.sin(a) * r * 0.22, r * 0.14, r * 0.08).fill(
+      0xffd166,
+    );
+  }
+  g.circle(x, y, r * 0.14).fill(0x6b4a2f);
+  return (c.addChild(g), c);
+}
+
 /**
  * Cozy wardrobe. Free starters first (no price), then premium cosmetics
  * you unlock in the shop with Verium — the straw hat is the farm signature.
@@ -322,11 +383,16 @@ export const ACCESSORIES: AccessoryDef[] = [
   { id: 'bunnyears', name: 'Bunny Ears', emoji: '🐰', draw: bunnyEars },
   { id: 'star', name: 'Star Hat', emoji: '🌟', draw: starHat },
   { id: 'party', name: 'Party Hat', emoji: '🎉', draw: partyHat },
+  { id: 'sprout', name: 'Sprout', emoji: '🌱', draw: sprout },
+  { id: 'scarf', name: 'Scarf', emoji: '🧣', draw: scarf },
   // Premium — unlock in the cosmetic shop with Verium.
   { id: 'tophat', name: 'Top Hat', emoji: '🎩', price: 120, draw: topHat },
   { id: 'tiara', name: 'Tiara', emoji: '👸', price: 160, draw: tiara },
+  { id: 'wizard', name: 'Wizard Hat', emoji: '🧙', price: 180, draw: wizardHat },
+  { id: 'sunflower', name: 'Sunflower', emoji: '🌻', price: 200, draw: sunflower },
   { id: 'propeller', name: 'Propeller Cap', emoji: '🚁', price: 220, draw: propellerCap },
   { id: 'halo', name: 'Halo', emoji: '😇', price: 300, draw: halo },
+  { id: 'santa', name: 'Santa Hat', emoji: '🎅', price: 320, draw: santaHat },
 ];
 
 export function accessoryIndex(id: string): number {
@@ -369,4 +435,27 @@ export function buyAccessory(id: string): boolean {
   owned.push(id);
   store.set(OWNED_KEY, owned);
   return true;
+}
+
+/** Grant ownership without paying (trades, gifts). */
+export function grantAccessory(id: string): void {
+  const def = accessoryById(id);
+  if (!def.price || isAccessoryOwned(id)) return;
+  const owned = store.get<string[]>(OWNED_KEY, []);
+  owned.push(id);
+  store.set(OWNED_KEY, owned);
+}
+
+/** Give an accessory away (trades) — unwear it if it's on your head. */
+export function revokeAccessory(id: string): void {
+  store.set(
+    OWNED_KEY,
+    store.get<string[]>(OWNED_KEY, []).filter((a) => a !== id),
+  );
+  if (store.get<string>('acc', 'none') === id) store.set('acc', 'none');
+}
+
+/** Premium accessories you own — the tradeable ones. */
+export function tradeableAccessories(): string[] {
+  return ACCESSORIES.filter((a) => a.price && isAccessoryOwned(a.id)).map((a) => a.id);
 }

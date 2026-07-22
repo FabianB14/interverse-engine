@@ -1,21 +1,24 @@
 import { Graphics } from 'pixi.js';
 import type { Text } from 'pixi.js';
 import { Scene, audio } from '@interverse/engine';
-import { join } from '@interverse/net';
 import { UIButton } from '@interverse/ui';
 import { FARM } from '../theme.js';
 import { makeText } from '../text.js';
-import { GAME_TAG, resolveRelayUrl } from '../config.js';
-import { savedName } from '../store.js';
 import { addFriend, cleanCode } from '../friends.js';
-import { VisitScene } from './VisitScene.js';
+import { farmNet } from '../net.js';
+import { FarmScene } from './FarmScene.js';
 import { FriendsScene } from './FriendsScene.js';
 import '../debug.js';
 
 // Relay code alphabet (no ambiguous letters).
 const KEYS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'.split('');
 
-/** Enter a friend's 4-letter farm code to drop by their farm. */
+type Mode = 'visit' | 'add';
+
+/**
+ * Code keypad, used two ways: enter a friend's 4-letter farm code to visit
+ * them right now, or just save them to your friends list for later.
+ */
 export class VisitJoinScene extends Scene {
   private code = '';
   private titleText!: Text;
@@ -26,45 +29,58 @@ export class VisitJoinScene extends Scene {
   private goBtn!: UIButton;
   private backBtn!: UIButton;
   private busy = false;
+  private W = 720;
+  private H = 1280;
 
-  constructor(initial = '') {
+  constructor(
+    initial = '',
+    private readonly mode: Mode = 'visit',
+  ) {
     super();
     this.code = cleanCode(initial);
   }
 
   protected override onResize(w: number, h: number): void {
-    this.layout(w, h);
+    this.W = w;
+    this.H = h;
+    this.layout();
   }
 
-  private layout(W: number, H: number): void {
+  private layout(): void {
+    const W = this.W;
+    const H = this.H;
+    const land = W > H;
     this.backBtn.position.set(120, 54);
-    this.titleText.position.set(W / 2, H * 0.12);
-    this.codeText.position.set(W / 2, H * 0.24);
-    this.status.position.set(W / 2, H * 0.32);
-    const perRow = 6;
-    const kw = 96;
-    const kh = 96;
-    const gap = 12;
+    // Keyboard sizing adapts to orientation: wide+short screens use more
+    // columns and smaller keys so everything stays on screen.
+    const perRow = land ? 11 : 6;
+    const rows = Math.ceil(KEYS.length / perRow);
+    const kw = Math.min(land ? 88 : 96, (W * 0.94 - (perRow - 1) * 10) / perRow);
+    const kh = land ? Math.min(88, (H * 0.5) / rows - 10) : 96;
+    const gap = 10;
+    this.titleText.position.set(W / 2, land ? H * 0.09 : H * 0.12);
+    this.codeText.position.set(W / 2, land ? H * 0.2 : H * 0.24);
+    this.status.position.set(W / 2, land ? H * 0.3 : H * 0.32);
     const rowW = perRow * kw + (perRow - 1) * gap;
     const sx = (W - rowW) / 2 + kw / 2;
-    const sy = H * 0.4;
+    const sy = land ? H * 0.4 : H * 0.4;
     this.keys.forEach((b, i) => {
       const r = Math.floor(i / perRow);
       const c = i % perRow;
       b.position.set(sx + c * (kw + gap), sy + r * (kh + gap));
+      b.scale.set(Math.min(1, kw / 96, kh / 96));
     });
-    const rows = Math.ceil(this.keys.length / perRow);
-    const cy = sy + rows * (kh + gap) + 20;
-    this.delBtn.position.set(W / 2 - 130, cy);
-    this.goBtn.position.set(W / 2 + 130, cy);
+    const cy = sy + rows * (kh + gap) + (land ? 30 : 40);
+    this.delBtn.position.set(W / 2 - 130, Math.min(cy, H - 60));
+    this.goBtn.position.set(W / 2 + 130, Math.min(cy, H - 60));
   }
 
   protected override onEnter(): void {
-    const W = this.game.viewWidth;
-    const H = this.game.viewHeight;
+    this.W = this.game.viewWidth;
+    this.H = this.game.viewHeight;
 
     const bg = new Graphics();
-    bg.rect(0, 0, W, H).fill(FARM.bg);
+    bg.rect(0, 0, this.W, this.H).fill(FARM.bg);
     this.stage.addChild(bg);
 
     this.backBtn = new UIButton('← Back', {
@@ -77,9 +93,13 @@ export class VisitJoinScene extends Scene {
     });
     this.add(this.backBtn);
 
-    this.titleText = makeText("Friend's farm code", 40, { color: FARM.accent });
+    this.titleText = makeText(
+      this.mode === 'add' ? "Add a friend's code" : "Friend's farm code",
+      38,
+      { color: FARM.accent },
+    );
     this.stage.addChild(this.titleText);
-    this.codeText = makeText('____', 72, { color: FARM.ink, letterSpacing: 12 });
+    this.codeText = makeText('____', 68, { color: FARM.ink, letterSpacing: 12 });
     this.stage.addChild(this.codeText);
     this.status = makeText('', 26, { color: FARM.inkSoft, weight: 'bold', wrapWidth: 620 });
     this.stage.addChild(this.status);
@@ -98,24 +118,24 @@ export class VisitJoinScene extends Scene {
     }
     this.delBtn = new UIButton('⌫', {
       width: 200,
-      height: 84,
-      fontSize: 34,
+      height: 78,
+      fontSize: 32,
       fill: 0xd9645a,
       onTap: () => this.press('⌫'),
     });
     this.add(this.delBtn);
-    this.goBtn = new UIButton('VISIT →', {
+    this.goBtn = new UIButton(this.mode === 'add' ? 'SAVE ➕' : 'VISIT →', {
       width: 240,
-      height: 84,
-      fontSize: 30,
+      height: 78,
+      fontSize: 28,
       fill: FARM.accent,
       textColor: 0x2a2016,
-      onTap: () => void this.visit(),
+      onTap: () => void this.go(),
     });
     this.add(this.goBtn);
 
     this.refresh();
-    this.layout(W, H);
+    this.layout();
 
     window.__farm = {
       scene: () => 'visitjoin',
@@ -123,7 +143,8 @@ export class VisitJoinScene extends Scene {
         this.code = cleanCode(c);
         this.refresh();
       },
-      visit: () => void this.visit(),
+      visit: () => void this.go(),
+      addFriendCode: (name: string, code: string) => addFriend(name, code),
     };
   }
 
@@ -142,29 +163,27 @@ export class VisitJoinScene extends Scene {
     this.codeText.text = (this.code + '____').slice(0, 4);
   }
 
-  private async visit(): Promise<void> {
+  private async go(): Promise<void> {
     if (this.busy || this.game.scenes.isTransitioning) return;
     if (this.code.length !== 4) {
       this.status.text = 'enter all 4 letters';
       audio.buzz();
       return;
     }
-    const relay = resolveRelayUrl();
-    if (!relay) {
-      this.status.text = 'no relay configured (add ?relay=…)';
+    if (this.mode === 'add') {
+      addFriend(`Farm ${this.code}`, this.code);
+      audio.chime();
+      this.game.scenes.replace(new FriendsScene());
       return;
     }
     this.busy = true;
     this.status.style.fill = FARM.inkSoft;
     this.status.text = 'knocking on the door…\n(a sleeping relay can take ~30s)';
     try {
-      const session = await join(this.code, savedName() ?? 'Visitor', {
-        url: relay,
-        game: GAME_TAG,
-      });
-      const hostName = session.players.find((p) => p.isHost)?.name ?? this.code;
+      const session = await farmNet.join(this.code);
+      const hostName = session.players.find((p) => p.isHost)?.name ?? `Farm ${this.code}`;
       addFriend(hostName, this.code);
-      this.game.scenes.replace(new VisitScene(session));
+      this.game.scenes.replace(new FarmScene());
     } catch (err) {
       this.busy = false;
       this.status.style.fill = 0xff5470;

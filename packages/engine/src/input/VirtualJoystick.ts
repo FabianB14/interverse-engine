@@ -1,4 +1,5 @@
-import { Circle, Graphics, Rectangle } from 'pixi.js';
+import { Circle, Graphics } from 'pixi.js';
+import type { Container } from 'pixi.js';
 import type { FederatedPointerEvent } from 'pixi.js';
 import { Entity } from '../entity/Entity.js';
 
@@ -56,25 +57,38 @@ export class VirtualJoystick extends Entity {
     this.addChild(this.stick);
     if (this.dynamic) this.stick.visible = false;
 
-    this.eventMode = 'static';
     if (this.dynamic) {
-      // A big rectangular catch area centered on this entity's origin.
-      const w = opts.hitWidth ?? 720;
-      const h = opts.hitHeight ?? 1280;
-      this.hitArea = new Rectangle(-w / 2, -h / 2, w, h);
+      // Dynamic mode does NOT capture pointer events itself — call listen(root)
+      // with an interactive container (usually the scene stage). Presses bubble
+      // up from whatever was under the finger, so taps on world objects and UI
+      // still reach them; the stick just rides along.
+      this.eventMode = 'none';
     } else {
+      this.eventMode = 'static';
       // Generous grab area — thumbs are imprecise.
       this.hitArea = new Circle(0, 0, this.radius * 1.5);
+      this.on('pointerdown', this.onDown, this);
+      this.on('globalpointermove', this.onMove, this);
+      this.on('pointerup', this.onUp, this);
+      this.on('pointerupoutside', this.onUp, this);
     }
-    this.on('pointerdown', this.onDown, this);
-    this.on('globalpointermove', this.onMove, this);
-    this.on('pointerup', this.onUp, this);
-    this.on('pointerupoutside', this.onUp, this);
   }
 
-  /** Resize the dynamic hit region (e.g. on viewport resize). */
-  setHitSize(w: number, h: number): void {
-    if (this.dynamic) this.hitArea = new Rectangle(-w / 2, -h / 2, w, h);
+  /**
+   * Dynamic mode: drive the stick from bubbled events on `root` (make it
+   * interactive with a hitArea covering the screen). Safe to call once.
+   */
+  listen(root: Container): void {
+    if (!this.dynamic) return;
+    root.on('pointerdown', this.onDown, this);
+    root.on('globalpointermove', this.onMove, this);
+    root.on('pointerup', this.onUp, this);
+    root.on('pointerupoutside', this.onUp, this);
+  }
+
+  /** Kept for API compatibility; dynamic mode no longer owns a hit region. */
+  setHitSize(_w: number, _h: number): void {
+    /* no-op — the listen() root defines the touch surface */
   }
 
   private onDown(e: FederatedPointerEvent): void {
@@ -106,11 +120,21 @@ export class VirtualJoystick extends Entity {
 
   private track(e: FederatedPointerEvent): void {
     const p = this.toLocal(e.global);
-    // Measure from the fixed origin (0,0) normally, or the press point in
-    // dynamic mode.
-    const dx = p.x - (this.dynamic ? this.originX : 0);
-    const dy = p.y - (this.dynamic ? this.originY : 0);
-    const len = Math.hypot(dx, dy);
+    let dx = p.x - (this.dynamic ? this.originX : 0);
+    let dy = p.y - (this.dynamic ? this.originY : 0);
+    let len = Math.hypot(dx, dy);
+    if (this.dynamic && len > this.radius) {
+      // Trailing origin: drag the ring along behind the finger so reversing
+      // direction responds immediately instead of after crossing the whole
+      // ring (much snappier direction changes).
+      const excess = len - this.radius;
+      this.originX += (dx / len) * excess;
+      this.originY += (dy / len) * excess;
+      this.stick.position.set(this.originX, this.originY);
+      dx = p.x - this.originX;
+      dy = p.y - this.originY;
+      len = this.radius;
+    }
     const clamp = len > this.radius ? this.radius / len : 1;
     const kx = dx * clamp;
     const ky = dy * clamp;

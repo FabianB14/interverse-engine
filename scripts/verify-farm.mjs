@@ -166,6 +166,12 @@ await page.evaluate(() => window.__farm.waterAll());
 await sleep(80);
 const moistOk = (await page.evaluate(() => window.__farm.plotInfo()[1])).m > 0.9;
 
+// Building: place a pond on an open tile and confirm it stuck.
+await page.evaluate(() => window.__farm.grantVerium(200));
+await page.evaluate(() => window.__farm.buildStart('pond'));
+const placed = await page.evaluate(() => window.__farm.placeAt(8, 15));
+const buildOk = placed === true && (await page.evaluate(() => window.__farm.buildCount())) === 1;
+
 // Weather: force rain and confirm it registers.
 await page.evaluate(() => window.__farm.rainNow());
 await sleep(300);
@@ -241,6 +247,17 @@ await page.evaluate(() => window.__farm.setTab('cosmetics'));
 const boughtCosmetic = await page.evaluate(() => window.__farm.buyCosmetic('tophat'));
 const cosmeticOwned = await page.evaluate(() => window.__farm.owned('tophat'));
 const cosmeticOk = boughtCosmetic === true && cosmeticOwned === true;
+
+// Themes: buy + apply Sakura; Pets: adopt the chick.
+await page.evaluate(() => window.__farm.grantVerium(800));
+await page.evaluate(() => window.__farm.setTab('themes'));
+const boughtTheme = await page.evaluate(() => window.__farm.buyTheme('sakura'));
+const themeOk =
+  boughtTheme === true && (await page.evaluate(() => window.__farm.themeActive())) === 'sakura';
+await page.evaluate(() => window.__farm.setTab('pets'));
+const boughtPet = await page.evaluate(() => window.__farm.buyPet('chick'));
+const petOk =
+  boughtPet === true && (await page.evaluate(() => window.__farm.petActive())) === 'chick';
 await page.screenshot({ path: `${outDir}/farm-shop.png` });
 // Back to the market, then the farm.
 await page.waitForFunction(
@@ -312,6 +329,9 @@ const ok =
   fulfillOk &&
   upgradeOk &&
   cosmeticOk &&
+  buildOk &&
+  themeOk &&
+  petOk &&
   backOk &&
   errors.length === 0;
 console.log(
@@ -350,6 +370,9 @@ console.log(
       fulfillOk,
       upgradeOk,
       cosmeticOk,
+      buildOk,
+      themeOk,
+      petOk,
       order0,
       backOk,
       errors: errors.slice(0, 5),

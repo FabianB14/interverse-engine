@@ -54,15 +54,42 @@ export const farmLegend: Record<string, TileLegendEntry> = {
   '@': { tile: TILE.GRASS, object: 'player' },
 };
 
-const GRASS = 0x7bab54;
-const WATER = 0x4d90b0;
+// Theme palette used by the painters — set via setMapTheme() before
+// buildTileMapView so purchased farm themes retint the whole world.
+const PAL = {
+  grass: 0x7bab54,
+  water: 0x4d90b0,
+  foliage: 0x4f7a34,
+  trunk: 0x6b4a2f,
+  path: 0xcaa877,
+  flowerPetals: [0xffd166, 0xff9fb2, 0xf2ffe9, 0xc77dff] as number[],
+  blossom: 0 as number | 0,
+};
+
+export function setMapTheme(t: {
+  grass: number;
+  water: number;
+  foliage: number;
+  trunk: number;
+  path: number;
+  flowerPetals: number[];
+  blossom?: number;
+}): void {
+  PAL.grass = t.grass;
+  PAL.water = t.water;
+  PAL.foliage = t.foliage;
+  PAL.trunk = t.trunk;
+  PAL.path = t.path;
+  PAL.flowerPetals = t.flowerPetals;
+  PAL.blossom = t.blossom ?? 0;
+}
 
 const paintGrass: TilePainter = (g, x, y, s, rng) => {
   const shade = rng() * 0.1;
-  g.rect(x, y, s, s).fill(rng() > 0.5 ? lighten(GRASS, shade) : darken(GRASS, shade));
+  g.rect(x, y, s, s).fill(rng() > 0.5 ? lighten(PAL.grass, shade) : darken(PAL.grass, shade));
   if (rng() > 0.72) {
     g.rect(x + 8 + rng() * (s - 20), y + 10 + rng() * (s - 20), 3, 8).fill({
-      color: darken(GRASS, 0.18),
+      color: darken(PAL.grass, 0.18),
       alpha: 0.6,
     });
   }
@@ -72,10 +99,15 @@ const paintTree: TilePainter = (g, x, y, s, rng) => {
   paintGrass(g, x, y, s, rng);
   const cx = x + s / 2;
   const cy = y + s / 2;
-  g.roundRect(cx - 6, cy + 8, 12, 20, 4).fill(0x6b4a2f);
-  g.circle(cx - 12, cy - 2, 16 + rng() * 4).fill(darken(0x4f7a34, 0.05));
-  g.circle(cx + 12, cy - 4, 15 + rng() * 4).fill(0x4f7a34);
-  g.circle(cx, cy - 16, 18 + rng() * 4).fill(lighten(0x4f7a34, 0.08));
+  g.roundRect(cx - 6, cy + 8, 12, 20, 4).fill(PAL.trunk);
+  g.circle(cx - 12, cy - 2, 16 + rng() * 4).fill(darken(PAL.foliage, 0.05));
+  g.circle(cx + 12, cy - 4, 15 + rng() * 4).fill(PAL.foliage);
+  g.circle(cx, cy - 16, 18 + rng() * 4).fill(lighten(PAL.foliage, 0.08));
+  if (PAL.blossom) {
+    for (let i = 0; i < 5; i++) {
+      g.circle(cx - 16 + rng() * 32, cy - 22 + rng() * 24, 2.5 + rng() * 2).fill(PAL.blossom);
+    }
+  }
 };
 
 const paintHouse: TilePainter = (g, x, y, s, rng) => {
@@ -102,10 +134,10 @@ const paintStall: TilePainter = (g, x, y, s, rng) => {
 };
 
 const paintWater: TilePainter = (g, x, y, s, rng) => {
-  g.rect(x, y, s, s).fill(rng() > 0.5 ? WATER : darken(WATER, 0.08));
+  g.rect(x, y, s, s).fill(rng() > 0.5 ? PAL.water : darken(PAL.water, 0.08));
   if (rng() > 0.6) {
     g.ellipse(x + 12 + rng() * (s - 24), y + 12 + rng() * (s - 24), 8, 3).fill({
-      color: lighten(WATER, 0.25),
+      color: lighten(PAL.water, 0.25),
       alpha: 0.6,
     });
   }
@@ -115,7 +147,10 @@ const paintFlower: TilePainter = (g, x, y, s, rng) => {
   paintGrass(g, x, y, s, rng);
   const fx = x + 16 + rng() * (s - 32);
   const fy = y + 16 + rng() * (s - 32);
-  const petal = [0xffd166, 0xff9fb2, 0xf2ffe9, 0xc77dff][Math.floor(rng() * 4)] ?? 0xffd166;
+  const petal =
+    PAL.flowerPetals[Math.floor(rng() * PAL.flowerPetals.length)] ??
+    PAL.flowerPetals[0] ??
+    0xffd166;
   for (let i = 0; i < 5; i++) {
     const a = (i / 5) * Math.PI * 2;
     g.circle(fx + Math.cos(a) * 5, fy + Math.sin(a) * 5, 4).fill(petal);
@@ -124,8 +159,7 @@ const paintFlower: TilePainter = (g, x, y, s, rng) => {
 };
 
 const paintPath: TilePainter = (g, x, y, s, rng) => {
-  const p = 0xcaa877;
-  g.rect(x, y, s, s).fill(rng() > 0.5 ? p : darken(p, 0.08));
+  g.rect(x, y, s, s).fill(rng() > 0.5 ? PAL.path : darken(PAL.path, 0.08));
 };
 
 export const farmPainters: Record<number, TilePainter> = {

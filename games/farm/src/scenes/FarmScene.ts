@@ -38,12 +38,24 @@ import {
 import type { Season, Weather } from '../weather.js';
 import { music } from '../music.js';
 import { ambience } from '../ambience.js';
-import { growthMultiplier, moistureDecayMultiplier } from '../upgrades.js';
+import { extraPlotTiles, growthMultiplier, moistureDecayMultiplier } from '../upgrades.js';
+import { currentTheme } from '../themes.js';
+import { activePet, petById } from '../pets.js';
+import { BUILDS, buildById, placeBuild, savedBuilds } from '../build.js';
+import type { Placed } from '../build.js';
+import {
+  accessoryById,
+  grantAccessory,
+  revokeAccessory,
+  tradeableAccessories,
+} from '../accessories.js';
+import { farmNet } from '../net.js';
+import type { Look } from '../net.js';
 import { savedAcc, savedName, savedSkin, store } from '../store.js';
-import { invAdd, invAll, invClear, invTotal } from '../inventory.js';
+import { invAdd, invAll, invClear, invCount, invRemove, invTotal } from '../inventory.js';
 import { makeCharacter } from '../character.js';
 import type { CharType } from '../character.js';
-import { TILE_SIZE, farmLegend, farmPainters, farmRows } from '../map.js';
+import { TILE_SIZE, farmLegend, farmPainters, farmRows, setMapTheme } from '../map.js';
 import { MarketScene } from './MarketScene.js';
 import { TitleScene } from './TitleScene.js';
 import '../debug.js';
@@ -157,6 +169,39 @@ export class FarmScene extends Scene {
   private t = 0;
   private saveIn = 5;
 
+  // Building
+  private buildLayer!: Container;
+  private buildBtn!: UIButton;
+  private buildPanel!: Container;
+  private placing: string | null = null;
+
+  // Pet companion
+  private pet: Entity | null = null;
+  private petBody: Container | null = null;
+  private petPhase = 0;
+
+  // Multiplayer (hosting your farm / visiting a friend's)
+  private visiting = false;
+  private remotes = new Map<
+    string,
+    { entity: Entity; body: Container; tx: number; ty: number; walk: number }
+  >();
+  private codeText!: Text;
+  private tradeBtn!: UIButton;
+  private sendIn = 0;
+  private plotSyncIn = 1;
+
+  // Trade state
+  private tradePartner: string | null = null;
+  private myOffer: Record<string, number> = {};
+  private theirOffer: Record<string, number> = {};
+  private iConfirmed = false;
+  private theyConfirmed = false;
+  private tradePanel!: Container;
+  private tradeGrid!: Container;
+  private theirText!: Text;
+  private confirmBtn!: UIButton;
+
   protected override onResize(w: number, h: number): void {
     this.layout(w, h);
   }
@@ -164,16 +209,33 @@ export class FarmScene extends Scene {
   protected override onEnter(): void {
     const W = this.game.viewWidth;
     const H = this.game.viewHeight;
-    this.load();
+    this.visiting = farmNet.visiting();
+    if (!this.visiting) this.load();
 
+    setMapTheme(currentTheme());
     this.map = tileMapFromRows(farmRows, TILE_SIZE, farmLegend);
     this.mapLayer = new Container();
     this.uiLayer = new Container();
     this.stage.addChild(this.mapLayer, this.uiLayer);
     this.mapLayer.addChild(buildTileMapView(this.map, farmPainters));
 
-    // Plots at every 'plot' object.
-    const plotObjs = this.map.objects.filter((o) => o.name === 'plot');
+    // Placed buildings render above tiles, below plots/players.
+    this.buildLayer = new Container();
+    this.mapLayer.addChild(this.buildLayer);
+    if (!this.visiting) this.renderBuilds(savedBuilds());
+
+    // Plots: map 'o' markers + More Land upgrade tiles + built Crop Plots.
+    // (Visitors see the HOST's plot list — synced over the net after enter.)
+    const plotObjs: { x: number; y: number }[] = this.map.objects
+      .filter((o) => o.name === 'plot')
+      .map((o) => ({ x: o.x, y: o.y }));
+    if (!this.visiting) {
+      for (const t of extraPlotTiles())
+        plotObjs.push({ x: (t.col + 0.5) * TILE_SIZE, y: (t.row + 0.5) * TILE_SIZE });
+      for (const b of savedBuilds())
+        if (b.id === 'plot')
+          plotObjs.push({ x: (b.col + 0.5) * TILE_SIZE, y: (b.row + 0.5) * TILE_SIZE });
+    }
     if (this.plots.length !== plotObjs.length) {
       this.plots = plotObjs.map(() => ({ crop: null, growth: 0, moisture: 0 }));
     }
@@ -239,17 +301,17 @@ export class FarmScene extends Scene {
     this.promptText.visible = false;
     this.mapLayer.addChild(this.promptText);
 
-    // UI layer. A dynamic joystick: press and slide anywhere to walk — the
-    // ring springs up under your thumb. Sits below the action buttons so
-    // taps on those still hit the buttons.
-    this.joystick = new VirtualJoystick({
-      radius: 90,
-      dynamic: true,
-      hitWidth: W,
-      hitHeight: H,
-    });
-    this.joystick.position.set(W / 2, H / 2);
+    // Dynamic joystick: slide anywhere to walk. It listens on the STAGE via
+    // bubbled events, so taps still reach plots, NPCs, buttons — walking and
+    // tapping coexist. Also used for build-mode tile taps.
+    this.stage.eventMode = 'static';
+    this.stage.hitArea = { contains: () => true };
+    this.joystick = new VirtualJoystick({ radius: 70, dynamic: true });
+    this.joystick.listen(this.stage);
     this.add(this.joystick, this.uiLayer);
+    this.stage.on('pointertap', (e) => {
+      if (this.placing) this.placeAtPointer(e.global.x, e.global.y);
+    });
 
     this.rainLayer = new Graphics();
     this.uiLayer.addChild(this.rainLayer);
@@ -313,8 +375,42 @@ export class FarmScene extends Scene {
       onTap: () => this.performInteract(),
     });
     this.add(this.interactBtn, this.uiLayer);
+
+    // Build mode (your own farm only) + trade (only with company).
+    this.buildBtn = new UIButton('🔨', {
+      width: 100,
+      height: 88,
+      fontSize: 38,
+      fill: FARM.panel,
+      onTap: () => this.toggleBuildPanel(),
+    });
+    this.buildBtn.visible = !this.visiting;
+    this.add(this.buildBtn, this.uiLayer);
+    this.tradeBtn = new UIButton('🤝', {
+      width: 100,
+      height: 88,
+      fontSize: 38,
+      fill: FARM.accent,
+      textColor: 0x2a2016,
+      onTap: () => this.startTrade(),
+    });
+    this.tradeBtn.visible = !!farmNet.session();
+    this.add(this.tradeBtn, this.uiLayer);
+    this.codeText = makeText('', 22, { color: FARM.accent, weight: '900' });
+    this.uiLayer.addChild(this.codeText);
+    const sess = farmNet.session();
+    if (sess)
+      this.codeText.text = this.visiting
+        ? `visiting ${sess.code}`
+        : `farm ${sess.code} — share it!`;
+
     this.buildSeedPanel();
     this.buildInventoryPanel();
+    this.buildBuildPanel();
+    this.buildTradePanel();
+
+    // Pet companion trots along behind you.
+    this.spawnPet();
 
     this.box = new DialogueBox({ palette: cozyAutumn });
     this.box.onClosed = () => {
@@ -397,12 +493,34 @@ export class FarmScene extends Scene {
       storm: () => this.currentWeather() === 'storm',
       openInv: () => this.toggleInventory(),
       invOpen: () => this.invPanel.visible,
+      // Multiplayer + trade
+      code: () => farmNet.session()?.code ?? '',
+      remoteIds: () => [...this.remotes.keys()],
+      startTrade: () => this.startTrade(),
+      offerItem: (id: string) => this.toggleOfferItem(id),
+      confirmTrade: () => this.confirmTrade(),
+      tradeOpen: () => this.tradePartner !== null,
+      isVisiting: () => this.visiting,
+      // Building + pets
+      buildStart: (id: string) => {
+        this.placing = id;
+      },
+      placeAt: (col: number, row: number) => this.tryPlace(col, row),
+      buildCount: () => savedBuilds().length,
+      petActive: () => activePet(),
     };
+
+    // Multiplayer wiring — hosting your farm or visiting a friend's.
+    if (farmNet.session()) this.setupNet();
   }
 
   protected override onExit(): void {
     this.save();
     ambience.stop();
+    // Detach the net handler slots (the session itself survives — travelling
+    // to the market keeps your farm open).
+    farmNet.onMsg = farmNet.onJoin = farmNet.onLeave = null;
+    farmNet.onClose = null;
     delete window.__farm;
   }
 
@@ -416,14 +534,20 @@ export class FarmScene extends Scene {
     this.weatherText.position.set(W - 20, 44);
     this.nameText.position.set(W / 2, 40);
     this.toastText.position.set(W / 2, 108);
+    this.codeText.position.set(W / 2, 74);
     this.tipText.position.set(W / 2, H - 26);
-    this.joystick.position.set(W / 2, H / 2);
-    this.joystick.setHitSize(W, H);
     this.interactBtn.position.set(W - 100, H - 120);
     this.pouchBtn.position.set(W - 100, H - 250);
     this.invBtn.position.set(W - 100, H - 350);
+    this.buildBtn.position.set(W - 100, H - 450);
+    this.tradeBtn.position.set(W - 100, H - 550);
     this.seedPanel.position.set(W / 2, H - 360);
     this.invPanel.position.set(W / 2, H / 2);
+    this.buildPanel.position.set(W / 2, H / 2);
+    this.tradePanel.position.set(W / 2, H / 2);
+    this.tradePanel.scale.set(Math.min(1, (H - 40) / 620, (W - 20) / 680));
+    this.invPanel.scale.set(Math.min(1, (H - 40) / 620, (W - 20) / 680));
+    this.buildPanel.scale.set(Math.min(1, (H - 40) / 620, (W - 20) / 680));
     this.box.position.set((W - 656) / 2, H - 300 - 36);
   }
 
@@ -677,6 +801,39 @@ export class FarmScene extends Scene {
     this.updateTarget();
     this.updateWeatherText(weather);
     this.drawRain(raining, storm);
+    this.updatePet(dt);
+
+    // Multiplayer sync: positions at 10Hz, host farm-state at 1Hz.
+    const sess = farmNet.session();
+    if (sess) {
+      this.sendIn -= dt;
+      if (this.sendIn <= 0) {
+        this.sendIn = 0.1;
+        if (sess.isHost) this.sendPositions();
+        else sess.send({ type: 'pos', x: this.player.x, y: this.player.y });
+      }
+      if (sess.isHost && this.remotes.size > 0) {
+        this.plotSyncIn -= dt;
+        if (this.plotSyncIn <= 0) {
+          this.plotSyncIn = 1;
+          this.broadcastFarm();
+        }
+      }
+      for (const r of this.remotes.values()) {
+        const dx = r.tx - r.entity.x;
+        const dy = r.ty - r.entity.y;
+        r.entity.position.set(
+          r.entity.x + dx * Math.min(1, dt * 12),
+          r.entity.y + dy * Math.min(1, dt * 12),
+        );
+        if (Math.hypot(dx, dy) > 1) {
+          r.walk += dt * 11;
+          const s = Math.sin(r.walk) * 0.08;
+          r.body.scale.set(1 + s, 1 - s);
+        } else r.body.scale.set(1, 1);
+      }
+    }
+
     this.camera.update(dt);
 
     this.saveIn -= dt;
@@ -937,6 +1094,7 @@ export class FarmScene extends Scene {
   // ------------------------------------------------------------ actions
 
   private tapPlot(i: number): void {
+    if (this.placing) return; // build-mode taps place structures instead
     const v = this.plotViews[i];
     if (!v) return;
     if (Math.hypot(v.x - this.player.x, v.y - this.player.y) > INTERACT_RANGE + 20) {
@@ -966,7 +1124,10 @@ export class FarmScene extends Scene {
     this.popup(i, '🌱');
     this.updateVeriumText();
     this.renderPlot(i);
-    this.save();
+    // Visitors helped plant on the host's farm — tell the host.
+    if (this.visiting)
+      farmNet.session()?.send({ type: 'plot-act', kind: 'plant', i, crop: cropId });
+    else this.save();
     return true;
   }
 
@@ -977,6 +1138,7 @@ export class FarmScene extends Scene {
     audio.blip(0.7);
     this.popup(i, '💧');
     this.renderPlot(i);
+    if (this.visiting) farmNet.session()?.send({ type: 'plot-act', kind: 'water', i });
   }
 
   private waterAll(): void {
@@ -996,7 +1158,8 @@ export class FarmScene extends Scene {
     p.moisture = 0;
     this.updateBasket();
     this.renderPlot(i);
-    this.save();
+    if (this.visiting) farmNet.session()?.send({ type: 'plot-act', kind: 'harvest', i });
+    else this.save();
     return true;
   }
 
@@ -1030,6 +1193,8 @@ export class FarmScene extends Scene {
     if (this.game.scenes.isTransitioning) return;
     this.save();
     ambience.stop();
+    // Going home ends the multiplayer session (host closes the room).
+    farmNet.leave();
     audio.blip(0.9);
     this.game.scenes.replace(new TitleScene());
   }
@@ -1076,11 +1241,616 @@ export class FarmScene extends Scene {
   }
 
   private save(): void {
+    // A visitor is walking someone ELSE's farm — never write their plots
+    // over your own save.
+    if (this.visiting) return;
     store.set(
       'plots',
       this.plots.map((p) => ({ c: p.crop, g: p.growth, m: p.moisture })),
     );
     store.set('clock', this.clock);
     store.set('harvested', this.harvested);
+  }
+
+  // ------------------------------------------------------------- building
+
+  private renderBuilds(list: Placed[]): void {
+    for (const old of this.buildLayer.removeChildren()) old.destroy({ children: true });
+    const theme = currentTheme();
+    for (const b of list) {
+      const def = buildById(b.id);
+      if (!def || b.id === 'plot') continue; // plots render as real plots
+      const view = def.draw(TILE_SIZE * 1.2, { water: theme.water, trunk: theme.trunk });
+      view.position.set((b.col + 0.5) * TILE_SIZE, (b.row + 0.5) * TILE_SIZE);
+      this.buildLayer.addChild(view);
+    }
+  }
+
+  private buildBuildPanel(): void {
+    this.buildPanel = new Container();
+    this.buildPanel.visible = false;
+    const bg = new Graphics();
+    bg.roundRect(-330, -240, 660, 480, 26).fill(0x2a2016);
+    bg.roundRect(-330, -240, 660, 480, 26).stroke({ color: FARM.accent, width: 3 });
+    this.buildPanel.addChild(bg);
+    const title = makeText('🔨 Build — pick, then tap a tile', 26, {
+      color: FARM.accent,
+      weight: '900',
+    });
+    title.position.set(0, -202);
+    this.buildPanel.addChild(title);
+    BUILDS.forEach((b, i) => {
+      const btn = new UIButton(`${b.emoji} ${b.name} — ⬡${b.cost}`, {
+        width: 560,
+        height: 66,
+        fontSize: 24,
+        fill: FARM.panel,
+        textColor: FARM.ink,
+        onTap: () => {
+          this.placing = b.id;
+          this.buildPanel.visible = false;
+          this.toast(`tap a grassy tile to place the ${b.name.toLowerCase()}`);
+          audio.blip(1.2);
+        },
+      });
+      btn.position.set(0, -140 + i * 78);
+      this.add(btn, this.buildPanel);
+    });
+    const close = new UIButton('✕ close', {
+      width: 190,
+      height: 62,
+      fontSize: 24,
+      fill: 0x5a4632,
+      textColor: FARM.ink,
+      onTap: () => this.toggleBuildPanel(),
+    });
+    close.position.set(0, 196);
+    this.add(close, this.buildPanel);
+    this.uiLayer.addChild(this.buildPanel);
+  }
+
+  private toggleBuildPanel(): void {
+    if (this.visiting) return;
+    this.placing = null;
+    this.buildPanel.visible = !this.buildPanel.visible;
+    audio.blip();
+  }
+
+  private placeAtPointer(gx: number, gy: number): void {
+    const p = this.mapLayer.toLocal({ x: gx, y: gy });
+    this.tryPlace(Math.floor(p.x / TILE_SIZE), Math.floor(p.y / TILE_SIZE));
+  }
+
+  private tryPlace(col: number, row: number): boolean {
+    const id = this.placing;
+    if (!id || this.visiting) return false;
+    const def = buildById(id);
+    if (!def) return false;
+    if (this.map.solid[row]?.[col] !== false) {
+      this.toast('needs an open grassy tile');
+      audio.buzz();
+      return false;
+    }
+    if (!placeBuild(id, col, row)) {
+      this.toast(`needs ⬡${def.cost} and a free tile`);
+      audio.buzz();
+      return false;
+    }
+    this.placing = null;
+    audio.chime();
+    this.updateVeriumText();
+    this.renderBuilds(savedBuilds());
+    if (id === 'plot') {
+      // A new working plot, live immediately.
+      const x = (col + 0.5) * TILE_SIZE;
+      const y = (row + 0.5) * TILE_SIZE;
+      this.plots.push({ crop: null, growth: 0, moisture: 0 });
+      const root = new Entity();
+      root.position.set(x, y);
+      const soil = new Graphics();
+      const leaves = new Graphics();
+      root.addChild(soil, leaves);
+      const idx = this.plotViews.length;
+      makeTappable(root, () => this.tapPlot(idx), {
+        hitRect: { x: -PLOT_SIZE / 2, y: -PLOT_SIZE / 2, width: PLOT_SIZE, height: PLOT_SIZE },
+      });
+      this.add(root, this.mapLayer);
+      this.plotViews.push({ root, soil, leaves, fruit: null, fruitCrop: null, x, y });
+      this.renderPlot(idx);
+      this.save();
+    }
+    this.toast(`${def.emoji} placed!`);
+    return true;
+  }
+
+  // ------------------------------------------------------------- pet
+
+  private spawnPet(): void {
+    const id = activePet();
+    const def = petById(id);
+    if (!def) return;
+    this.pet = new Entity();
+    const body = new Container();
+    body.addChild(def.draw(18));
+    this.pet.addChild(body);
+    this.petBody = body;
+    this.pet.position.set(this.player.x - 46, this.player.y + 18);
+    this.add(this.pet, this.mapLayer);
+  }
+
+  private updatePet(dt: number): void {
+    if (!this.pet || !this.petBody) return;
+    const tx = this.player.x - 46 * this.facing;
+    const ty = this.player.y + 18;
+    const dx = tx - this.pet.x;
+    const dy = ty - this.pet.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist > 8) {
+      const k = Math.min(1, dt * 5);
+      this.pet.position.set(this.pet.x + dx * k, this.pet.y + dy * k);
+      this.petPhase += dt * 10;
+      const s = Math.sin(this.petPhase) * 0.1;
+      this.petBody.scale.set(1 + s, 1 - s);
+      if (Math.abs(dx) > 4) this.pet.scale.x = dx > 0 ? 1 : -1;
+    } else {
+      this.petBody.scale.set(1, 1);
+    }
+  }
+
+  // ------------------------------------------------------------- multiplayer
+
+  private setupNet(): void {
+    const sess = farmNet.session();
+    if (!sess) return;
+    // Spawn everyone already here, with their real look.
+    for (const p of sess.players) if (p.id !== sess.id) this.spawnRemote(p.id);
+    farmNet.onJoin = (id) => {
+      this.spawnRemote(id);
+      if (sess.isHost) {
+        this.toast(`${farmNet.looks.get(id)?.n ?? 'a friend'} dropped by! 👋`);
+        this.broadcastFarm();
+      }
+    };
+    farmNet.onLeave = (id) => {
+      const r = this.remotes.get(id);
+      if (r) {
+        this.remove(r.entity);
+        this.remotes.delete(id);
+      }
+      if (this.tradePartner === id) this.closeTrade();
+    };
+    farmNet.onClose = (reason) => {
+      this.toast(`disconnected: ${reason}`);
+      this.visiting = false;
+      this.tradeBtn.visible = false;
+      this.codeText.text = '';
+      for (const r of this.remotes.values()) this.remove(r.entity);
+      this.remotes.clear();
+    };
+    farmNet.onMsg = (from, data) => this.onNet(from, data);
+    // Visitors ask the host for the farm's current state.
+    if (this.visiting) sess.send({ type: 'farm-req' });
+  }
+
+  private spawnRemote(id: string): void {
+    if (this.remotes.has(id)) return;
+    const look: Look = farmNet.looks.get(id) ?? {
+      t: 'blob',
+      c: 0x6fb0d8,
+      s: 0xf0c08a,
+      a: 'none',
+      n: 'Friend',
+    };
+    const entity = new Entity();
+    const char = makeCharacter(look.t, look.c, 30, id.length + 3, look.a, look.s);
+    entity.addChild(char.view);
+    const label = makeText(look.n, 18, { color: FARM.ink, weight: '800' });
+    label.position.set(0, -58);
+    entity.addChild(label);
+    const spawn = this.map.objects.find((o) => o.name === 'player') ?? { x: 544, y: 672 };
+    entity.position.set(spawn.x + 60, spawn.y);
+    this.add(entity, this.mapLayer);
+    this.remotes.set(id, { entity, body: char.body, tx: spawn.x + 60, ty: spawn.y, walk: 0 });
+  }
+
+  /** Rebuild a remote's avatar when their look arrives late. */
+  private refreshRemoteLooks(): void {
+    for (const [id, r] of this.remotes) {
+      const look = farmNet.looks.get(id);
+      if (!look) continue;
+      const label = r.entity.children.at(-1);
+      if (label && 'text' in label && (label as Text).text !== look.n) {
+        const { x, y } = r.entity;
+        this.remove(r.entity);
+        this.remotes.delete(id);
+        this.spawnRemote(id);
+        const nr = this.remotes.get(id);
+        if (nr) {
+          nr.entity.position.set(x, y);
+          nr.tx = x;
+          nr.ty = y;
+        }
+      }
+    }
+  }
+
+  /** Host → everyone: the farm's plots (positions + state). */
+  private broadcastFarm(): void {
+    const sess = farmNet.session();
+    if (!sess || !sess.isHost) return;
+    sess.broadcast({
+      type: 'farm',
+      spots: this.plotViews.map((v) => ({ x: v.x, y: v.y })),
+      plots: this.plots.map((p) => ({ c: p.crop, g: p.growth, m: p.moisture })),
+      builds: savedBuilds(),
+    });
+  }
+
+  /** Visitor: adopt the host's plots/builds wholesale. */
+  private applyFarm(
+    spots: { x: number; y: number }[],
+    plots: { c: string | null; g: number; m: number }[],
+    builds: Placed[],
+  ): void {
+    if (!this.visiting) return;
+    // Rebuild plot views to match the host's layout.
+    for (const v of this.plotViews) this.remove(v.root);
+    this.plotViews = [];
+    this.plots = plots.map((p) => ({ crop: p.c, growth: p.g, moisture: p.m }));
+    spots.forEach((o, i) => {
+      const root = new Entity();
+      root.position.set(o.x, o.y);
+      const soil = new Graphics();
+      const leaves = new Graphics();
+      root.addChild(soil, leaves);
+      makeTappable(root, () => this.tapPlot(i), {
+        hitRect: { x: -PLOT_SIZE / 2, y: -PLOT_SIZE / 2, width: PLOT_SIZE, height: PLOT_SIZE },
+      });
+      this.add(root, this.mapLayer);
+      this.plotViews.push({ root, soil, leaves, fruit: null, fruitCrop: null, x: o.x, y: o.y });
+      this.renderPlot(i);
+    });
+    this.renderBuilds(builds);
+  }
+
+  private onNet(from: string, data: unknown): void {
+    const sess = farmNet.session();
+    if (!sess) return;
+    const msg = data as Record<string, unknown> | null;
+    if (!msg || typeof msg.type !== 'string') return;
+    switch (msg.type) {
+      case 'look':
+      case 'looks':
+        this.refreshRemoteLooks();
+        return;
+      case 'pos': {
+        const r = this.remotes.get(from);
+        if (r) {
+          r.tx = Number(msg.x);
+          r.ty = Number(msg.y);
+        }
+        // The host relays everyone's positions.
+        if (sess.isHost) {
+          this.sendPositions();
+        }
+        return;
+      }
+      case 'snap': {
+        const pos = msg.pos as Record<string, { x: number; y: number }>;
+        for (const [id, p] of Object.entries(pos)) {
+          if (id === sess.id) continue;
+          const r = this.remotes.get(id);
+          if (r) {
+            r.tx = p.x;
+            r.ty = p.y;
+          }
+        }
+        return;
+      }
+      case 'farm-req':
+        if (sess.isHost) this.broadcastFarm();
+        return;
+      case 'farm':
+        this.applyFarm(
+          (msg.spots as { x: number; y: number }[]) ?? [],
+          (msg.plots as { c: string | null; g: number; m: number }[]) ?? [],
+          (msg.builds as Placed[]) ?? [],
+        );
+        return;
+      case 'plot-act': {
+        // A visitor farmed one of our plots — apply it (no wallet/basket
+        // effects here; those happened on the visitor's device).
+        if (!sess.isHost) return;
+        const i = Number(msg.i);
+        const p = this.plots[i];
+        if (!p) return;
+        if (msg.kind === 'water' && p.crop) p.moisture = 1;
+        else if (msg.kind === 'plant' && !p.crop && typeof msg.crop === 'string') {
+          p.crop = msg.crop;
+          p.growth = 0;
+          p.moisture = 1;
+        } else if (msg.kind === 'harvest' && p.crop && p.growth >= 1) {
+          p.crop = null;
+          p.growth = 0;
+          p.moisture = 0;
+        }
+        this.renderPlot(i);
+        this.save();
+        this.broadcastFarm();
+        return;
+      }
+      case 'trade-req':
+        if (!this.tradePartner) {
+          this.openTradeWith(from);
+          this.toast('trade started 🤝');
+        }
+        return;
+      case 'trade-offer':
+        if (from === this.tradePartner) {
+          this.theirOffer = (msg.items as Record<string, number>) ?? {};
+          this.theyConfirmed = false;
+          this.refreshTradePanel();
+        }
+        return;
+      case 'trade-confirm':
+        if (from === this.tradePartner) {
+          this.theyConfirmed = true;
+          this.refreshTradePanel();
+          this.trySettle();
+        }
+        return;
+      case 'trade-cancel':
+        if (from === this.tradePartner) {
+          this.toast('trade cancelled');
+          this.closeTrade();
+        }
+        return;
+      case 'trade-exec':
+        this.applySwap(
+          (msg.give as Record<string, number>) ?? {},
+          (msg.get as Record<string, number>) ?? {},
+        );
+        this.toast('trade complete! ✅');
+        this.closeTrade();
+        return;
+      default:
+        return;
+    }
+  }
+
+  private sendPositions(): void {
+    const sess = farmNet.session();
+    if (!sess) return;
+    const pos: Record<string, { x: number; y: number }> = {
+      [sess.id]: { x: this.player.x, y: this.player.y },
+    };
+    for (const [id, r] of this.remotes) pos[id] = { x: r.tx, y: r.ty };
+    sess.broadcast({ type: 'snap', pos });
+  }
+
+  // ------------------------------------------------------------- trade
+
+  private nearestPartner(): string | null {
+    let best: string | null = null;
+    let bestD = 220;
+    for (const [id, r] of this.remotes) {
+      const d = Math.hypot(r.entity.x - this.player.x, r.entity.y - this.player.y);
+      if (d < bestD) {
+        bestD = d;
+        best = id;
+      }
+    }
+    return best;
+  }
+
+  private startTrade(): void {
+    if (!farmNet.session() || this.tradePartner) return;
+    const partner = this.nearestPartner();
+    if (!partner) {
+      this.toast('walk up to someone to trade');
+      audio.buzz();
+      return;
+    }
+    this.sendToPartner(partner, { type: 'trade-req' });
+    this.openTradeWith(partner);
+    this.toast('trade started 🤝');
+  }
+
+  private openTradeWith(id: string): void {
+    this.tradePartner = id;
+    this.myOffer = {};
+    this.theirOffer = {};
+    this.iConfirmed = false;
+    this.theyConfirmed = false;
+    this.tradePanel.visible = true;
+    this.refreshTradePanel();
+    audio.blip(1.2);
+  }
+
+  /** Toggle a crop (id) or accessory ('acc:<id>') in my offer. */
+  private toggleOfferItem(id: string): void {
+    if (!this.tradePartner || this.iConfirmed) return;
+    if (id.startsWith('acc:')) {
+      if (this.myOffer[id]) delete this.myOffer[id];
+      else this.myOffer[id] = 1;
+    } else {
+      const have = invCount(id);
+      const cur = this.myOffer[id] ?? 0;
+      if (cur < have) this.myOffer[id] = cur + 1;
+      else delete this.myOffer[id];
+    }
+    this.sendToPartner(this.tradePartner, { type: 'trade-offer', items: this.myOffer });
+    this.refreshTradePanel();
+    audio.blip();
+  }
+
+  private confirmTrade(): void {
+    if (!this.tradePartner || this.iConfirmed) return;
+    this.iConfirmed = true;
+    this.sendToPartner(this.tradePartner, { type: 'trade-confirm' });
+    this.refreshTradePanel();
+    this.trySettle();
+  }
+
+  /** The host settles once both sides confirmed. */
+  private trySettle(): void {
+    const sess = farmNet.session();
+    if (!sess || !sess.isHost || !this.tradePartner) return;
+    if (!this.iConfirmed || !this.theyConfirmed) return;
+    for (const [id, n] of Object.entries(this.myOffer)) {
+      if (!id.startsWith('acc:') && invCount(id) < n) {
+        this.sendToPartner(this.tradePartner, { type: 'trade-cancel' });
+        this.toast('trade failed — not enough crops');
+        this.closeTrade();
+        return;
+      }
+    }
+    sess.sendTo(this.tradePartner, {
+      type: 'trade-exec',
+      give: this.theirOffer,
+      get: this.myOffer,
+    });
+    this.applySwap(this.myOffer, this.theirOffer);
+    this.toast('trade complete! ✅');
+    this.closeTrade();
+  }
+
+  /** Remove what we gave, add what we got (crops and accessories). */
+  private applySwap(give: Record<string, number>, get: Record<string, number>): void {
+    for (const [id, n] of Object.entries(give)) {
+      if (id.startsWith('acc:')) revokeAccessory(id.slice(4));
+      else invRemove(id, n);
+    }
+    for (const [id, n] of Object.entries(get)) {
+      if (id.startsWith('acc:')) grantAccessory(id.slice(4));
+      else invAdd(id, n);
+    }
+    this.updateBasket();
+  }
+
+  private sendToPartner(id: string, data: Record<string, unknown>): void {
+    const sess = farmNet.session();
+    if (!sess) return;
+    if (sess.isHost) sess.sendTo(id, data);
+    else sess.send(data);
+  }
+
+  private closeTrade(): void {
+    this.tradePartner = null;
+    this.myOffer = {};
+    this.theirOffer = {};
+    this.iConfirmed = false;
+    this.theyConfirmed = false;
+    this.tradePanel.visible = false;
+  }
+
+  private buildTradePanel(): void {
+    this.tradePanel = new Container();
+    this.tradePanel.visible = false;
+    const bg = new Graphics();
+    bg.roundRect(-330, -300, 660, 600, 26).fill(0x2a2016);
+    bg.roundRect(-330, -300, 660, 600, 26).stroke({ color: FARM.accent, width: 3 });
+    this.tradePanel.addChild(bg);
+    const title = makeText('🤝 Trade — tap crops & hats to offer', 24, {
+      color: FARM.accent,
+      weight: '900',
+    });
+    title.position.set(0, -262);
+    this.tradePanel.addChild(title);
+    this.theirText = makeText('', 20, { color: FARM.inkSoft, weight: '800' });
+    this.theirText.position.set(0, -220);
+    this.tradePanel.addChild(this.theirText);
+    this.tradeGrid = new Container();
+    this.tradePanel.addChild(this.tradeGrid);
+    this.confirmBtn = new UIButton('CONFIRM', {
+      width: 240,
+      height: 74,
+      fontSize: 28,
+      fill: FARM.grass,
+      textColor: 0x1c2a12,
+      onTap: () => this.confirmTrade(),
+    });
+    this.confirmBtn.position.set(-120, 250);
+    this.add(this.confirmBtn, this.tradePanel);
+    const cancel = new UIButton('CANCEL', {
+      width: 200,
+      height: 74,
+      fontSize: 26,
+      fill: 0x5a4632,
+      textColor: FARM.ink,
+      onTap: () => {
+        if (this.tradePartner) this.sendToPartner(this.tradePartner, { type: 'trade-cancel' });
+        this.closeTrade();
+      },
+    });
+    cancel.position.set(140, 250);
+    this.add(cancel, this.tradePanel);
+    this.uiLayer.addChild(this.tradePanel);
+  }
+
+  private refreshTradePanel(): void {
+    for (const old of this.tradeGrid.removeChildren()) old.destroy({ children: true });
+    const theirs = Object.entries(this.theirOffer)
+      .map(([id, n]) =>
+        id.startsWith('acc:')
+          ? accessoryById(id.slice(4)).emoji
+          : `${cropById(id)?.emoji ?? id}×${n}`,
+      )
+      .join('  ');
+    this.theirText.text = `they offer: ${theirs || '—'}${this.theyConfirmed ? '  ✅' : ''}`;
+    this.confirmBtn.setLabel(this.iConfirmed ? 'CONFIRMED ✅' : 'CONFIRM');
+
+    const inv = invAll();
+    const items: {
+      key: string;
+      emoji?: string | undefined;
+      draw?: ((g: Graphics) => void) | undefined;
+      sub: string;
+    }[] = [];
+    for (const c of CROPS) {
+      if ((inv[c.id] ?? 0) > 0)
+        items.push({
+          key: c.id,
+          emoji: c.emoji,
+          draw: c.drawFruit ? (g): void => c.drawFruit!(g, 24) : undefined,
+          sub: `${this.myOffer[c.id] ?? 0}/${inv[c.id]}`,
+        });
+    }
+    for (const a of tradeableAccessories()) {
+      items.push({
+        key: `acc:${a}`,
+        emoji: accessoryById(a).emoji,
+        sub: this.myOffer[`acc:${a}`] ? 'offered' : 'hat',
+      });
+    }
+    const cols = 4;
+    const dx = 150;
+    const dy = 122;
+    items.forEach((it, k) => {
+      const col = k % cols;
+      const row = Math.floor(k / cols);
+      const chip = new Entity();
+      const offered = (this.myOffer[it.key] ?? 0) > 0;
+      const ring = new Graphics();
+      ring
+        .roundRect(-64, -50, 128, 100, 16)
+        .fill(offered ? 0x3a5a2a : FARM.panel)
+        .roundRect(-64, -50, 128, 100, 16)
+        .stroke({ color: offered ? FARM.accent : darken(FARM.panel, 0.3), width: offered ? 4 : 2 });
+      chip.addChild(ring);
+      if (it.emoji) chip.addChild(makeText(it.emoji, 38));
+      else if (it.draw) {
+        const g = new Graphics();
+        it.draw(g);
+        chip.addChild(g);
+      }
+      const lbl = makeText(it.sub, 16, { color: FARM.ink, weight: '900' });
+      lbl.position.set(0, 32);
+      chip.addChild(lbl);
+      chip.position.set((col - (cols - 1) / 2) * dx, -150 + row * dy);
+      chip.eventMode = 'static';
+      chip.on('pointertap', () => this.toggleOfferItem(it.key));
+      this.tradeGrid.addChild(chip);
+    });
   }
 }

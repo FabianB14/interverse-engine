@@ -87,10 +87,11 @@ async function pump(page, hook, target, timeout = 12_000) {
   );
 }
 
-// --- Host opens their farm ---
+// --- Host opens their farm (multiplayer now runs inside the real FarmScene,
+// so the host keeps full gameplay while visitors are over) ---
 const host = await phone('host');
 await pump(host, 'friends', 'friends');
-await pump(host, 'openFarm', 'visit', 45_000);
+await pump(host, 'openFarm', 'farm', 45_000);
 const code = await host.evaluate(() => window.__farm.code());
 console.error(`farm code: ${code}`);
 
@@ -99,12 +100,27 @@ const guest = await phone('guest');
 await pump(guest, 'friends', 'friends');
 await guest.evaluate((c) => window.__farm.visitByCode(c), code);
 await guest.waitForFunction(() => window.__farm?.scene() === 'visitjoin', null, { timeout: 8_000 });
-await pump(guest, 'visit', 'visit', 30_000);
+await pump(guest, 'visit', 'farm', 30_000);
+const guestVisiting = await guest.evaluate(() => window.__farm.isVisiting());
 
 // Both should see one remote (each other).
 await host.waitForFunction(() => window.__farm.remoteIds().length === 1, null, { timeout: 8_000 });
 await guest.waitForFunction(() => window.__farm.remoteIds().length === 1, null, { timeout: 8_000 });
 const bothSeeEachOther = true;
+
+// The visitor can farm the host's plots: plant a carrot on plot 0 and the
+// host's plot 0 should show it after the sync tick.
+await guest.evaluate(() => window.__farm.grantVerium(50));
+await guest.evaluate(() => window.__farm.teleport(288, 416));
+await guest.evaluate(() => window.__farm.selectSeed('carrot'));
+await guest.evaluate(() => window.__farm.plant(0));
+await sleep(1500);
+const hostPlot0 = await host.evaluate(() => window.__farm.plotInfo()[0]);
+const visitorFarmOk = hostPlot0.c === 'carrot';
+
+// Clear the welcome-gift crops so the trade math below is deterministic.
+await host.evaluate(() => window.__farm.clearInv());
+await guest.evaluate(() => window.__farm.clearInv());
 
 // Stock baskets: host has carrots, guest has radishes. Stand them together.
 await host.evaluate(() => window.__farm.giveItem('carrot', 3));
@@ -145,10 +161,29 @@ const tradeClosed =
 await browser.close();
 relay.kill();
 
-const ok = bothSeeEachOther && guestGotReq && tradeOk && tradeClosed && errors.length === 0;
+const ok =
+  bothSeeEachOther &&
+  guestVisiting === true &&
+  visitorFarmOk &&
+  guestGotReq &&
+  tradeOk &&
+  tradeClosed &&
+  errors.length === 0;
 console.log(
   JSON.stringify(
-    { ok, code, bothSeeEachOther, guestGotReq, tradeOk, tradeClosed, hostInv, guestInv, errors },
+    {
+      ok,
+      code,
+      bothSeeEachOther,
+      guestVisiting,
+      visitorFarmOk,
+      guestGotReq,
+      tradeOk,
+      tradeClosed,
+      hostInv,
+      guestInv,
+      errors,
+    },
     null,
     2,
   ),
