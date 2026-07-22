@@ -173,34 +173,51 @@ export class MarketScene extends Scene {
     delete window.__farm;
   }
 
+  private get land(): boolean {
+    return this.W > this.H;
+  }
+
   private layout(): void {
     const W = this.W;
     this.backBtn.position.set(120, 54);
     this.homeBtn.position.set(W - 58, 54);
     this.titleText.position.set(W / 2, 54);
     this.veriumText.position.set(W - 108, 54);
-    this.ordersLabel.position.set(W / 2, 150);
-    this.bundleBtn.position.set(W / 2 - 110, this.H - 430);
-    this.shopBtn.position.set(W / 2 + 190, this.H - 430);
-    this.basketLabel.position.set(W / 2, this.H - 360);
-    this.basketNote.position.set(W / 2, this.H - 330);
-    this.toastText.position.set(W / 2, this.H - 60);
+    if (this.land) {
+      // Two columns: orders on the left, commerce (bundle/shop/basket) right.
+      const rx = W * 0.73;
+      this.ordersLabel.position.set(W * 0.29, 120);
+      this.bundleBtn.position.set(rx, 170);
+      this.shopBtn.position.set(rx, 252);
+      this.basketLabel.position.set(rx, 320);
+      this.basketNote.position.set(rx, 350);
+      this.toastText.position.set(W / 2, this.H - 30);
+    } else {
+      this.ordersLabel.position.set(W / 2, 150);
+      this.bundleBtn.position.set(W / 2 - 110, this.H - 430);
+      this.shopBtn.position.set(W / 2 + 190, this.H - 430);
+      this.basketLabel.position.set(W / 2, this.H - 360);
+      this.basketNote.position.set(W / 2, this.H - 330);
+      this.toastText.position.set(W / 2, this.H - 60);
+    }
     this.buildOrders();
     this.buildBasket();
   }
 
   private orderCardW(): number {
-    return this.W * 0.9;
+    return this.land ? this.W * 0.5 : this.W * 0.9;
   }
 
   private buildOrders(): void {
     for (const old of this.ordersLayer.removeChildren()) old.destroy({ children: true });
     const cw = this.orderCardW();
-    const ch = 138;
+    const ch = this.land ? 124 : 138;
+    const cx = this.land ? this.W * 0.29 : this.W / 2;
+    const startY = this.land ? 200 : 250;
     this.orders.forEach((o, i) => {
       const crop = cropById(o.crop);
       const card = new Container();
-      card.position.set(this.W / 2, 250 + i * (ch + 18));
+      card.position.set(cx, startY + i * (ch + 16));
       const bg = new Graphics();
       bg.roundRect(-cw / 2, -ch / 2, cw, ch, 22).fill(FARM.panel);
       // A rarity-colored border hints at how prized the requested crop is.
@@ -241,19 +258,21 @@ export class MarketScene extends Scene {
     for (const old of this.basketLayer.removeChildren()) old.destroy({ children: true });
     const inv = invAll();
     const ids = Object.keys(inv).filter((id) => (inv[id] ?? 0) > 0 && cropById(id));
+    const land = this.land;
+    const centerX = land ? this.W * 0.73 : this.W / 2;
     if (ids.length === 0) {
-      const empty = makeText('your basket is empty — go harvest! 🌾', 24, {
+      const empty = makeText('basket empty — go harvest! 🌾', 22, {
         color: FARM.inkSoft,
         weight: 'bold',
       });
-      empty.position.set(this.W / 2, this.H - 250);
+      empty.position.set(centerX, land ? 420 : this.H - 250);
       this.basketLayer.addChild(empty);
       return;
     }
-    const cols = 5;
-    const dx = Math.min(128, (this.W * 0.9) / cols);
-    const dy = 118;
-    const startY = this.H - 300;
+    const cols = land ? 4 : 5;
+    const dx = Math.min(120, (land ? this.W * 0.44 : this.W * 0.9) / cols);
+    const dy = land ? 108 : 118;
+    const startY = land ? 420 : this.H - 300;
     ids.forEach((id, k) => {
       const crop = cropById(id);
       if (!crop) return;
@@ -276,7 +295,7 @@ export class MarketScene extends Scene {
       const count = makeText(`×${inv[id]}`, 20, { color: FARM.ink, weight: '900' });
       count.position.set(0, 44);
       chip.addChild(count);
-      chip.position.set(this.W / 2 + (col - (cols - 1) / 2) * dx, startY + row * dy);
+      chip.position.set(centerX + (col - (cols - 1) / 2) * dx, startY + row * dy);
       makeTappable(chip, () => this.quickSellCrop(id), { hitRadius: 46 });
       this.basketLayer.addChild(chip);
     });

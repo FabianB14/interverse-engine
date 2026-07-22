@@ -57,19 +57,22 @@ function personCharacter(color: number, r: number, skin: number): Character {
   // head
   g.circle(0, hy, hr).fill(skin);
   g.circle(0, hy, hr).stroke({ color: darken(skin, 0.22), width: Math.max(2, r * 0.05) });
-  // hair — a soft cap over the top of the head only (no full face frame)
-  g.ellipse(0, hy - hr * 0.42, hr * 1.02, hr * 0.7).fill(hair);
-  g.arc(0, hy - hr * 0.05, hr, Math.PI * 1.04, Math.PI * 1.96).fill(hair);
-  // face
-  g.circle(-hr * 0.34, hy + hr * 0.02, r * 0.075).fill(0x2b2b33);
-  g.circle(hr * 0.34, hy + hr * 0.02, r * 0.075).fill(0x2b2b33);
-  g.circle(-hr * 0.31, hy - hr * 0.02, r * 0.024).fill(0xffffff);
-  g.circle(hr * 0.37, hy - hr * 0.02, r * 0.024).fill(0xffffff);
-  g.moveTo(-hr * 0.28, hy + hr * 0.34)
-    .quadraticCurveTo(0, hy + hr * 0.56, hr * 0.28, hy + hr * 0.34)
+  // hair — a tidy cap over just the crown, with an arched hairline so the
+  // whole face (forehead down) stays clear skin.
+  g.moveTo(-hr, hy);
+  g.arc(0, hy, hr, Math.PI, Math.PI * 2, false);
+  g.quadraticCurveTo(0, hy - hr * 0.22, -hr, hy);
+  g.fill(hair);
+  // face — sits on skin, below the hairline
+  g.circle(-hr * 0.32, hy + hr * 0.18, r * 0.075).fill(0x2b2b33);
+  g.circle(hr * 0.32, hy + hr * 0.18, r * 0.075).fill(0x2b2b33);
+  g.circle(-hr * 0.29, hy + hr * 0.14, r * 0.024).fill(0xffffff);
+  g.circle(hr * 0.35, hy + hr * 0.14, r * 0.024).fill(0xffffff);
+  g.moveTo(-hr * 0.26, hy + hr * 0.46)
+    .quadraticCurveTo(0, hy + hr * 0.66, hr * 0.26, hy + hr * 0.46)
     .stroke({ color: darken(skin, 0.4), width: Math.max(2, r * 0.05), cap: 'round' });
-  g.ellipse(-hr * 0.52, hy + hr * 0.26, r * 0.1, r * 0.06).fill({ color: 0xff9fa0, alpha: 0.5 });
-  g.ellipse(hr * 0.52, hy + hr * 0.26, r * 0.1, r * 0.06).fill({ color: 0xff9fa0, alpha: 0.5 });
+  g.ellipse(-hr * 0.48, hy + hr * 0.4, r * 0.1, r * 0.06).fill({ color: 0xff9fa0, alpha: 0.5 });
+  g.ellipse(hr * 0.48, hy + hr * 0.4, r * 0.1, r * 0.06).fill({ color: 0xff9fa0, alpha: 0.5 });
 
   body.addChild(g);
   view.addChild(body);
