@@ -265,6 +265,8 @@ export class WorldScene extends Scene {
   private veriumEarned = 0;
   private chatBtnRef: UIButton | null = null;
   private codeHud: Text | null = null;
+  private homeBtn!: UIButton;
+  private leaving = false;
 
   protected override onResize(w: number, h: number): void {
     this.layoutUi(w, h);
@@ -276,6 +278,7 @@ export class WorldScene extends Scene {
     this.joystick.position.set(170, H - 190);
     this.chatBtnRef?.position.set(W - 110, H - 290);
     this.castBtn.position.set(W - 120, H - 130);
+    this.homeBtn?.position.set(W - 46, 44);
     this.codeHud?.position.set(W / 2, 40);
     this.statusText.position.set(W / 2, H / 2);
     this.camera.setViewSize(W, H);
@@ -364,6 +367,18 @@ export class WorldScene extends Scene {
     });
     this.castBtn.position.set(W - 120, H - 130);
     this.add(this.castBtn, this.uiLayer);
+
+    // Home button (top-right) — leave the party and return to the menu.
+    this.homeBtn = new UIButton('🏠', {
+      width: 68,
+      height: 68,
+      fontSize: 30,
+      fill: 0x24331f,
+      textColor: 0xffffff,
+      onTap: () => this.goHome(),
+    });
+    this.homeBtn.position.set(W - 46, 44);
+    this.add(this.homeBtn, this.uiLayer);
 
     // My HP bar rides under my blob; HUD text top-left.
     this.myBar = new Graphics();
@@ -516,6 +531,7 @@ export class WorldScene extends Scene {
       delete this.hostPositions[id];
     });
     session.onClose((reason) => {
+      if (this.leaving) return; // intentional home-button exit, already handled
       this.statusText.text = `Disconnected: ${reason} — returning to menu…`;
       const back = new Entity();
       back.addBehavior(
@@ -530,6 +546,15 @@ export class WorldScene extends Scene {
 
   protected override onExit(): void {
     delete window.__blobvale;
+  }
+
+  private goHome(): void {
+    if (this.game.scenes.isTransitioning) return;
+    this.leaving = true;
+    audio.blip(0.9);
+    this.session.leave();
+    window.history.replaceState(null, '', window.location.pathname);
+    this.game.scenes.replace(new MenuScene());
   }
 
   private spawnRemote(id: string, index: number): void {

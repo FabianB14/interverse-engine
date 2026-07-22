@@ -1,4 +1,4 @@
-import { Container, Text } from 'pixi.js';
+import { Container, Graphics, Text } from 'pixi.js';
 import {
   Camera,
   DialogueRunner,
@@ -137,6 +137,25 @@ export class RoomScene extends Scene {
     hint.position.set(W / 2, 60);
     uiLayer.addChild(hint);
 
+    // Home button — back to the Interverse hub (this demo has no menu).
+    const home = new Entity();
+    home.addChild(
+      new Graphics()
+        .roundRect(-30, -30, 60, 60, 16)
+        .fill({ color: 0x1c1c28, alpha: 0.55 })
+        .roundRect(-30, -30, 60, 60, 16)
+        .stroke({ color: 0xffffff, width: 2, alpha: 0.25 }),
+    );
+    const homeIcon = new Text({
+      text: '🏠',
+      style: { fontFamily: 'system-ui, sans-serif', fontSize: 30, fill: cozyAutumn.ink },
+    });
+    homeIcon.anchor.set(0.5);
+    home.addChild(homeIcon);
+    home.position.set(52, 53);
+    makeTappable(home, () => this.goHome(), { hitRadius: 40 });
+    uiLayer.addChild(home);
+
     window.__room = {
       player: () => ({ x: this.player.x, y: this.player.y }),
       npc: () => ({ x: this.npc.x, y: this.npc.y }),
@@ -161,6 +180,12 @@ export class RoomScene extends Scene {
 
   protected override onExit(): void {
     delete window.__room;
+  }
+
+  private goHome(): void {
+    audio.blip(0.9);
+    // The room demo has no menu of its own — go back to the games hub.
+    window.location.href = '../';
   }
 
   protected override onUpdate(dt: number): void {

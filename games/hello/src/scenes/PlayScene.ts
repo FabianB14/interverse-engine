@@ -19,6 +19,7 @@ import {
 } from '@interverse/engine';
 import { makeText } from '../ui.js';
 import { ResultsScene } from './ResultsScene.js';
+import { TitleScene } from './TitleScene.js';
 
 const ROUND_SECONDS = 30;
 const HUD_BOTTOM = 210; // blobs spawn below this line
@@ -65,14 +66,15 @@ export class PlayScene extends Scene {
     const param = Number(new URLSearchParams(window.location.search).get('round'));
     if (Number.isFinite(param) && param >= 3 && param <= 120) this.roundTime = param;
 
-    // HUD — timer bar + score.
-    this.timerWidth = W - 80;
+    // HUD — home button, timer bar + score.
+    this.timerWidth = W - 136;
     const barBg = new Graphics()
-      .roundRect(40, 44, this.timerWidth, 18, 9)
+      .roundRect(96, 44, this.timerWidth, 18, 9)
       .fill({ color: 0xffffff, alpha: 0.15 });
     this.stage.addChild(barBg);
     this.timerFill = new Graphics();
     this.stage.addChild(this.timerFill);
+    this.addHomeButton();
 
     this.scoreText = makeText('0', 72, { color: partyPop.ink });
     this.scoreText.position.set(W / 2, 130);
@@ -96,6 +98,27 @@ export class PlayScene extends Scene {
     delete window.__blobtap;
   }
 
+  /** A small home chip (top-left) that quits the round back to the title. */
+  private addHomeButton(): void {
+    const chip = new Entity();
+    const g = new Graphics()
+      .roundRect(-30, -30, 60, 60, 16)
+      .fill({ color: 0x1c1c28, alpha: 0.55 })
+      .roundRect(-30, -30, 60, 60, 16)
+      .stroke({ color: 0xffffff, width: 2, alpha: 0.25 });
+    chip.addChild(g);
+    chip.addChild(makeText('🏠', 30, { color: partyPop.ink }));
+    chip.position.set(52, 53);
+    makeTappable(chip, () => this.goHome(), { hitRadius: 40 });
+    this.stage.addChild(chip);
+  }
+
+  private goHome(): void {
+    if (this.game.scenes.isTransitioning) return;
+    audio.blip(0.9);
+    this.game.scenes.replace(new TitleScene());
+  }
+
   protected override onUpdate(dt: number): void {
     if (this.over) return;
     this.elapsed += dt;
@@ -106,7 +129,7 @@ export class PlayScene extends Scene {
     this.timerFill.clear();
     if (left > 0) {
       this.timerFill
-        .roundRect(40, 44, Math.max(18, this.timerWidth * left), 18, 9)
+        .roundRect(96, 44, Math.max(18, this.timerWidth * left), 18, 9)
         .fill(urgent ? 0xff5470 : partyPop.accent);
     }
 

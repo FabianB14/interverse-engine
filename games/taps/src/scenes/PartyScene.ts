@@ -9,6 +9,7 @@ import {
   audio,
   blobCharacter,
   easings,
+  makeTappable,
   partyPop,
   pickColor,
 } from '@interverse/engine';
@@ -38,6 +39,7 @@ export class PartyScene extends Scene {
   private countText!: Text;
   private rosterRow!: Entity;
   private statusText!: Text;
+  private leaving = false;
 
   constructor(private readonly session: Session) {
     super();
@@ -87,8 +89,24 @@ export class PartyScene extends Scene {
     this.stage.hitArea = new Rectangle(0, 0, W, H);
     this.stage.on('pointerdown', (e: FederatedPointerEvent) => {
       const p = e.getLocalPosition(this.stage);
+      // Don't count a tap when the player is reaching for the home button.
+      if (p.x < 104 && p.y < 104) return;
       this.localTap(p.x, p.y);
     });
+
+    // Home button (top-left) — leave the room and return to the menu.
+    const home = new Entity();
+    home.addChild(
+      new Graphics()
+        .roundRect(-30, -30, 60, 60, 16)
+        .fill({ color: 0x1c1c28, alpha: 0.55 })
+        .roundRect(-30, -30, 60, 60, 16)
+        .stroke({ color: 0xffffff, width: 2, alpha: 0.25 }),
+    );
+    home.addChild(makeText('🏠', 30, { color: partyPop.ink }));
+    home.position.set(52, 53);
+    makeTappable(home, () => this.goHome(), { hitRadius: 40 });
+    this.add(home);
 
     // Initial roster: host knows itself; joiners got the list on join.
     this.order = session.players.map((p) => p.id);
@@ -134,6 +152,7 @@ export class PartyScene extends Scene {
     }
 
     session.onClose((reason) => {
+      if (this.leaving) return; // intentional home-button exit, already handled
       this.statusText.text = `Disconnected: ${reason}\nreturning to menu…`;
       this.stage.eventMode = 'none';
       const back = new Entity();
@@ -149,6 +168,15 @@ export class PartyScene extends Scene {
 
   protected override onExit(): void {
     delete window.__taps;
+  }
+
+  private goHome(): void {
+    if (this.game.scenes.isTransitioning) return;
+    this.leaving = true;
+    audio.blip(0.9);
+    this.session.leave();
+    window.history.replaceState(null, '', window.location.pathname);
+    this.game.scenes.replace(new MenuScene());
   }
 
   private colorFor(id: string): number {
