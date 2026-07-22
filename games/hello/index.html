@@ -47,6 +47,28 @@
       // Install button when the browser offers one (Android/desktop Chrome).
       if ('serviceWorker' in navigator && location.hostname !== 'localhost') {
         navigator.serviceWorker.register('./sw.js');
+        // Update: pull the newest release (drop caches + SW, then reload).
+        const upd = document.createElement('button');
+        upd.textContent = '⟳ Update';
+        upd.style.cssText =
+          'position:fixed;right:10px;top:10px;z-index:21;padding:9px 16px;' +
+          'border-radius:999px;border:0;background:#8affc1;color:#1c1c28;' +
+          'font:700 14px system-ui;box-shadow:0 2px 8px rgba(0,0,0,.4)';
+        upd.onclick = async () => {
+          upd.textContent = '⟳ …';
+          try {
+            const regs = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(regs.map((r) => r.unregister()));
+            if (window.caches) {
+              const keys = await caches.keys();
+              await Promise.all(keys.map((k) => caches.delete(k)));
+            }
+          } catch (err) {
+            void err;
+          }
+          location.reload();
+        };
+        document.body.appendChild(upd);
       }
       let deferredInstall = null;
       window.addEventListener('beforeinstallprompt', (e) => {
@@ -55,7 +77,7 @@
         const b = document.createElement('button');
         b.textContent = '⬇ Install';
         b.style.cssText =
-          'position:fixed;top:10px;right:10px;z-index:20;padding:9px 16px;' +
+          'position:fixed;top:62px;right:10px;z-index:20;padding:9px 16px;' +
           'border-radius:999px;border:0;background:#ffd166;color:#1c1c28;' +
           'font:700 14px system-ui;box-shadow:0 2px 8px rgba(0,0,0,.4)';
         b.onclick = () => {

@@ -153,6 +153,11 @@ const killsJoiner = await p2.evaluate(() => window.__blobvale.kills());
 const statsHost = await p1.evaluate(() => window.__blobvale.myStats());
 const combatOk =
   mobsOnP2 > 0 && killsHost >= 1 && killsJoiner >= 1 && (statsHost.xp > 0 || statsHost.lvl > 1);
+// VERIUM (economy): kills pay out the shared currency to everyone nearby.
+const veriumHost = await p1.evaluate(() => window.__blobvale.verium());
+const veriumEarnedHost = await p1.evaluate(() => window.__blobvale.veriumEarned());
+const veriumJoiner = await p2.evaluate(() => window.__blobvale.verium());
+const veriumOk = veriumHost > 0 && veriumEarnedHost > 0 && veriumJoiner > 0;
 // UPGRADE CARDS: leveling opened an offer for the host; picking applies.
 const offerOpen = await p1.evaluate(() => window.__blobvale.upgradeOpen());
 const statsPre = await p1.evaluate(() => window.__blobvale.myStats());
@@ -264,6 +269,7 @@ const ok =
   castZoneOk &&
   clericOk &&
   zoneOk &&
+  veriumOk &&
   errors.length === 0;
 console.log(
   JSON.stringify(
@@ -295,6 +301,9 @@ console.log(
       zoneHost,
       zoneJoiner,
       mobsAfterZone,
+      veriumOk,
+      veriumHost,
+      veriumJoiner,
       bossBefore,
       bossAfter,
       bossBeforeCleric,

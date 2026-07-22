@@ -48,6 +48,8 @@ interface LobbyDebug {
   portalOpen?: () => boolean;
   killBoss?: () => void;
   enterPortal?: () => void;
+  verium?: () => number;
+  veriumEarned?: () => number;
 }
 
 declare global {

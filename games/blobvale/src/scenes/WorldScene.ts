@@ -21,6 +21,7 @@ import type { Session } from '@interverse/net';
 import { UIButton } from '@interverse/ui';
 import { drawPanel } from '@interverse/ui';
 import { classById, shadeFor } from '../classes.js';
+import { verium } from '@interverse/engine';
 import { accessoryView } from '../accessories.js';
 import { playVoice } from '../voice.js';
 import {
@@ -33,6 +34,8 @@ import {
   MODS,
   RESPAWN_SECONDS,
   STAT_CARDS,
+  VERIUM_PER_BOSS,
+  VERIUM_PER_MOB,
   bossHpFor,
   cardLabel,
   damageAtLevel,
@@ -114,6 +117,8 @@ interface FxMessage {
   /** Radius for telegraph/bomb rings; boss kind for roar. */
   r?: number;
   k?: number;
+  /** Verium dropped (on `die`). */
+  coin?: number;
 }
 
 interface ChatMessage {
@@ -243,6 +248,7 @@ export class WorldScene extends Scene {
   private myBar!: Graphics;
   private nextMobId = 1;
   private killsSeen = 0;
+  private veriumEarned = 0;
   private chatBtnRef: UIButton | null = null;
   private codeHud: Text | null = null;
 
@@ -401,6 +407,8 @@ export class WorldScene extends Scene {
       mobCount: () => (this.session.isHost ? this.hostMobs.size : this.mobViews.size),
       myStats: () => this.stats[this.session.id] ?? null,
       kills: () => this.killsSeen,
+      verium: () => verium.balance(),
+      veriumEarned: () => this.veriumEarned,
       upgradeOpen: () => this.upgradeOverlay !== null,
       pickUpgrade: (i: number) => {
         const card = this.upgradeOverlay?.cards[i];
@@ -1206,7 +1214,13 @@ export class WorldScene extends Scene {
       this.hostMobs.delete(m.id);
       const isBoss = m.id === BOSS.ID;
       const bd = m.kind !== undefined ? BOSSES[m.kind] : undefined;
-      this.broadcastFx({ type: 'fx', kind: 'die', x: m.x, y: m.y });
+      this.broadcastFx({
+        type: 'fx',
+        kind: 'die',
+        x: m.x,
+        y: m.y,
+        coin: isBoss ? VERIUM_PER_BOSS : VERIUM_PER_MOB,
+      });
       this.hostGrantXp(m.x, m.y, bd ? bd.xp : MOB.XP_PER_KILL);
       if (isBoss) {
         // Boss down: open a portal to the next level instead of respawning.
@@ -1415,7 +1429,7 @@ export class WorldScene extends Scene {
         life = 0.75;
         break;
       }
-      case 'die':
+      case 'die': {
         for (let i = 0; i < 8; i++) {
           const a = (i / 8) * Math.PI * 2;
           g.circle(Math.cos(a) * 30, Math.sin(a) * 30, 8).fill(0x8fbf6b);
@@ -1424,8 +1438,22 @@ export class WorldScene extends Scene {
         e.addBehavior(new Tween(e, { alpha: 0 }, 0.4, { ease: easings.outQuad }));
         audio.pop(0.6);
         this.killsSeen += 1;
+        // Everyone in the party pockets the Verium from a kill.
+        if (fx.coin && fx.coin > 0) {
+          verium.add(fx.coin);
+          this.veriumEarned += fx.coin;
+          const coin = new Entity();
+          coin.position.set(fx.x + 24, fx.y - 20);
+          coin.addChild(makeText(`+${fx.coin} ⬡`, 24, { color: 0x9ad8ff, weight: '800' }));
+          coin.addBehavior(
+            new Tween(coin, { y: fx.y - 80, alpha: 0 }, 0.9, { ease: easings.outQuad }),
+          );
+          coin.addBehavior(new Timer(0.95, () => this.remove(coin)));
+          this.add(coin, this.mapLayer);
+        }
         life = 0.45;
         break;
+      }
       case 'levelup': {
         const who = this.worldFor(fx.id);
         if (who) e.position.set(who.x, who.y);
@@ -1577,7 +1605,7 @@ export class WorldScene extends Scene {
   private updateHud(): void {
     const st = this.stats[this.session.id];
     if (!st) return;
-    this.hudText.text = `Lv ${st.lvl}   ${st.hp}/${st.max} HP   ${st.xp}/${xpForLevel(st.lvl)} XP`;
+    this.hudText.text = `Lv ${st.lvl}   ${st.hp}/${st.max} HP   ${st.xp}/${xpForLevel(st.lvl)} XP   ⬡ ${verium.balance()}`;
     this.hpBar.clear();
     this.hpBar.rect(0, 0, 220, 10).fill({ color: 0x000000, alpha: 0.4 });
     this.hpBar.rect(0, 0, 220 * Math.max(0, st.hp / st.max), 10).fill(0x8affc1);

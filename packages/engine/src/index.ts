@@ -51,3 +51,5 @@ export { audio } from './audio/audio.js';
 
 export { createSave } from './save/save.js';
 export type { SaveStore } from './save/save.js';
+
+export { verium } from './economy/wallet.js';

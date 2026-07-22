@@ -238,6 +238,10 @@ export function bossHpFor(baseHp: number, players: number): number {
 export const PLAYER_BASE_HP = 120;
 export const RESPAWN_SECONDS = 5;
 
+/** Verium dropped by a kill (shared Interverse currency). */
+export const VERIUM_PER_MOB = 5;
+export const VERIUM_PER_BOSS = 60;
+
 export function xpForLevel(level: number): number {
   return 40 + (level - 1) * 30;
 }
