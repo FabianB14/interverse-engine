@@ -47,15 +47,37 @@
       // Install button when the browser offers one (Android/desktop Chrome).
       if ('serviceWorker' in navigator && location.hostname !== 'localhost') {
         navigator.serviceWorker.register('./sw.js');
-        // Update: pull the newest release (drop caches + SW, then reload).
+        // Update (icon only, two-tap): first tap hints, second tap updates.
         const upd = document.createElement('button');
-        upd.textContent = '⟳ Update';
+        upd.textContent = '⟳';
+        upd.title = 'Update the app';
         upd.style.cssText =
-          'position:fixed;right:10px;top:10px;z-index:21;padding:9px 16px;' +
-          'border-radius:999px;border:0;background:#8affc1;color:#1c1c28;' +
-          'font:700 14px system-ui;box-shadow:0 2px 8px rgba(0,0,0,.4)';
+          'position:fixed;right:10px;top:10px;z-index:21;width:42px;height:42px;' +
+          'padding:0;border-radius:999px;border:0;background:#8affc1;color:#1c1c28;' +
+          'font:700 22px system-ui;box-shadow:0 2px 8px rgba(0,0,0,.4)';
+        const updTip = document.createElement('div');
+        updTip.textContent = 'tap again to update';
+        updTip.style.cssText =
+          'position:fixed;right:60px;top:18px;z-index:21;padding:6px 10px;' +
+          'border-radius:10px;background:#1c1c28;color:#8affc1;display:none;' +
+          'font:700 13px system-ui;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.4)';
+        let updArmed = false;
+        let updTimer = 0;
         upd.onclick = async () => {
-          upd.textContent = '⟳ …';
+          if (!updArmed) {
+            updArmed = true;
+            updTip.style.display = 'block';
+            clearTimeout(updTimer);
+            updTimer = setTimeout(() => {
+              updArmed = false;
+              updTip.style.display = 'none';
+            }, 3000);
+            return;
+          }
+          clearTimeout(updTimer);
+          updArmed = false;
+          updTip.style.display = 'none';
+          upd.textContent = '…';
           try {
             const regs = await navigator.serviceWorker.getRegistrations();
             await Promise.all(regs.map((r) => r.unregister()));
@@ -69,6 +91,7 @@
           location.reload();
         };
         document.body.appendChild(upd);
+        document.body.appendChild(updTip);
       }
       let deferredInstall = null;
       window.addEventListener('beforeinstallprompt', (e) => {
