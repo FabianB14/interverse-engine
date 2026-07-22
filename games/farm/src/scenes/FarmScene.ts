@@ -1,19 +1,28 @@
 import { Container, Graphics } from 'pixi.js';
 import type { Text } from 'pixi.js';
 import {
+  Camera,
+  DialogueRunner,
   Entity,
   Scene,
   Timer,
   Tween,
+  VirtualJoystick,
+  Wobble,
   audio,
+  buildTileMapView,
+  cozyAutumn,
   darken,
   easings,
   lighten,
   makeTappable,
+  moveWithCollision,
+  tileMapFromRows,
   verium,
 } from '@interverse/engine';
-import { UIButton } from '@interverse/ui';
-import { FARM, SEASON_TINT } from '../theme.js';
+import type { DialogueData, TileMapData } from '@interverse/engine';
+import { DialogueBox, UIButton } from '@interverse/ui';
+import { FARM } from '../theme.js';
 import { makeText } from '../text.js';
 import { CROPS, cropById } from '../crops.js';
 import type { CropDef } from '../crops.js';
@@ -29,19 +38,22 @@ import type { Season, Weather } from '../weather.js';
 import { music } from '../music.js';
 import { store } from '../store.js';
 import { invAdd, invAll, invTotal } from '../inventory.js';
+import { makeCharacter } from '../character.js';
+import type { CharType } from '../character.js';
+import { TILE_SIZE, farmLegend, farmPainters, farmRows } from '../map.js';
 import { MarketScene } from './MarketScene.js';
 import '../debug.js';
 
-const COLS = 4;
-const ROWS = 3;
-const PLOTS = COLS * ROWS;
-const MOISTURE_DECAY = 0.03; // per second in sun
-const GROW_MOISTURE = 0.15; // plants only grow when this wet
+const PLAYER_SPEED = 250;
+const INTERACT_RANGE = 140;
+const PLOT_SIZE = 58;
+const MOISTURE_DECAY = 0.03;
+const GROW_MOISTURE = 0.15;
 
 interface Plot {
   crop: string | null;
-  growth: number; // 0..1
-  moisture: number; // 0..1
+  growth: number;
+  moisture: number;
 }
 
 interface PlotView {
@@ -50,35 +62,65 @@ interface PlotView {
   leaves: Graphics;
   fruit: Container | null;
   fruitCrop: string | null;
+  x: number;
+  y: number;
 }
 
+const VENDOR_DIALOGUE: DialogueData = {
+  start: 'intro',
+  nodes: {
+    intro: {
+      speaker: 'Market Vendor',
+      text: 'Howdy, neighbor! Bring your harvest to the market?',
+      choices: [
+        { text: '🧺 Yes — to the market!', next: 'go' },
+        { text: 'Just saying hi', next: 'bye' },
+      ],
+    },
+    go: { speaker: 'Market Vendor', text: 'Wonderful — folks are waiting on their orders!' },
+    bye: { speaker: 'Market Vendor', text: 'Come back when your crops are ripe!' },
+  },
+};
+
+type Target = { kind: 'plot'; i: number } | { kind: 'vendor' } | null;
+
 export class FarmScene extends Scene {
-  private plots: Plot[] = [];
-  private views: PlotView[] = [];
-  private plotSize = 150;
-  private plotPos: { x: number; y: number }[] = [];
-  private gridLayer!: Container;
-  private fxLayer!: Container;
-  private rainLayer!: Graphics;
+  private map!: TileMapData;
+  private mapLayer!: Container;
   private uiLayer!: Container;
-  private field!: Graphics;
+  private camera!: Camera;
+  private joystick!: VirtualJoystick;
+  private player!: Entity;
+  private playerBody!: Container;
+  private walkPhase = 0;
+
+  private plots: Plot[] = [];
+  private plotViews: PlotView[] = [];
+  private vendor!: Entity;
+  private vendorBang!: Text;
+
+  private box!: DialogueBox;
+  private runner: DialogueRunner | null = null;
+  private openMarketOnClose = false;
 
   private selectedSeed = 'carrot';
+  private seedPanel!: Container;
   private seedChips: { id: string; ring: Graphics }[] = [];
-  private seedBar!: Container;
+  private pouchBtn!: UIButton;
+  private interactBtn!: UIButton;
+  private promptText!: Text;
+  private target: Target = null;
 
   private veriumText!: Text;
   private basketText!: Text;
   private weatherText!: Text;
   private toastText!: Text;
-  private waterBtn!: UIButton;
-  private musicBtn!: UIButton;
-  private marketBtn!: UIButton;
+  private rainLayer!: Graphics;
 
-  private clock = 0; // weather/season seconds
+  private clock = 0;
   private forcedWeather: Weather | null = null;
-  private harvested = 0;
   private season: Season = 'spring';
+  private harvested = 0;
   private t = 0;
   private saveIn = 5;
 
@@ -89,83 +131,118 @@ export class FarmScene extends Scene {
   protected override onEnter(): void {
     const W = this.game.viewWidth;
     const H = this.game.viewHeight;
-
     this.load();
 
-    const bg = new Graphics();
-    bg.rect(0, 0, W, H).fill(FARM.bg);
-    this.stage.addChild(bg);
-    this.field = new Graphics();
-    this.stage.addChild(this.field);
-
-    this.gridLayer = new Container();
-    this.fxLayer = new Container();
-    this.rainLayer = new Graphics();
+    this.map = tileMapFromRows(farmRows, TILE_SIZE, farmLegend);
+    this.mapLayer = new Container();
     this.uiLayer = new Container();
-    this.stage.addChild(this.gridLayer, this.fxLayer, this.rainLayer, this.uiLayer);
+    this.stage.addChild(this.mapLayer, this.uiLayer);
+    this.mapLayer.addChild(buildTileMapView(this.map, farmPainters));
 
-    for (let i = 0; i < PLOTS; i++) {
+    // Plots at every 'plot' object.
+    const plotObjs = this.map.objects.filter((o) => o.name === 'plot');
+    if (this.plots.length !== plotObjs.length) {
+      this.plots = plotObjs.map(() => ({ crop: null, growth: 0, moisture: 0 }));
+    }
+    plotObjs.forEach((o, i) => {
       const root = new Entity();
+      root.position.set(o.x, o.y);
       const soil = new Graphics();
       const leaves = new Graphics();
       root.addChild(soil, leaves);
       const idx = i;
       makeTappable(root, () => this.tapPlot(idx), {
-        hitRect: { x: -80, y: -80, width: 160, height: 160 },
+        hitRect: { x: -PLOT_SIZE / 2, y: -PLOT_SIZE / 2, width: PLOT_SIZE, height: PLOT_SIZE },
       });
-      this.gridLayer.addChild(root);
-      this.views.push({ root, soil, leaves, fruit: null, fruitCrop: null });
-    }
+      this.add(root, this.mapLayer);
+      this.plotViews.push({ root, soil, leaves, fruit: null, fruitCrop: null, x: o.x, y: o.y });
+    });
 
-    // HUD
-    this.veriumText = makeText('', 30, { color: FARM.coin, weight: '900' });
+    // Vendor NPC.
+    const vObj = this.map.objects.find((o) => o.name === 'vendor') ?? { x: 720, y: 288 };
+    this.vendor = new Entity();
+    const vChar = makeCharacter('person', 0xe07a5f, 34, 21);
+    this.vendor.addChild(vChar.view);
+    this.vendor.position.set(vObj.x, vObj.y + 20);
+    this.vendor.addBehavior(new Wobble({ target: vChar.body, amount: 0.03, speed: 1.8 }));
+    this.vendorBang = makeText('!', 44, { color: FARM.accent });
+    this.vendorBang.position.set(0, -76);
+    this.vendorBang.visible = false;
+    this.vendor.addChild(this.vendorBang);
+    makeTappable(this.vendor, () => this.tryTalk(), { hitRadius: 80 });
+    this.add(this.vendor, this.mapLayer);
+
+    // Player.
+    const spawn = this.map.objects.find((o) => o.name === 'player') ?? { x: 544, y: 672 };
+    const charType = store.get<CharType>('charType', 'blob');
+    const charColor = store.get<number>('charColor', 0xe07a5f);
+    this.player = new Entity();
+    const pChar = makeCharacter(charType, charColor, 30, 5);
+    this.playerBody = pChar.body;
+    this.player.addChild(pChar.view);
+    this.player.position.set(spawn.x, spawn.y);
+    this.add(this.player, this.mapLayer);
+
+    this.camera = new Camera(this.mapLayer, W, H, { deadzoneWidth: 140, deadzoneHeight: 180 });
+    this.camera.setBounds(0, 0, this.map.width * TILE_SIZE, this.map.height * TILE_SIZE);
+    this.camera.follow(this.player);
+
+    // World prompt over the current interactable.
+    this.promptText = makeText('', 22, { color: FARM.ink, weight: '800' });
+    this.promptText.visible = false;
+    this.mapLayer.addChild(this.promptText);
+
+    // UI layer.
+    this.joystick = new VirtualJoystick({ radius: 100 });
+    this.add(this.joystick, this.uiLayer);
+
+    this.rainLayer = new Graphics();
+    this.uiLayer.addChild(this.rainLayer);
+
+    this.veriumText = makeText('', 28, { color: FARM.coin, weight: '900' });
     this.veriumText.anchor.set(0, 0.5);
-    this.uiLayer.addChild(this.veriumText);
     this.basketText = makeText('', 22, { color: FARM.ink, weight: '800' });
     this.basketText.anchor.set(0, 0.5);
-    this.uiLayer.addChild(this.basketText);
-    this.weatherText = makeText('', 26, { color: FARM.ink, weight: '800' });
+    this.weatherText = makeText('', 24, { color: FARM.ink, weight: '800' });
     this.weatherText.anchor.set(1, 0.5);
-    this.uiLayer.addChild(this.weatherText);
-    this.toastText = makeText('', 28, { color: FARM.accent, weight: '900' });
-    this.uiLayer.addChild(this.toastText);
+    this.toastText = makeText('', 26, { color: FARM.accent, weight: '900' });
+    this.uiLayer.addChild(this.veriumText, this.basketText, this.weatherText, this.toastText);
 
-    this.buildSeedBar();
-
-    this.waterBtn = new UIButton('💧', {
-      width: 108,
-      height: 96,
-      fontSize: 44,
-      fill: 0x6fb0d8,
-      onTap: () => this.waterAll(),
-    });
-    this.add(this.waterBtn, this.uiLayer);
-    this.musicBtn = new UIButton(music.playing ? '🎵' : '🔇', {
-      width: 108,
-      height: 96,
+    this.pouchBtn = new UIButton('🌱', {
+      width: 100,
+      height: 88,
       fontSize: 40,
       fill: FARM.panel,
-      onTap: () => {
-        const on = music.toggle();
-        this.musicBtn.setLabel(on ? '🎵' : '🔇');
-      },
+      onTap: () => this.toggleSeedPanel(),
     });
-    this.add(this.musicBtn, this.uiLayer);
-    this.marketBtn = new UIButton('🧺 Market', {
-      width: 260,
-      height: 96,
-      fontSize: 34,
+    this.add(this.pouchBtn, this.uiLayer);
+    this.interactBtn = new UIButton('✋', {
+      width: 140,
+      height: 140,
+      fontSize: 56,
       fill: FARM.accent,
       textColor: 0x2a2016,
-      onTap: () => this.toMarket(),
+      onTap: () => this.performInteract(),
     });
-    this.add(this.marketBtn, this.uiLayer);
+    this.add(this.interactBtn, this.uiLayer);
+    this.buildSeedPanel();
+
+    this.box = new DialogueBox({ palette: cozyAutumn });
+    this.box.onClosed = () => {
+      this.runner = null;
+      this.joystick.visible = true;
+      if (this.openMarketOnClose) {
+        this.openMarketOnClose = false;
+        this.goMarket();
+      }
+    };
+    this.add(this.box, this.uiLayer);
 
     this.layout(W, H);
-    this.applySeason();
-    for (let i = 0; i < PLOTS; i++) this.renderPlot(i);
+    for (let i = 0; i < this.plotViews.length; i++) this.renderPlot(i);
     this.updateVeriumText();
     this.updateBasket();
+    this.refreshSeedHighlight();
 
     window.__farm = {
       scene: () => 'farm',
@@ -191,7 +268,7 @@ export class FarmScene extends Scene {
         invAdd(id, n);
         this.updateBasket();
       },
-      toMarket: () => this.toMarket(),
+      toMarket: () => this.goMarket(),
       weather: () => this.currentWeather(),
       season: () => this.season,
       setClock: (t: number) => {
@@ -201,11 +278,16 @@ export class FarmScene extends Scene {
         this.forcedWeather = 'rain';
       },
       musicOn: () => music.playing,
-      toggleMusic: () => {
-        const on = music.toggle();
-        this.musicBtn.setLabel(on ? '🎵' : '🔇');
-        return on;
+      toggleMusic: () => music.toggle(),
+      player: () => ({ x: this.player.x, y: this.player.y }),
+      teleport: (x: number, y: number) => {
+        this.player.position.set(x, y);
       },
+      talkVendor: () => {
+        this.player.position.set(this.vendor.x, this.vendor.y + 60);
+        this.tryTalk();
+      },
+      dialogueOpen: () => this.box.isOpen,
     };
   }
 
@@ -217,74 +299,71 @@ export class FarmScene extends Scene {
   // ------------------------------------------------------------- layout
 
   private layout(W: number, H: number): void {
-    this.veriumText.position.set(24, 44);
-    this.basketText.position.set(24, 82);
-    this.weatherText.position.set(W - 24, 48);
-    this.toastText.position.set(W / 2, 118);
-
-    // Grid block centered between HUD and the seed bar.
-    const top = 150;
-    const bottomUi = 380; // space reserved for seed bar + buttons
-    const availW = W * 0.94;
-    const availH = H - top - bottomUi;
-    const size = Math.min(availW / COLS, availH / ROWS) - 12;
-    this.plotSize = size;
-    const gridW = COLS * (size + 12) - 12;
-    const gridH = ROWS * (size + 12) - 12;
-    const ox = (W - gridW) / 2 + size / 2;
-    const oy = top + (availH - gridH) / 2 + size / 2;
-    this.plotPos = [];
-    for (let i = 0; i < PLOTS; i++) {
-      const c = i % COLS;
-      const r = Math.floor(i / COLS);
-      const x = ox + c * (size + 12);
-      const y = oy + r * (size + 12);
-      this.plotPos.push({ x, y });
-      this.views[i]?.root.position.set(x, y);
-    }
-
-    this.seedBar.position.set(W / 2, H - 250);
-    this.waterBtn.position.set(W - 74, H - 68);
-    this.musicBtn.position.set(74, H - 68);
-    this.marketBtn.position.set(W / 2, H - 68);
-
-    this.field.clear();
-    this.field.rect(0, 0, W, H).fill(FARM.bg);
-    this.field
-      .roundRect(W * 0.02, top - 20, W * 0.96, H - top - bottomUi + 40, 28)
-      .fill(FARM.grass);
-    this.applySeason();
+    this.camera.setViewSize(W, H);
+    this.veriumText.position.set(20, 40);
+    this.basketText.position.set(20, 74);
+    this.weatherText.position.set(W - 20, 44);
+    this.toastText.position.set(W / 2, 108);
+    this.joystick.position.set(150, H - 170);
+    this.interactBtn.position.set(W - 100, H - 120);
+    this.pouchBtn.position.set(W - 100, H - 250);
+    this.seedPanel.position.set(W / 2, H - 360);
+    this.box.position.set((W - 656) / 2, H - 300 - 36);
   }
 
-  private buildSeedBar(): void {
-    this.seedBar = new Container();
-    this.uiLayer.addChild(this.seedBar);
+  private buildSeedPanel(): void {
+    this.seedPanel = new Container();
+    this.seedPanel.visible = false;
+    const bg = new Graphics();
+    bg.roundRect(-330, -140, 660, 280, 26).fill(0x2a2016);
+    bg.roundRect(-330, -140, 660, 280, 26).stroke({ color: FARM.accent, width: 3 });
+    this.seedPanel.addChild(bg);
+    const title = makeText('choose a seed', 22, { color: FARM.inkSoft, weight: '800' });
+    title.position.set(0, -112);
+    this.seedPanel.addChild(title);
     const cols = 5;
-    const dx = 128;
-    const dy = 118;
+    const dx = 122;
+    const dy = 120;
     CROPS.forEach((crop, i) => {
       const col = i % cols;
       const row = Math.floor(i / cols);
       const chip = new Entity();
       const ring = new Graphics();
       chip.addChild(ring);
-      const label = makeText(crop.emoji ?? '•', 40);
-      if (!crop.emoji && crop.drawFruit) {
-        const fg = new Graphics();
-        crop.drawFruit(fg, 26);
-        chip.addChild(fg);
-      } else {
-        chip.addChild(label);
+      if (crop.emoji) chip.addChild(makeText(crop.emoji, 40));
+      else if (crop.drawFruit) {
+        const g = new Graphics();
+        crop.drawFruit(g, 26);
+        chip.addChild(g);
       }
       const cost = makeText(`⬡${crop.seedCost}`, 18, { color: FARM.coin, weight: '800' });
       cost.position.set(0, 38);
       chip.addChild(cost);
-      chip.position.set((col - (cols - 1) / 2) * dx, row * dy - 24);
+      chip.position.set((col - (cols - 1) / 2) * dx, -46 + row * dy);
       const id = crop.id;
-      makeTappable(chip, () => this.selectSeed(id), { hitRadius: 44 });
-      this.seedBar.addChild(chip);
+      makeTappable(chip, () => this.pickSeed(id), { hitRadius: 46 });
+      this.seedPanel.addChild(chip);
       this.seedChips.push({ id, ring });
     });
+    this.uiLayer.addChild(this.seedPanel);
+  }
+
+  private toggleSeedPanel(): void {
+    this.seedPanel.visible = !this.seedPanel.visible;
+    audio.blip();
+  }
+
+  private pickSeed(id: string): void {
+    this.selectSeed(id);
+    this.seedPanel.visible = false;
+  }
+
+  private selectSeed(id: string): void {
+    const crop = cropById(id);
+    if (!crop) return;
+    this.selectedSeed = id;
+    this.pouchBtn.setLabel(crop.emoji ?? '🌱');
+    audio.blip(1.2);
     this.refreshSeedHighlight();
   }
 
@@ -296,8 +375,10 @@ export class FarmScene extends Scene {
         .circle(0, 0, 46)
         .fill(sel ? 0x3a5a2a : FARM.panel)
         .circle(0, 0, 46)
-        .stroke({ color: sel ? FARM.accent : 0x000000, width: sel ? 4 : 0, alpha: sel ? 1 : 0 });
+        .stroke({ color: FARM.accent, width: sel ? 4 : 0, alpha: sel ? 1 : 0 });
     }
+    const crop = cropById(this.selectedSeed);
+    if (crop) this.pouchBtn.setLabel(crop.emoji ?? '🌱');
   }
 
   // ------------------------------------------------------------- update
@@ -305,15 +386,37 @@ export class FarmScene extends Scene {
   protected override onUpdate(dt: number): void {
     this.t += dt;
     this.clock += dt;
-
-    const season = seasonAt(this.clock);
-    if (season !== this.season) {
-      this.season = season;
-      this.applySeason();
-    }
+    this.season = seasonAt(this.clock);
     const weather = this.currentWeather();
     const raining = isWet(weather);
 
+    // Vendor dialogue: choosing "to the market" opens it when the box closes.
+    if (this.runner?.currentId === 'go') this.openMarketOnClose = true;
+
+    // Movement (frozen during dialogue).
+    if (!this.box.isOpen) {
+      const jx = this.joystick.value.x;
+      const jy = this.joystick.value.y;
+      if (Math.hypot(jx, jy) > 0.12) {
+        const moved = moveWithCollision(
+          this.map,
+          this.player.x,
+          this.player.y,
+          20,
+          16,
+          jx * PLAYER_SPEED * dt,
+          jy * PLAYER_SPEED * dt,
+        );
+        this.player.position.set(moved.x, moved.y);
+        this.walkPhase += dt * 11;
+        const s = Math.sin(this.walkPhase) * 0.07;
+        this.playerBody.scale.set(1 + s, 1 - s);
+      } else {
+        this.playerBody.scale.set(1, 1);
+      }
+    }
+
+    // Growth.
     for (const p of this.plots) {
       if (!p.crop) continue;
       if (raining) p.moisture = Math.min(1, p.moisture + dt * 0.5);
@@ -323,10 +426,12 @@ export class FarmScene extends Scene {
         p.growth = Math.min(1, p.growth + dt / crop.growSeconds);
       }
     }
-    for (let i = 0; i < PLOTS; i++) this.renderPlot(i);
+    for (let i = 0; i < this.plotViews.length; i++) this.renderPlot(i);
 
+    this.updateTarget();
     this.updateWeatherText(weather);
     this.drawRain(raining, weather === 'storm');
+    this.camera.update(dt);
 
     this.saveIn -= dt;
     if (this.saveIn <= 0) {
@@ -335,19 +440,59 @@ export class FarmScene extends Scene {
     }
   }
 
-  private currentWeather(): Weather {
-    return this.forcedWeather ?? weatherAt(this.clock);
+  /** Find the nearest interactable within range and update the prompt. */
+  private updateTarget(): void {
+    const px = this.player.x;
+    const py = this.player.y;
+    let best: Target = null;
+    let bestD = INTERACT_RANGE;
+    for (let i = 0; i < this.plotViews.length; i++) {
+      const v = this.plotViews[i]!;
+      const d = Math.hypot(v.x - px, v.y - py);
+      if (d < bestD) {
+        bestD = d;
+        best = { kind: 'plot', i };
+      }
+    }
+    const dv = Math.hypot(this.vendor.x - px, this.vendor.y - py);
+    if (dv < bestD) {
+      bestD = dv;
+      best = { kind: 'vendor' };
+    }
+    this.target = best;
+    this.vendorBang.visible = best?.kind === 'vendor' && !this.box.isOpen;
+
+    if (!best || this.box.isOpen) {
+      this.promptText.visible = false;
+      this.interactBtn.alpha = 0.4;
+      return;
+    }
+    this.interactBtn.alpha = 1;
+    let label = 'talk';
+    let at = { x: this.vendor.x, y: this.vendor.y - 96 };
+    if (best.kind === 'plot') {
+      const p = this.plots[best.i]!;
+      label = !p.crop ? 'plant' : p.growth >= 1 ? 'harvest' : 'water';
+      const v = this.plotViews[best.i]!;
+      at = { x: v.x, y: v.y - 64 };
+    }
+    this.interactBtn.setLabel(
+      best.kind === 'vendor' ? '💬' : label === 'plant' ? '🌱' : label === 'water' ? '💧' : '🌾',
+    );
+    this.promptText.text = `tap to ${label}`;
+    this.promptText.position.set(at.x, at.y);
+    this.promptText.visible = true;
   }
 
-  private applySeason(): void {
-    const W = this.game.viewWidth;
-    const H = this.game.viewHeight;
-    const top = 150;
-    const bottomUi = 380;
-    const tint = SEASON_TINT[this.season] ?? FARM.grass;
-    this.field.clear();
-    this.field.rect(0, 0, W, H).fill(FARM.bg);
-    this.field.roundRect(W * 0.02, top - 20, W * 0.96, H - top - bottomUi + 40, 28).fill(tint);
+  private performInteract(): void {
+    const target = this.target;
+    if (this.box.isOpen || !target) return;
+    if (target.kind === 'vendor') this.tryTalk();
+    else this.tapPlot(target.i);
+  }
+
+  private currentWeather(): Weather {
+    return this.forcedWeather ?? weatherAt(this.clock);
   }
 
   private updateVeriumText(): void {
@@ -359,15 +504,8 @@ export class FarmScene extends Scene {
     this.basketText.text = n > 0 ? `🧺 ${n}` : '🧺 empty';
   }
 
-  private toMarket(): void {
-    if (this.game.scenes.isTransitioning) return;
-    audio.blip(0.9);
-    this.save();
-    this.game.scenes.replace(new MarketScene());
-  }
-
   private updateWeatherText(w: Weather): void {
-    const label = `${SEASON_ICON[this.season]} ${this.season}   ${WEATHER_ICON[w]}`;
+    const label = `${SEASON_ICON[this.season]} ${this.season}  ${WEATHER_ICON[w]}`;
     if (this.weatherText.text !== label) this.weatherText.text = label;
   }
 
@@ -376,7 +514,7 @@ export class FarmScene extends Scene {
     if (!raining) return;
     const W = this.game.viewWidth;
     const H = this.game.viewHeight;
-    this.rainLayer.rect(0, 0, W, H).fill({ color: 0x2a3a4a, alpha: storm ? 0.22 : 0.12 });
+    this.rainLayer.rect(0, 0, W, H).fill({ color: 0x2a3a4a, alpha: storm ? 0.2 : 0.1 });
     const n = storm ? 60 : 38;
     for (let i = 0; i < n; i++) {
       const x = (i * 137.5 + this.t * 380) % W;
@@ -392,45 +530,44 @@ export class FarmScene extends Scene {
 
   private renderPlot(i: number): void {
     const p = this.plots[i];
-    const v = this.views[i];
+    const v = this.plotViews[i];
     if (!p || !v) return;
-    const s = this.plotSize;
+    const s = PLOT_SIZE;
     const crop = cropById(p.crop);
 
-    // Soil.
     v.soil.clear();
-    const wet = p.moisture > 0.45;
-    const base = p.crop ? (wet ? FARM.soilWet : FARM.soil) : FARM.soilDark;
-    v.soil.roundRect(-s / 2, -s / 2, s, s, 16).fill(base);
-    v.soil.roundRect(-s / 2, -s / 2, s, s, 16).stroke({ color: darken(base, 0.3), width: 3 });
-    for (let r = 0; r < 3; r++) {
-      const yy = -s / 2 + (s * (r + 1)) / 4;
+    if (p.crop) {
+      const wet = p.moisture > 0.45;
+      const base = wet ? FARM.soilWet : FARM.soil;
+      v.soil.roundRect(-s / 2, -s / 2, s, s, 12).fill(base);
+      v.soil.roundRect(-s / 2, -s / 2, s, s, 12).stroke({ color: darken(base, 0.3), width: 3 });
+      for (let r = 0; r < 3; r++) {
+        const yy = -s / 2 + (s * (r + 1)) / 4;
+        v.soil
+          .moveTo(-s / 2 + 8, yy)
+          .lineTo(s / 2 - 8, yy)
+          .stroke({ color: darken(base, 0.18), width: 2, alpha: 0.6 });
+      }
+      if (p.growth < 1 && p.moisture < 0.2) {
+        v.soil
+          .circle(s / 2 - 16, -s / 2 + 16, 8)
+          .fill({ color: 0x6fb0d8, alpha: 0.9 })
+          .poly([s / 2 - 16, -s / 2 + 4, s / 2 - 22, -s / 2 + 14, s / 2 - 10, -s / 2 + 14])
+          .fill({ color: 0x6fb0d8, alpha: 0.9 });
+      }
+      if (p.growth >= 1) {
+        v.soil.circle(0, -4, s * 0.5).stroke({ color: FARM.accent, width: 3, alpha: 0.7 });
+      }
+    } else {
+      // Empty tilled plot marker.
+      v.soil.roundRect(-s / 2, -s / 2, s, s, 12).fill({ color: FARM.soilDark, alpha: 0.85 });
       v.soil
-        .moveTo(-s / 2 + 10, yy)
-        .lineTo(s / 2 - 10, yy)
-        .stroke({
-          color: darken(base, 0.18),
-          width: 2,
-          alpha: 0.6,
-        });
-    }
-    // Needs-water droplet.
-    if (crop && p.growth < 1 && p.moisture < 0.2) {
-      v.soil
-        .circle(s / 2 - 22, -s / 2 + 22, 9)
-        .fill({ color: 0x6fb0d8, alpha: 0.9 })
-        .poly([s / 2 - 22, -s / 2 + 8, s / 2 - 28, -s / 2 + 20, s / 2 - 16, -s / 2 + 20])
-        .fill({ color: 0x6fb0d8, alpha: 0.9 });
-    }
-    // Ripe glow.
-    if (crop && p.growth >= 1) {
-      v.soil.circle(0, 0, s * 0.5).stroke({ color: FARM.accent, width: 4, alpha: 0.7 });
+        .roundRect(-s / 2, -s / 2, s, s, 12)
+        .stroke({ color: darken(FARM.soilDark, 0.3), width: 2 });
     }
 
-    // Plant.
     this.drawPlant(v.leaves, crop, p.growth, s);
 
-    // Fruit (persistent node, only rebuilt when the ripe crop changes).
     const ripe = !!crop && p.growth >= 1;
     if (ripe && crop && v.fruitCrop !== crop.id) {
       if (v.fruit) {
@@ -446,22 +583,19 @@ export class FarmScene extends Scene {
       v.fruit = null;
       v.fruitCrop = null;
     }
-    if (v.fruit) {
-      const bob = Math.sin(this.t * 2 + i) * 4;
-      v.fruit.position.set(0, -s * 0.28 + bob);
-    }
+    if (v.fruit) v.fruit.position.set(0, -s * 0.32 + Math.sin(this.t * 2 + i) * 4);
   }
 
   private drawPlant(leaves: Graphics, crop: CropDef | undefined, growth: number, s: number): void {
     leaves.clear();
     if (!crop) return;
     if (growth <= 0.03) {
-      leaves.ellipse(0, s * 0.16, s * 0.12, s * 0.06).fill(0x4a3320);
+      leaves.ellipse(0, s * 0.14, s * 0.12, s * 0.06).fill(0x4a3320);
       return;
     }
     const g = Math.min(1, growth);
     const h = s * (0.12 + g * 0.42);
-    const baseY = s * 0.2;
+    const baseY = s * 0.18;
     leaves
       .moveTo(0, baseY)
       .lineTo(0, baseY - h)
@@ -469,9 +603,7 @@ export class FarmScene extends Scene {
     const ls = s * (0.06 + g * 0.14);
     leaves.ellipse(-ls * 0.9, baseY - h * 0.45, ls, ls * 0.55).fill(crop.leaf);
     leaves.ellipse(ls * 0.9, baseY - h * 0.7, ls, ls * 0.55).fill(lighten(crop.leaf, 0.08));
-    if (g >= 0.55) {
-      leaves.ellipse(0, baseY - h, ls * 1.15, ls * 0.7).fill(darken(crop.leaf, 0.05));
-    }
+    if (g >= 0.55) leaves.ellipse(0, baseY - h, ls * 1.15, ls * 0.7).fill(darken(crop.leaf, 0.05));
   }
 
   private makeFruit(crop: CropDef, s: number): Container {
@@ -483,30 +615,28 @@ export class FarmScene extends Scene {
     } else {
       c.addChild(makeText(crop.emoji ?? '•', s * 0.42));
     }
-    // Quick pop-in, driven from the scene's fx layer (plot roots aren't ticked).
     c.scale.set(0.3);
     const pop = new Entity();
     pop.addBehavior(new Tween(c.scale, { x: 1, y: 1 }, 0.35, { ease: easings.outBack }));
     pop.addBehavior(new Timer(0.4, () => this.remove(pop)));
-    this.add(pop, this.fxLayer);
+    this.add(pop, this.uiLayer);
     return c;
   }
 
   // ------------------------------------------------------------ actions
 
   private tapPlot(i: number): void {
+    const v = this.plotViews[i];
+    if (!v) return;
+    if (Math.hypot(v.x - this.player.x, v.y - this.player.y) > INTERACT_RANGE + 20) {
+      this.toast('walk closer to reach it');
+      return;
+    }
     const p = this.plots[i];
     if (!p) return;
     if (!p.crop) this.plantAt(i, this.selectedSeed);
     else if (p.growth >= 1) this.harvestAt(i);
     else this.waterAt(i);
-  }
-
-  private selectSeed(id: string): void {
-    if (!cropById(id)) return;
-    this.selectedSeed = id;
-    audio.blip(1.2);
-    this.refreshSeedHighlight();
   }
 
   private plantAt(i: number, cropId: string): boolean {
@@ -539,22 +669,13 @@ export class FarmScene extends Scene {
   }
 
   private waterAll(): void {
-    let any = false;
-    for (const p of this.plots) {
-      if (p.crop) {
-        p.moisture = 1;
-        any = true;
-      }
-    }
-    if (any) audio.chime();
-    this.toast('watered the farm 💧');
+    for (const p of this.plots) if (p.crop) p.moisture = 1;
   }
 
   private harvestAt(i: number): boolean {
     const p = this.plots[i];
     const crop = cropById(p?.crop);
     if (!p || !crop || p.growth < 1) return false;
-    // Harvest into the basket — sell at the farmers market for Verium.
     invAdd(crop.id, 1);
     this.harvested += 1;
     audio.chime();
@@ -568,19 +689,41 @@ export class FarmScene extends Scene {
     return true;
   }
 
-  // --------------------------------------------------------------- fx
+  // ----------------------------------------------------------- vendor / fx
+
+  private tryTalk(): void {
+    if (this.box.isOpen) return;
+    if (
+      Math.hypot(this.vendor.x - this.player.x, this.vendor.y - this.player.y) >
+      INTERACT_RANGE + 30
+    ) {
+      this.toast('walk up to the vendor');
+      return;
+    }
+    audio.blip();
+    this.joystick.visible = false;
+    this.seedPanel.visible = false;
+    this.openMarketOnClose = false;
+    this.runner = new DialogueRunner(VENDOR_DIALOGUE);
+    this.runner.start('intro');
+    this.box.open(this.runner);
+  }
+
+  private goMarket(): void {
+    if (this.game.scenes.isTransitioning) return;
+    this.save();
+    this.game.scenes.replace(new MarketScene());
+  }
 
   private popup(i: number, text: string): void {
-    const pos = this.plotPos[i];
-    if (!pos) return;
+    const v = this.plotViews[i];
+    if (!v) return;
     const e = new Entity();
-    e.position.set(pos.x, pos.y - this.plotSize * 0.3);
-    e.addChild(makeText(text, 40));
-    e.addBehavior(
-      new Tween(e, { y: pos.y - this.plotSize * 0.7, alpha: 0 }, 0.7, { ease: easings.outQuad }),
-    );
+    e.position.set(v.x, v.y - 30);
+    e.addChild(makeText(text, 36));
+    e.addBehavior(new Tween(e, { y: v.y - 80, alpha: 0 }, 0.7, { ease: easings.outQuad }));
     e.addBehavior(new Timer(0.75, () => this.remove(e)));
-    this.add(e, this.fxLayer);
+    this.add(e, this.mapLayer);
   }
 
   private toast(msg: string): void {
@@ -589,21 +732,19 @@ export class FarmScene extends Scene {
     const clear = new Entity();
     clear.addBehavior(new Tween(this.toastText, { alpha: 0 }, 1.6, { ease: easings.inQuad }));
     clear.addBehavior(new Timer(1.7, () => this.remove(clear)));
-    this.add(clear, this.fxLayer);
+    this.add(clear, this.uiLayer);
   }
 
   // -------------------------------------------------------------- save
 
   private load(): void {
     const saved = store.get<{ c: string | null; g: number; m: number }[] | null>('plots', null);
-    if (saved && saved.length === PLOTS) {
+    if (saved) {
       this.plots = saved.map((s) => ({
         crop: s.c ?? null,
         growth: typeof s.g === 'number' ? s.g : 0,
         moisture: typeof s.m === 'number' ? s.m : 0,
       }));
-    } else {
-      this.plots = Array.from({ length: PLOTS }, () => ({ crop: null, growth: 0, moisture: 0 }));
     }
     this.clock = store.get<number>('clock', 0);
     this.harvested = store.get<number>('harvested', 0);

@@ -92,6 +92,17 @@
         };
         document.body.appendChild(upd);
         document.body.appendChild(updTip);
+        // Only on the first screen: vanish as soon as the player taps into
+        // the game, so it never covers gameplay UI.
+        window.addEventListener(
+          'pointerdown',
+          (e) => {
+            if (e.target === upd) return;
+            upd.remove();
+            updTip.remove();
+          },
+          true,
+        );
       }
       let deferredInstall = null;
       window.addEventListener('beforeinstallprompt', (e) => {

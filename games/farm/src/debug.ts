@@ -26,6 +26,13 @@ export interface FarmDebug {
   orders?: () => Array<{ crop: string; qty: number; reward: number }>;
   fulfill?: (i: number) => boolean;
   quickSell?: (id: string) => number;
+  // Walkable world
+  player?: () => { x: number; y: number };
+  teleport?: (x: number, y: number) => void;
+  talkVendor?: () => void;
+  dialogueOpen?: () => boolean;
+  setChar?: (type: string, color: number) => void;
+  charType?: () => string;
 }
 
 declare global {

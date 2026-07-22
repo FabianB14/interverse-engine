@@ -34,9 +34,19 @@ await page.goto(url, { waitUntil: 'networkidle' });
 await page.waitForSelector('canvas', { timeout: 30_000 });
 
 await page.waitForFunction(() => window.__farm?.scene() === 'title', null, { timeout: 10_000 });
+// Character picker: default blob, switch to a person avatar.
+const charDefault = await page.evaluate(() => window.__farm.charType());
+await page.evaluate(() => window.__farm.setChar('person', 0x6fb0d8));
+const charAfter = await page.evaluate(() => window.__farm.charType());
+const charOk = charDefault === 'blob' && charAfter === 'person';
 await page.evaluate(() => window.__farm.play());
 await page.waitForFunction(() => window.__farm?.scene() === 'farm', null, { timeout: 10_000 });
 await sleep(400);
+
+// Walkable world: teleport the player and confirm it moved.
+await page.evaluate(() => window.__farm.teleport(600, 640));
+const pp = await page.evaluate(() => window.__farm.player());
+const walkOk = pp.x === 600 && pp.y === 640;
 
 // Economy + plant/grow/harvest loop.
 await page.evaluate(() => window.__farm.grantVerium(500));
@@ -81,6 +91,12 @@ const rainOk = (await page.evaluate(() => window.__farm.weather())) === 'rain';
 
 const musicOk = typeof (await page.evaluate(() => window.__farm.musicOn())) === 'boolean';
 
+// Walk up to the vendor and talk — dialogue opens.
+await page.evaluate(() => window.__farm.talkVendor());
+await sleep(200);
+const vendorOk = (await page.evaluate(() => window.__farm.dialogueOpen())) === true;
+await page.screenshot({ path: `${outDir}/farm-3-walk.png` });
+
 // FARMERS MARKET: travel there, quick-sell a crop, and fulfill an order.
 await page.evaluate(() => window.__farm.toMarket());
 await page.waitForFunction(() => window.__farm?.scene() === 'market', null, { timeout: 8_000 });
@@ -112,6 +128,9 @@ const backOk = (await page.evaluate(() => window.__farm.scene())) === 'farm';
 await browser.close();
 
 const ok =
+  charOk &&
+  walkOk &&
+  vendorOk &&
   plantOk &&
   ripe &&
   harvestOk &&
@@ -127,6 +146,9 @@ console.log(
   JSON.stringify(
     {
       ok,
+      charOk,
+      walkOk,
+      vendorOk,
       plantOk,
       ripe,
       harvestOk,
