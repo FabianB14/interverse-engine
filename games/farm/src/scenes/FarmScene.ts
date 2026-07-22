@@ -28,6 +28,8 @@ import {
 import type { Season, Weather } from '../weather.js';
 import { music } from '../music.js';
 import { store } from '../store.js';
+import { invAdd, invAll, invTotal } from '../inventory.js';
+import { MarketScene } from './MarketScene.js';
 import '../debug.js';
 
 const COLS = 4;
@@ -66,10 +68,12 @@ export class FarmScene extends Scene {
   private seedBar!: Container;
 
   private veriumText!: Text;
+  private basketText!: Text;
   private weatherText!: Text;
   private toastText!: Text;
   private waterBtn!: UIButton;
   private musicBtn!: UIButton;
+  private marketBtn!: UIButton;
 
   private clock = 0; // weather/season seconds
   private forcedWeather: Weather | null = null;
@@ -117,6 +121,9 @@ export class FarmScene extends Scene {
     this.veriumText = makeText('', 30, { color: FARM.coin, weight: '900' });
     this.veriumText.anchor.set(0, 0.5);
     this.uiLayer.addChild(this.veriumText);
+    this.basketText = makeText('', 22, { color: FARM.ink, weight: '800' });
+    this.basketText.anchor.set(0, 0.5);
+    this.uiLayer.addChild(this.basketText);
     this.weatherText = makeText('', 26, { color: FARM.ink, weight: '800' });
     this.weatherText.anchor.set(1, 0.5);
     this.uiLayer.addChild(this.weatherText);
@@ -144,11 +151,21 @@ export class FarmScene extends Scene {
       },
     });
     this.add(this.musicBtn, this.uiLayer);
+    this.marketBtn = new UIButton('🧺 Market', {
+      width: 260,
+      height: 96,
+      fontSize: 34,
+      fill: FARM.accent,
+      textColor: 0x2a2016,
+      onTap: () => this.toMarket(),
+    });
+    this.add(this.marketBtn, this.uiLayer);
 
     this.layout(W, H);
     this.applySeason();
     for (let i = 0; i < PLOTS; i++) this.renderPlot(i);
     this.updateVeriumText();
+    this.updateBasket();
 
     window.__farm = {
       scene: () => 'farm',
@@ -169,6 +186,12 @@ export class FarmScene extends Scene {
           m: Math.round(p.moisture * 100) / 100,
         })),
       harvested: () => this.harvested,
+      inv: () => invAll(),
+      giveItem: (id: string, n: number) => {
+        invAdd(id, n);
+        this.updateBasket();
+      },
+      toMarket: () => this.toMarket(),
       weather: () => this.currentWeather(),
       season: () => this.season,
       setClock: (t: number) => {
@@ -194,9 +217,10 @@ export class FarmScene extends Scene {
   // ------------------------------------------------------------- layout
 
   private layout(W: number, H: number): void {
-    this.veriumText.position.set(24, 48);
+    this.veriumText.position.set(24, 44);
+    this.basketText.position.set(24, 82);
     this.weatherText.position.set(W - 24, 48);
-    this.toastText.position.set(W / 2, 96);
+    this.toastText.position.set(W / 2, 118);
 
     // Grid block centered between HUD and the seed bar.
     const top = 150;
@@ -220,8 +244,9 @@ export class FarmScene extends Scene {
     }
 
     this.seedBar.position.set(W / 2, H - 250);
-    this.waterBtn.position.set(W - 80, H - 70);
-    this.musicBtn.position.set(80, H - 70);
+    this.waterBtn.position.set(W - 74, H - 68);
+    this.musicBtn.position.set(74, H - 68);
+    this.marketBtn.position.set(W / 2, H - 68);
 
     this.field.clear();
     this.field.rect(0, 0, W, H).fill(FARM.bg);
@@ -327,6 +352,18 @@ export class FarmScene extends Scene {
 
   private updateVeriumText(): void {
     this.veriumText.text = `⬡ ${verium.balance()}`;
+  }
+
+  private updateBasket(): void {
+    const n = invTotal();
+    this.basketText.text = n > 0 ? `🧺 ${n}` : '🧺 empty';
+  }
+
+  private toMarket(): void {
+    if (this.game.scenes.isTransitioning) return;
+    audio.blip(0.9);
+    this.save();
+    this.game.scenes.replace(new MarketScene());
   }
 
   private updateWeatherText(w: Weather): void {
@@ -517,14 +554,15 @@ export class FarmScene extends Scene {
     const p = this.plots[i];
     const crop = cropById(p?.crop);
     if (!p || !crop || p.growth < 1) return false;
-    verium.add(crop.sellPrice);
+    // Harvest into the basket — sell at the farmers market for Verium.
+    invAdd(crop.id, 1);
     this.harvested += 1;
     audio.chime();
-    this.coin(i, crop.sellPrice);
+    this.popup(i, crop.emoji ?? '🧺');
     p.crop = null;
     p.growth = 0;
     p.moisture = 0;
-    this.updateVeriumText();
+    this.updateBasket();
     this.renderPlot(i);
     this.save();
     return true;
@@ -542,17 +580,6 @@ export class FarmScene extends Scene {
       new Tween(e, { y: pos.y - this.plotSize * 0.7, alpha: 0 }, 0.7, { ease: easings.outQuad }),
     );
     e.addBehavior(new Timer(0.75, () => this.remove(e)));
-    this.add(e, this.fxLayer);
-  }
-
-  private coin(i: number, amount: number): void {
-    const pos = this.plotPos[i];
-    if (!pos) return;
-    const e = new Entity();
-    e.position.set(pos.x, pos.y);
-    e.addChild(makeText(`+${amount} ⬡`, 30, { color: FARM.coin, weight: '900' }));
-    e.addBehavior(new Tween(e, { y: pos.y - 70, alpha: 0 }, 0.9, { ease: easings.outQuad }));
-    e.addBehavior(new Timer(0.95, () => this.remove(e)));
     this.add(e, this.fxLayer);
   }
 

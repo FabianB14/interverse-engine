@@ -53,14 +53,20 @@ await sleep(120);
 const ripe = (await page.evaluate(() => window.__farm.plotInfo()[0])).g >= 1;
 await page.screenshot({ path: `${outDir}/farm-1.png` });
 
+// Harvest now goes to the basket (inventory), not straight to Verium.
 const vBeforeHarvest = await page.evaluate(() => window.__farm.verium());
 const harvested = await page.evaluate(() => window.__farm.harvest(0));
 await sleep(120);
 const harvestedN = await page.evaluate(() => window.__farm.harvested());
 const vAfterHarvest = await page.evaluate(() => window.__farm.verium());
+const invCarrot = (await page.evaluate(() => window.__farm.inv())).carrot ?? 0;
 const plot0Cleared = (await page.evaluate(() => window.__farm.plotInfo()[0])).c === null;
 const harvestOk =
-  harvested === true && harvestedN >= 1 && vAfterHarvest === vBeforeHarvest + 12 && plot0Cleared;
+  harvested === true &&
+  harvestedN >= 1 &&
+  invCarrot === 1 &&
+  vAfterHarvest === vBeforeHarvest &&
+  plot0Cleared;
 
 // Watering.
 await page.evaluate(() => window.__farm.plant(1, 'radish'));
@@ -75,9 +81,48 @@ const rainOk = (await page.evaluate(() => window.__farm.weather())) === 'rain';
 
 const musicOk = typeof (await page.evaluate(() => window.__farm.musicOn())) === 'boolean';
 
+// FARMERS MARKET: travel there, quick-sell a crop, and fulfill an order.
+await page.evaluate(() => window.__farm.toMarket());
+await page.waitForFunction(() => window.__farm?.scene() === 'market', null, { timeout: 8_000 });
+await sleep(300);
+const ordersLen = await page.evaluate(() => window.__farm.orders().length);
+// Quick-sell the harvested carrot at base price (12).
+const vPreSell = await page.evaluate(() => window.__farm.verium());
+const gained = await page.evaluate(() => window.__farm.quickSell('carrot'));
+await sleep(80);
+const vPostSell = await page.evaluate(() => window.__farm.verium());
+const carrotGone = ((await page.evaluate(() => window.__farm.inv())).carrot ?? 0) === 0;
+const quickSellOk = gained === 12 && vPostSell === vPreSell + 12 && carrotGone;
+// Fulfill order 0: stock exactly what it needs, then hand it over for the reward.
+const order0 = await page.evaluate(() => window.__farm.orders()[0]);
+await page.evaluate((o) => window.__farm.giveItem(o.crop, o.qty), order0);
+const vPreFill = await page.evaluate(() => window.__farm.verium());
+const filled = await page.evaluate(() => window.__farm.fulfill(0));
+await sleep(120);
+const vPostFill = await page.evaluate(() => window.__farm.verium());
+const ordersAfter = await page.evaluate(() => window.__farm.orders().length);
+const fulfillOk =
+  filled === true && vPostFill === vPreFill + order0.reward && ordersAfter === ordersLen;
+await page.screenshot({ path: `${outDir}/farm-2-market.png` });
+// Back to the farm.
+await page.evaluate(() => window.__farm.toFarm());
+await page.waitForFunction(() => window.__farm?.scene() === 'farm', null, { timeout: 8_000 });
+const backOk = (await page.evaluate(() => window.__farm.scene())) === 'farm';
+
 await browser.close();
 
-const ok = plantOk && ripe && harvestOk && moistOk && rainOk && musicOk && errors.length === 0;
+const ok =
+  plantOk &&
+  ripe &&
+  harvestOk &&
+  moistOk &&
+  rainOk &&
+  musicOk &&
+  ordersLen === 3 &&
+  quickSellOk &&
+  fulfillOk &&
+  backOk &&
+  errors.length === 0;
 console.log(
   JSON.stringify(
     {
@@ -86,9 +131,16 @@ console.log(
       ripe,
       harvestOk,
       harvestedN,
+      invCarrot,
       moistOk,
       rainOk,
       musicOk,
+      ordersLen,
+      gained,
+      quickSellOk,
+      fulfillOk,
+      order0,
+      backOk,
       errors: errors.slice(0, 5),
     },
     null,

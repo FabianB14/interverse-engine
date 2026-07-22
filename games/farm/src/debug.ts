@@ -18,6 +18,14 @@ export interface FarmDebug {
   musicOn?: () => boolean;
   toggleMusic?: () => boolean;
   play?: () => void;
+  // Market
+  inv?: () => Record<string, number>;
+  giveItem?: (id: string, n: number) => void;
+  toMarket?: () => void;
+  toFarm?: () => void;
+  orders?: () => Array<{ crop: string; qty: number; reward: number }>;
+  fulfill?: (i: number) => boolean;
+  quickSell?: (id: string) => number;
 }
 
 declare global {
