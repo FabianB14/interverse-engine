@@ -138,6 +138,25 @@ await p3.evaluate((p) => window.__hushfall.warp(p.x, p.y), lp); // back onto the
 await sleep(200);
 const hideOk = hideCount >= 4 && hiddenBefore === 0 && hiddenAfter >= 1;
 
+// TAP-TO-HIDE: tapping a hiding spot registers intent only when it's within
+// reach. Far away → ignored; nearby → the hider auto-walks in to hide.
+const hp0 = await p2.evaluate(() => window.__hushfall.hidePos?.(0));
+await p2.evaluate((h) => window.__hushfall.warp(h.x + 1000, h.y), hp0); // out of reach
+await p2.evaluate(() => window.__hushfall.tapHide?.(0));
+const tapFar = await p2.evaluate(() => window.__hushfall.hideTargetSet?.() ?? false);
+await p2.evaluate((h) => window.__hushfall.warp(h.x + 120, h.y), hp0); // within reach
+await p2.evaluate(() => window.__hushfall.tapHide?.(0));
+const tapNear = await p2.evaluate(() => window.__hushfall.hideTargetSet?.() ?? false);
+await p2.waitForFunction(() => window.__hushfall.amConcealed?.() === true, null, { timeout: 3_000 }).catch(() => {});
+const tapConcealed = await p2.evaluate(() => window.__hushfall.amConcealed?.() ?? false);
+const tapHideOk = tapFar === false && tapNear === true;
+// Back to open ground so the down test isn't muddied by hiding/healing.
+await p2.evaluate(() => {
+  const s = window.__hushfall.spawnPos?.();
+  if (s) window.__hushfall.warp(s.x, s.y);
+});
+await sleep(300);
+
 // ABILITY: the Lookout's Sense reveals the map — other hiders see markers.
 const revealBefore = await p3.evaluate(() => window.__hushfall.revealSeen());
 await p2.evaluate(() => window.__hushfall.ability());
@@ -153,20 +172,33 @@ await sleep(300);
 const visAfter = await p1.evaluate(() => window.__hushfall.visionActive?.() ?? false);
 const visionOk = visBefore === false && visAfter === true;
 
-// DOWN: the Seeker warps onto the Lookout and strikes — they go down. Re-warp
-// and swing a few times to ride out any transient position lag.
-let p2Downed = false;
-for (let i = 0; i < 5 && !p2Downed; i++) {
+// DOWN: one hit no longer downs a hider — the first strike INJURES (they stay
+// up), the second DOWNS. Re-warp + swing to ride out transient position lag.
+const strike = async () => {
   const pp = await p2.evaluate(() => window.__hushfall.myPos());
   await p1.evaluate((p) => window.__hushfall.warp(p.x, p.y), pp);
   await sleep(300);
   await p1.evaluate(() => window.__hushfall.attack());
-  await sleep(450);
+  await sleep(500);
+};
+await strike();
+const hurtAfter1 = await p2.evaluate(() => window.__hushfall.amHurt?.() ?? false);
+const downAfter1 = await p2.evaluate(() => window.__hushfall.amDowned());
+const injuredNotDowned = hurtAfter1 === true && downAfter1 === false;
+let p2Downed = downAfter1;
+for (let i = 0; i < 6 && !p2Downed; i++) {
+  await strike();
   p2Downed = await p2.evaluate(() => window.__hushfall.amDowned());
 }
 const downCountHost = await p1.evaluate(() => window.__hushfall.downedCount());
-const downOk = p2Downed === true && downCountHost >= 1;
+const downOk = p2Downed === true && downCountHost >= 1 && injuredNotDowned;
 await p1.screenshot({ path: `${outDir}/hf-2-down.png` });
+
+// DOWN SIGNAL: a living ally (the Engineer) sees a directional arrow pointing
+// at the downed teammate.
+await sleep(300);
+const downSignalP3 = await p3.evaluate(() => window.__hushfall.downSignalCount?.() ?? 0);
+const downSignalOk = downSignalP3 >= 1;
 
 // RESCUE: the Engineer reaches the downed Scout and revives them.
 const p2posDown = await p2.evaluate(() => window.__hushfall.myPos());
@@ -213,7 +245,7 @@ await pb.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { t
 await sleep(600);
 const matchBots = await pb.evaluate(() => window.__hushfall.botCount());
 const swarm0 = await pb.evaluate(() => window.__hushfall.botPositions());
-await sleep(3600);
+await sleep(4600);
 const swarm1 = await pb.evaluate(() => window.__hushfall.botPositions());
 // At least one bot should be travelling (a bot standing on its assigned
 // lantern to light it can be momentarily still, so measure the whole swarm).
@@ -237,7 +269,7 @@ await pb.evaluate(() => window.__hushfall.forceLightAll());
 const nearGate = (s) =>
   s.length ? Math.min(...s.map((p) => Math.hypot(p.x - gateB.x, p.y - gateB.y))) : 1e9;
 const botDist0 = nearGate(swarm1);
-await sleep(4000);
+await sleep(5200);
 const swarm2 = await pb.evaluate(() => window.__hushfall.botPositions());
 const botDist1 = nearGate(swarm2);
 const botToGate = botDist1 < botDist0 - 40;
@@ -254,9 +286,11 @@ const ok =
   objectiveOk &&
   reachOk &&
   hideOk &&
+  tapHideOk &&
   abilityOk &&
   visionOk &&
   downOk &&
+  downSignalOk &&
   rescueOk &&
   escapeOk &&
   botOk &&
@@ -279,6 +313,10 @@ console.log(
       hideCount,
       hiddenBefore,
       hiddenAfter,
+      tapHideOk,
+      tapFar,
+      tapNear,
+      tapConcealed,
       visionOk,
       abilityOk,
       revealBefore,
@@ -286,7 +324,10 @@ console.log(
       usesP2,
       downOk,
       p2Downed,
+      injuredNotDowned,
       downCountHost,
+      downSignalOk,
+      downSignalP3,
       rescueOk,
       p2Revived,
       escapeOk,

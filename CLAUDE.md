@@ -70,6 +70,11 @@ net, audio-save-input) — read them before working in an area. Essentials:
 - Every game exposes a `window.__<name>` debug hook (see existing games)
   so headless playtests can drive it; add debug query params (`?round=`,
   `?host=1`, `?join=CODE`) rather than clicking through UIs in tests.
+- Orientation: if a game uses `createGame({ adaptive: true })` (it relays
+  out for landscape), its `public/manifest.webmanifest` MUST set
+  `"orientation": "any"` — otherwise an installed PWA is locked to portrait
+  and the phone won't rotate. Only keep `"portrait"` for non-adaptive
+  (letterboxed portrait-only) games. Match blobvale/farm, not the template.
 - Commit style: what + why, spec section references (e.g. "spec 4.6").
 - Branch flow: work on `fabian-branch`, fast-forward `main` to deploy —
   pushing `main` publishes the hub + demos to GitHub Pages.

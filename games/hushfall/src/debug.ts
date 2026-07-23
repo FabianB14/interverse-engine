@@ -51,6 +51,12 @@ export interface HushfallDebug {
   escapedCount?: () => number;
   aliveCount?: () => number;
   amDowned?: () => boolean;
+  amHurt?: () => boolean;
+  hurtCount?: () => number;
+  tapHide?: (i: number) => void;
+  hideTargetSet?: () => boolean;
+  downSignalCount?: () => number;
+  amConcealed?: () => boolean;
   seekerPos?: () => { x: number; y: number } | null;
   lanternPos?: (i: number) => { x: number; y: number } | null;
   gatePos?: () => { x: number; y: number } | null;

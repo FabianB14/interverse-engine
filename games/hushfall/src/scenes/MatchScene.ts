@@ -1,4 +1,4 @@
-import { Container, Graphics, Sprite, Texture } from 'pixi.js';
+import { Container, Graphics, Rectangle, Sprite, Texture } from 'pixi.js';
 import type { Text } from 'pixi.js';
 import {
   Camera,
@@ -50,6 +50,9 @@ const SEARCH_RADIUS = 104;
 const REVIVE_RADIUS = 86;
 const REVIVE_SECONDS = 4;
 const BLEED_SECONDS = 30;
+// Hiders take TWO hits: a first strike injures (they can still run), a second
+// downs them. An injured hider slowly patches up while tucked in a hiding spot.
+const HEAL_SECONDS = 6;
 const GATE_RADIUS = 90;
 const SNARE_RADIUS = 60;
 const SNARE_SECONDS = 2.6;
@@ -80,7 +83,7 @@ interface RevealFx {
 }
 interface Fx {
   type: 'fx';
-  kind: 'down' | 'rescue' | 'lantern' | 'gate' | 'escape' | 'snare' | 'decoy' | 'attack' | 'screech' | 'poof';
+  kind: 'down' | 'hurt' | 'heal' | 'rescue' | 'lantern' | 'gate' | 'escape' | 'snare' | 'decoy' | 'attack' | 'screech' | 'poof';
   x: number;
   y: number;
   id?: string;
@@ -96,6 +99,7 @@ interface Snap {
   hidden: string[];
   vanished: string[];
   rooted: string[];
+  hurt: string[];
   decoys: { x: number; y: number }[];
   phase: string;
 }
@@ -181,6 +185,8 @@ export class MatchScene extends Scene {
   private gateOpen = false;
   private down: Record<string, number> = {};
   private reviveProg: Record<string, number> = {};
+  private hurt = new Set<string>(); // injured hiders (one hit taken, not yet down)
+  private healProg: Record<string, number> = {};
   private escaped = new Set<string>();
   private out = new Set<string>();
   private vanishUntil: Record<string, number> = {};
@@ -196,10 +202,16 @@ export class MatchScene extends Scene {
   private snapHidden = new Set<string>();
   private snapVanished = new Set<string>();
   private snapRooted = new Set<string>();
+  private snapHurt = new Set<string>();
 
   // bots (host-simulated)
   private botAtkCd = 0;
   private botPaths = new Map<string, { goal: string; path: [number, number][]; idx: number }>();
+
+  // hiding (client)
+  private hideTarget: { x: number; y: number } | null = null;
+  private hiddenAmt = 0; // 0..1 eased "tucked in" amount for my own blob
+  private healEst = 0; // local estimate of my heal-while-hidden progress (secs)
 
   // local ability
   private cooldownLeft = 0;
@@ -214,6 +226,7 @@ export class MatchScene extends Scene {
   // HUD
   private hud!: Text;
   private roleHud!: Text;
+  private roleHudBase = '';
   private terrorVignette!: Graphics;
   private fog: Sprite | null = null;
   private abilityBtn!: UIButton;
@@ -222,6 +235,8 @@ export class MatchScene extends Scene {
   private codeHud!: Text;
   private myBar!: Graphics;
   private partyPanel!: Container;
+  private downSignals!: Container;
+  private downArrows = new Map<string, { root: Container; arrow: Graphics; label: Text }>();
   private decoyViews: Entity[] = [];
   private endShown = false;
 
@@ -340,6 +355,7 @@ export class MatchScene extends Scene {
   private objectiveLayer!: Container;
   private lanternViews: { g: Graphics; ring: Graphics }[] = [];
   private gateView!: Graphics;
+  private hideGlow!: Graphics;
 
   private drawObjectives(): void {
     this.objectiveLayer = new Container();
@@ -355,7 +371,10 @@ export class MatchScene extends Scene {
     this.gateView = new Graphics();
     this.gateView.position.set(this.gatePt.x, this.gatePt.y);
     this.objectiveLayer.addChild(this.gateView);
-    // Hiding spots: big wardrobes/curtained nooks you can duck inside.
+    // Hiding spots: big wardrobes/curtained nooks you can duck inside. Tap one
+    // to auto-walk in and hide (hiders only).
+    this.hideGlow = new Graphics();
+    this.objectiveLayer.addChildAt(this.hideGlow, 0);
     for (const p of this.hidePts) {
       const g = new Graphics();
       g.position.set(p.x, p.y);
@@ -368,7 +387,15 @@ export class MatchScene extends Scene {
         g.roundRect(i * 20 - 8, -h / 2 + 6, 16, h - 12, 6).fill({ color: 0x3a2c4e, alpha: 0.9 });
       }
       g.circle(w / 2 - 14, 0, 4).fill(NIGHT.lantern); // little handle
-      this.objectiveLayer.addChildAt(g, 0); // behind lanterns/gate
+      if (!this.amSeeker) {
+        g.eventMode = 'static';
+        g.cursor = 'pointer';
+        // Generous tap target around the wardrobe.
+        g.hitArea = new Rectangle(-w, -h, w * 2, h * 2);
+        const at = { x: p.x, y: p.y };
+        g.on('pointertap', () => this.tapHide(at));
+      }
+      this.objectiveLayer.addChildAt(g, 1); // behind lanterns/gate, above the glow
     }
     this.redrawObjectives();
   }
@@ -497,7 +524,10 @@ export class MatchScene extends Scene {
     this.hud = makeText('', 24, { color: NIGHT.lantern, weight: '800' });
     this.hud.anchor.set(0, 0.5);
     this.uiLayer.addChild(this.hud);
-    this.roleHud = makeText(this.amSeeker ? '🩸 You are the SEEKER — hunt them down' : `${myCls.emoji} ${myCls.name} — light the lanterns`, 20, {
+    this.roleHudBase = this.amSeeker
+      ? '🩸 You are the SEEKER — hunt them down'
+      : `${myCls.emoji} ${myCls.name} — light the lanterns`;
+    this.roleHud = makeText(this.roleHudBase, 20, {
       color: this.amSeeker ? NIGHT.blood : NIGHT.gate,
       weight: '800',
     });
@@ -511,6 +541,10 @@ export class MatchScene extends Scene {
     this.partyPanel = new Container();
     this.uiLayer.addChild(this.partyPanel);
     this.buildParty();
+
+    // Directional signals pointing at downed teammates (hiders only).
+    this.downSignals = new Container();
+    this.uiLayer.addChild(this.downSignals);
   }
 
   private partyRows = new Map<string, { dot: Graphics; label: Text }>();
@@ -590,6 +624,7 @@ export class MatchScene extends Scene {
     this.snapHidden = new Set(s.hidden);
     this.snapVanished = new Set(s.vanished);
     this.snapRooted = new Set(s.rooted);
+    this.snapHurt = new Set(s.hurt ?? []);
     this.escaped = new Set(s.esc);
     this.out = new Set(s.out);
     this.phase = s.phase;
@@ -622,9 +657,19 @@ export class MatchScene extends Scene {
     this.broadcastFx({ type: 'fx', kind: 'attack', x: sp.x, y: sp.y });
     if (target) {
       const p = this.hostPositions[target]!;
-      this.down[target] = BLEED_SECONDS;
-      this.reviveProg[target] = 0;
-      this.broadcastFx({ type: 'fx', kind: 'down', x: p.x, y: p.y, id: target });
+      if (this.hurt.has(target)) {
+        // Second strike — they go down and start bleeding out.
+        this.hurt.delete(target);
+        delete this.healProg[target];
+        this.down[target] = BLEED_SECONDS;
+        this.reviveProg[target] = 0;
+        this.broadcastFx({ type: 'fx', kind: 'down', x: p.x, y: p.y, id: target });
+      } else {
+        // First strike — injured but still on their feet.
+        this.hurt.add(target);
+        this.healProg[target] = 0;
+        this.broadcastFx({ type: 'fx', kind: 'hurt', x: p.x, y: p.y, id: target });
+      }
     }
   }
 
@@ -725,6 +770,12 @@ export class MatchScene extends Scene {
     return this.hidePts.some((b) => Math.hypot(b.x - p.x, b.y - p.y) < HIDE_RADIUS);
   }
 
+  /** Am I (locally) tucked inside a hiding spot? Computed from my own position
+   *  so the "hidden" feedback is instant, not a network round-trip away. */
+  private amConcealedLocal(): boolean {
+    return this.hidePts.some((b) => Math.hypot(b.x - this.me.x, b.y - this.me.y) < HIDE_RADIUS);
+  }
+
   private hostSim(dt: number): void {
     const active = this.activeHiders();
     // Lanterns.
@@ -792,6 +843,22 @@ export class MatchScene extends Scene {
         }
       }
     }
+    // Injured hiders patch up while tucked inside a hiding spot; step out and
+    // the progress bleeds back off.
+    for (const id of active) {
+      if (!this.hurt.has(id) || this.down[id] !== undefined) continue;
+      if (this.isConcealed(id)) {
+        this.healProg[id] = (this.healProg[id] ?? 0) + dt / HEAL_SECONDS;
+        if (this.healProg[id]! >= 1) {
+          this.hurt.delete(id);
+          delete this.healProg[id];
+          const p = this.hostPositions[id];
+          if (p) this.broadcastFx({ type: 'fx', kind: 'heal', x: p.x, y: p.y, id });
+        }
+      } else {
+        this.healProg[id] = Math.max(0, (this.healProg[id] ?? 0) - dt / HEAL_SECONDS);
+      }
+    }
     // Escape.
     if (this.gateOpen) {
       for (const id of active) {
@@ -799,6 +866,8 @@ export class MatchScene extends Scene {
         const p = this.hostPositions[id];
         if (p && Math.hypot(p.x - this.gatePt.x, p.y - this.gatePt.y) < GATE_RADIUS) {
           this.escaped.add(id);
+          this.hurt.delete(id);
+          delete this.healProg[id];
           this.broadcastFx({ type: 'fx', kind: 'escape', x: p.x, y: p.y, id });
         }
       }
@@ -1045,14 +1114,60 @@ export class MatchScene extends Scene {
     } else this.boostFactor = 1;
     const jx = frozen ? 0 : this.joystick.value.x;
     const jy = frozen ? 0 : this.joystick.value.y;
+    const speed = myCls.speed * this.boostFactor;
+    let sx = 1;
+    let sy = 1;
     if (Math.hypot(jx, jy) > 0.12) {
-      const speed = myCls.speed * this.boostFactor;
+      // Any manual input cancels an auto-walk into a hiding spot.
+      this.hideTarget = null;
       const moved = moveWithCollision(this.map, this.me.x, this.me.y, 18, 14, jx * speed * dt, jy * speed * dt);
       this.me.position.set(moved.x, moved.y);
       this.walk += dt * 11;
       const s = Math.sin(this.walk) * 0.07;
-      this.meBody.scale.set(1 + s, 1 - s);
-    } else this.meBody.scale.set(1, 1);
+      sx = 1 + s;
+      sy = 1 - s;
+    } else if (this.hideTarget && !frozen) {
+      // Tapped a hiding spot — auto-walk into it, then settle.
+      const dx = this.hideTarget.x - this.me.x;
+      const dy = this.hideTarget.y - this.me.y;
+      const d = Math.hypot(dx, dy);
+      if (d > 6) {
+        const step = Math.min(d, speed * dt);
+        const moved = moveWithCollision(this.map, this.me.x, this.me.y, 18, 14, (dx / d) * step, (dy / d) * step);
+        // Wall in the way and no progress → abandon the auto-walk.
+        if (Math.hypot(moved.x - this.me.x, moved.y - this.me.y) < 0.4) this.hideTarget = null;
+        this.me.position.set(moved.x, moved.y);
+        this.walk += dt * 11;
+        const s = Math.sin(this.walk) * 0.07;
+        sx = 1 + s;
+        sy = 1 - s;
+      } else {
+        this.hideTarget = null;
+      }
+    }
+    // Hidden self: tuck in noticeably (shrink + fade) while inside a spot.
+    const concealed = !this.amSeeker && !frozen && this.amConcealedLocal();
+    this.hiddenAmt += ((concealed ? 1 : 0) - this.hiddenAmt) * Math.min(1, dt * 8);
+    // Local estimate of patching up while injured + hidden (host is authority).
+    const iAmHurt = this.snapHurt.has(this.session.id);
+    if (iAmHurt && concealed) this.healEst = Math.min(HEAL_SECONDS, this.healEst + dt);
+    else if (!iAmHurt) this.healEst = 0;
+    else this.healEst = Math.max(0, this.healEst - dt);
+    const tuck = 1 - this.hiddenAmt * 0.42;
+    this.meBody.scale.set(sx * tuck, sy * tuck);
+    this.meBody.alpha = 1 - this.hiddenAmt * 0.5;
+    // Highlight the spot I'm tucked into (or heading toward) so hiding reads.
+    this.hideGlow.clear();
+    const glowAt = concealed
+      ? this.hidePts.find((b) => Math.hypot(b.x - this.me.x, b.y - this.me.y) < HIDE_RADIUS)
+      : this.hideTarget;
+    if (glowAt) {
+      const pulse = 0.5 + 0.5 * Math.sin(this.t * 4);
+      const col = concealed ? NIGHT.gate : NIGHT.violet;
+      this.hideGlow
+        .roundRect(glowAt.x - 46, glowAt.y - 56, 92, 112, 12)
+        .stroke({ color: col, width: 4, alpha: 0.35 + pulse * 0.4 });
+    }
 
     // Ship position every tick (not just on movement): stationary hiders must
     // still be visible to the host for hiding, rescue, escape and attacks.
@@ -1083,6 +1198,7 @@ export class MatchScene extends Scene {
     }
 
     this.updateHud();
+    this.updateDownSignals();
     this.updateTerror(dt);
     this.camera.update(dt);
     // Keep the lit disc centred on me and grow it while a vision ability runs.
@@ -1120,6 +1236,11 @@ export class MatchScene extends Scene {
       // downed marker + revive ring so allies can find them
       r.mark.circle(0, 0, 26).stroke({ color: NIGHT.blood, width: 4, alpha: 0.9 });
       r.mark.moveTo(-10, -10).lineTo(10, 10).moveTo(10, -10).lineTo(-10, 10).stroke({ color: NIGHT.blood, width: 4 });
+    } else if (!isSeeker && this.snapHurt.has(id)) {
+      // injured marker — a red gash so both allies and the Seeker can tell
+      // this one is one hit from going down.
+      r.mark.arc(0, -34, 12, Math.PI * 0.15, Math.PI * 0.85).stroke({ color: NIGHT.blood, width: 4, alpha: 0.9 });
+      r.mark.moveTo(-5, -30).lineTo(5, -38).moveTo(-5, -38).lineTo(5, -30).stroke({ color: NIGHT.blood, width: 3, alpha: 0.85 });
     }
   }
 
@@ -1129,6 +1250,7 @@ export class MatchScene extends Scene {
     const hidden = this.activeHiders().filter((id) => this.isConcealed(id));
     const vanished = Object.keys(this.vanishUntil).filter((id) => (this.vanishUntil[id] ?? 0) > this.t);
     const rooted = Object.keys(this.rootUntil).filter((id) => (this.rootUntil[id] ?? 0) > this.t);
+    const hurt = [...this.hurt];
     const snap: Snap = {
       type: 'snap',
       players,
@@ -1140,6 +1262,7 @@ export class MatchScene extends Scene {
       hidden,
       vanished,
       rooted,
+      hurt,
       decoys: this.decoys.map((d) => ({ x: d.x, y: d.y })),
       phase: this.phase,
     };
@@ -1151,6 +1274,7 @@ export class MatchScene extends Scene {
     this.snapHidden = new Set(hidden);
     this.snapVanished = new Set(vanished);
     this.snapRooted = new Set(rooted);
+    this.snapHurt = new Set(hurt);
     this.syncDecoys(snap.decoys);
     this.redrawObjectives();
   }
@@ -1160,15 +1284,33 @@ export class MatchScene extends Scene {
     const total = this.snapLant.length;
     this.hud.text = this.snapGate ? '🚪 GATE OPEN — escape!' : `🕯️ Lanterns ${lit}/${total}`;
     const iAmDown = this.snapDown[this.session.id] !== undefined;
-    if (iAmDown) {
-      this.roleHud.text = '💀 DOWNED — hold on, someone can save you';
-      this.roleHud.style.fill = NIGHT.blood;
+    const iAmHurt = this.snapHurt.has(this.session.id);
+    const iAmHidden = this.hiddenAmt > 0.5;
+    if (!this.amSeeker) {
+      if (iAmDown) {
+        this.roleHud.text = '💀 DOWNED — hold on, someone can save you';
+        this.roleHud.style.fill = NIGHT.blood;
+      } else if (iAmHurt) {
+        this.roleHud.text = iAmHidden ? '🩹 Patching up — stay hidden…' : '🩸 Injured — one more hit downs you. Hide to heal';
+        this.roleHud.style.fill = NIGHT.blood;
+      } else if (iAmHidden) {
+        this.roleHud.text = '🫥 Hidden — stay still, the Seeker must search you out';
+        this.roleHud.style.fill = NIGHT.gate;
+      } else {
+        this.roleHud.text = this.roleHudBase;
+        this.roleHud.style.fill = NIGHT.gate;
+      }
     }
     this.myBar.clear();
     if (iAmDown) {
       const bleed = this.snapDown[this.session.id] ?? 0;
       this.myBar.rect(-26, 0, 52, 6).fill({ color: 0x000000, alpha: 0.4 });
       this.myBar.rect(-26, 0, 52 * Math.max(0, bleed / BLEED_SECONDS), 6).fill(NIGHT.blood);
+    } else if (iAmHurt) {
+      // Injured: a red pip; if patching up while hidden, a green bar fills over it.
+      this.myBar.rect(-26, 0, 52, 6).fill({ color: 0x000000, alpha: 0.4 });
+      this.myBar.rect(-26, 0, 26, 6).fill(NIGHT.blood);
+      if (this.healEst > 0) this.myBar.rect(-26, 0, 52 * (this.healEst / HEAL_SECONDS), 6).fill(NIGHT.gate);
     }
     this.abilityBtn.alpha = this.cooldownLeft > 0 ? 0.4 : 1;
     if (this.attackBtn) this.attackBtn.alpha = this.attackCd > 0 ? 0.4 : 1;
@@ -1177,12 +1319,66 @@ export class MatchScene extends Scene {
       const downed = this.snapDown[id] !== undefined;
       const esc = this.escaped.has(id);
       const gone = this.out.has(id);
-      const color = esc ? NIGHT.gate : gone ? 0x556070 : downed ? NIGHT.blood : NIGHT.ghost;
+      const injured = this.snapHurt.has(id);
+      const color = esc ? NIGHT.gate : gone ? 0x556070 : downed ? NIGHT.blood : injured ? 0xd98a8a : NIGHT.ghost;
       row.dot.clear();
       row.dot.circle(0, 0, 8).fill(color);
-      const suffix = esc ? ' ✓escaped' : gone ? ' ✗out' : downed ? ' 💀' : '';
+      const suffix = esc ? ' ✓escaped' : gone ? ' ✗out' : downed ? ' 💀' : injured ? ' 🩸' : '';
       const base = this.roster.names[id] ?? '?';
       if (row.label.text !== base + suffix) row.label.text = base + suffix;
+    }
+  }
+
+  /** Point an arrow + bleed-out countdown at each downed teammate so allies
+   *  know which way to run to save them. Hiders only. */
+  private updateDownSignals(): void {
+    if (this.amSeeker) {
+      if (this.downArrows.size) {
+        for (const [, sig] of this.downArrows) sig.root.destroy({ children: true });
+        this.downArrows.clear();
+      }
+      return;
+    }
+    const W = this.game.viewWidth;
+    const H = this.game.viewHeight;
+    const myScreenX = this.me.x + this.mapLayer.x;
+    const myScreenY = this.me.y + this.mapLayer.y;
+    const live = new Set<string>();
+    for (const id of Object.keys(this.snapDown)) {
+      if (id === this.session.id || this.escaped.has(id) || this.out.has(id)) continue;
+      const r = this.remotes.get(id);
+      const wp = r ? { x: r.entity.x, y: r.entity.y } : this.hostPositions[id];
+      if (!wp) continue;
+      live.add(id);
+      let sig = this.downArrows.get(id);
+      if (!sig) {
+        const root = new Container();
+        const arrow = new Graphics().poly([18, 0, -11, -12, -11, 12]).fill(NIGHT.blood);
+        arrow.stroke({ color: 0x1a0810, width: 2 });
+        root.addChild(arrow);
+        const label = makeText('', 18, { color: 0xffffff, weight: '800' });
+        label.anchor.set(0.5);
+        label.position.set(0, 24);
+        root.addChild(label);
+        this.downSignals.addChild(root);
+        sig = { root, arrow, label };
+        this.downArrows.set(id, sig);
+      }
+      const ang = Math.atan2(wp.y - this.me.y, wp.x - this.me.x);
+      const R = 150;
+      const m = 64;
+      const px = Math.max(m, Math.min(W - m, myScreenX + Math.cos(ang) * R));
+      const py = Math.max(m, Math.min(H - m, myScreenY + Math.sin(ang) * R));
+      sig.root.position.set(px, py);
+      sig.arrow.rotation = ang;
+      const secs = Math.ceil(this.snapDown[id] ?? 0);
+      if (sig.label.text !== `${secs}`) sig.label.text = `${secs}`;
+    }
+    for (const [id, sig] of this.downArrows) {
+      if (!live.has(id)) {
+        sig.root.destroy({ children: true });
+        this.downArrows.delete(id);
+      }
     }
   }
 
@@ -1254,6 +1450,23 @@ export class MatchScene extends Scene {
         this.camera?.shake(12, 0.3);
         life = 0.5;
         break;
+      case 'hurt':
+        // A glancing strike — splash, but they stay up.
+        g.circle(0, 0, 30).stroke({ color: NIGHT.blood, width: 6, alpha: 0.8 });
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * Math.PI * 2;
+          g.circle(Math.cos(a) * 22, Math.sin(a) * 22, 4).fill({ color: NIGHT.blood, alpha: 0.7 });
+        }
+        sting('blip');
+        this.camera?.shake(6, 0.2);
+        life = 0.35;
+        break;
+      case 'heal':
+        g.circle(0, 0, 34).stroke({ color: NIGHT.gate, width: 6, alpha: 0.85 });
+        g.roundRect(-4, -14, 8, 28, 3).fill(NIGHT.gate).roundRect(-14, -4, 28, 8, 3).fill(NIGHT.gate);
+        sting('rescue');
+        life = 0.5;
+        break;
       case 'rescue':
         g.circle(0, 0, 44).stroke({ color: NIGHT.gate, width: 8, alpha: 0.9 });
         sting('rescue');
@@ -1314,6 +1527,16 @@ export class MatchScene extends Scene {
     sting('blip');
     if (this.session.isHost) this.hostAttack(this.session.id);
     else this.session.send({ type: 'attack' });
+  }
+
+  /** Tap a hiding spot to duck inside. Auto-walks there if it's within reach;
+   *  moving the joystick cancels it. */
+  private tapHide(at: { x: number; y: number }): void {
+    if (this.amSeeker || this.phase !== 'playing') return;
+    if (this.snapDown[this.session.id] !== undefined || this.out.has(this.session.id)) return;
+    if (Math.hypot(at.x - this.me.x, at.y - this.me.y) > 560) return; // too far to bother
+    this.hideTarget = { x: at.x, y: at.y };
+    sting('blip');
   }
 
   private tryAbility(): void {
@@ -1484,6 +1707,15 @@ export class MatchScene extends Scene {
       escapedCount: () => this.escaped.size,
       aliveCount: () => this.activeHiders().length,
       amDowned: () => this.snapDown[this.session.id] !== undefined,
+      amHurt: () => this.snapHurt.has(this.session.id),
+      hurtCount: () => this.snapHurt.size,
+      tapHide: (i: number) => {
+        const p = this.hidePts[i];
+        if (p) this.tapHide(p);
+      },
+      hideTargetSet: () => this.hideTarget !== null,
+      downSignalCount: () => this.downArrows.size,
+      amConcealed: () => this.amConcealedLocal(),
       seekerPos: () => {
         const p = this.hostPositions[this.seekerId] ?? this.remotes.get(this.seekerId)?.entity;
         return p ? { x: p.x, y: p.y } : null;
