@@ -1,4 +1,4 @@
-import { Container, Graphics } from 'pixi.js';
+import { Container, Graphics, Sprite, Texture } from 'pixi.js';
 import type { Text } from 'pixi.js';
 import {
   Camera,
@@ -30,7 +30,17 @@ import type { RosterState } from './LobbyScene.js';
 const SEND = 0.1;
 const LANTERN_RADIUS = 96;
 const LANTERN_SECONDS = 8; // one hider lights a lantern in ~8s (faster in a group)
-const ATTACK_RANGE = 96;
+const ATTACK_RANGE = 170; // the Seeker strikes from a fair reach (longer than melee)
+// Fog of war: you see a lit disc around yourself and darkness beyond. Players
+// beyond your sight radius are hidden — the Seeker only spots hiders up close,
+// and hiders only glimpse the Seeker when it's near.
+const FOG_CLEAR = 330; // fully lit within this radius (design units)
+const FOG_DARK = 540; // fully dark beyond this radius
+const FOG_SPRITE_R = 2000; // fog texture reach (must cover the screen)
+const SEEKER_SIGHT_FULL = 300;
+const SEEKER_SIGHT_FADE = 470;
+const HIDER_SIGHT_FULL = 400;
+const HIDER_SIGHT_FADE = 560;
 const REVIVE_RADIUS = 86;
 const REVIVE_SECONDS = 4;
 const BLEED_SECONDS = 30;
@@ -105,6 +115,37 @@ interface Remote {
   mark: Graphics;
 }
 
+/** Radial darkness texture: transparent core, opaque beyond, cached once. */
+let fogTexture: Texture | null = null;
+function getFogTexture(): Texture | null {
+  if (fogTexture) return fogTexture;
+  const size = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  const clear = FOG_CLEAR / FOG_SPRITE_R;
+  const dark = FOG_DARK / FOG_SPRITE_R;
+  g.addColorStop(0, 'rgba(4,3,10,0)');
+  g.addColorStop(clear, 'rgba(4,3,10,0)');
+  g.addColorStop((clear + dark) / 2, 'rgba(4,3,10,0.82)');
+  g.addColorStop(dark, 'rgba(4,3,10,0.995)');
+  g.addColorStop(1, 'rgba(4,3,10,0.995)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  fogTexture = Texture.from(canvas);
+  return fogTexture;
+}
+
+/** 1 within `full`, 0 beyond `fade`, linear between. */
+function sightAlpha(dist: number, full: number, fade: number): number {
+  if (dist <= full) return 1;
+  if (dist >= fade) return 0;
+  return (fade - dist) / (fade - full);
+}
+
 export class MatchScene extends Scene {
   private map!: TileMapData;
   private mapLayer!: Container;
@@ -166,6 +207,7 @@ export class MatchScene extends Scene {
   private hud!: Text;
   private roleHud!: Text;
   private terrorVignette!: Graphics;
+  private fog: Sprite | null = null;
   private abilityBtn!: UIButton;
   private attackBtn: UIButton | null = null;
   private homeBtn!: UIButton;
@@ -316,9 +358,11 @@ export class MatchScene extends Scene {
       // post
       lv.g.roundRect(-6, -10, 12, 46, 4).fill(0x2a2740);
       // lamp
-      lv.g.circle(0, -26, 18).fill(lit ? NIGHT.lanternLit : 0x3a3550);
+      lv.g.circle(0, -26, 18).fill(lit ? NIGHT.lanternLit : 0x4a4460);
       lv.g.circle(0, -26, 18).stroke({ color: lit ? NIGHT.lantern : NIGHT.inkSoft, width: 3 });
-      if (lit) lv.g.circle(0, -26, 34).fill({ color: NIGHT.lantern, alpha: 0.18 });
+      // Lit lanterns blaze; unlit ones give a faint glimmer so they can still
+      // be found in the dark.
+      lv.g.circle(0, -26, lit ? 36 : 26).fill({ color: NIGHT.lantern, alpha: lit ? 0.2 : 0.07 });
       // progress ring
       lv.ring.clear();
       lv.ring.circle(0, -26, 30).stroke({ color: 0x000000, alpha: 0.4, width: 6 });
@@ -376,6 +420,15 @@ export class MatchScene extends Scene {
   // --------------------------------------------------------------- HUD
 
   private buildHud(): void {
+    // Fog of war sits at the very bottom of the UI layer: it darkens the map
+    // (and everything in it) beyond a lit disc around you, but never the HUD.
+    const tex = getFogTexture();
+    if (tex) {
+      this.fog = new Sprite(tex);
+      this.fog.anchor.set(0.5);
+      this.fog.scale.set(FOG_SPRITE_R / 256);
+      this.uiLayer.addChild(this.fog);
+    }
     this.terrorVignette = new Graphics();
     this.uiLayer.addChild(this.terrorVignette);
 
@@ -912,6 +965,8 @@ export class MatchScene extends Scene {
     this.updateHud();
     this.updateTerror(dt);
     this.camera.update(dt);
+    // Keep the lit disc centred on me (mapLayer is what the camera pans).
+    if (this.fog) this.fog.position.set(this.me.x + this.mapLayer.x, this.me.y + this.mapLayer.y);
   }
 
   private styleRemote(id: string, r: Remote): void {
@@ -919,7 +974,14 @@ export class MatchScene extends Scene {
     const downed = this.snapDown[id] !== undefined || this.down[id] !== undefined;
     const gone = this.escaped.has(id) || this.out.has(id);
     r.entity.visible = !gone;
-    // Seeker's view: concealed/vanished hiders fade out.
+    // Fog of war: anyone beyond your sight radius is hidden; they fade in as
+    // they cross into view. The Seeker sees hiders only up close; hiders only
+    // glimpse the Seeker (and each other) when near.
+    const full = this.amSeeker ? SEEKER_SIGHT_FULL : HIDER_SIGHT_FULL;
+    const fade = this.amSeeker ? SEEKER_SIGHT_FADE : HIDER_SIGHT_FADE;
+    const dist = Math.hypot(r.entity.x - this.me.x, r.entity.y - this.me.y);
+    r.entity.alpha = sightAlpha(dist, full, fade);
+    // Concealment (bush/vanish) on top, from the Seeker's side only.
     let alpha = 1;
     if (this.amSeeker && !isSeeker) {
       if (this.snapVanished.has(id)) alpha = 0;
@@ -1054,9 +1116,10 @@ export class MatchScene extends Scene {
     let life = 0.5;
     switch (fx.kind) {
       case 'attack':
-        g.arc(0, 0, 70, -0.9, 1.5).stroke({ color: NIGHT.blood, width: 12, alpha: 0.9 });
+        g.arc(0, 0, ATTACK_RANGE * 0.8, -0.9, 1.5).stroke({ color: NIGHT.blood, width: 14, alpha: 0.85 });
+        g.arc(0, 0, ATTACK_RANGE * 0.55, -0.7, 1.3).stroke({ color: 0xff8fa8, width: 8, alpha: 0.7 });
         sting('blip');
-        life = 0.22;
+        life = 0.24;
         break;
       case 'down':
         g.circle(0, 0, 40).fill({ color: NIGHT.blood, alpha: 0.4 });

@@ -92,27 +92,47 @@ export class LobbyScene extends Scene {
   }
 
   private layout(W: number, H: number): void {
-    this.codeLabel.position.set(W / 2, 56);
-    this.codeText.position.set(W / 2, 118);
-    this.countText.position.set(W / 2, 178);
-    this.rosterRow.position.set(W / 2, 262);
-    this.roleBtn.position.set(W / 2, 360);
-    this.pickLabel.position.set(W / 2, 436);
+    const landscape = W > H;
+    const rowH = landscape ? 78 : 100;
+    const top = landscape ? 348 : 500;
+    this.veriumChip.position.set(landscape ? 80 : 96, landscape ? 30 : 44);
+    this.codeLabel.position.set(W / 2, landscape ? 24 : 56);
+    this.codeText.position.set(W / 2, landscape ? 62 : 118);
+    this.countText.position.set(W / 2, landscape ? 100 : 178);
+    this.rosterRow.position.set(W / 2, landscape ? 150 : 262);
+    this.roleBtn.position.set(W / 2, landscape ? 260 : 360);
+    this.pickLabel.position.set(W / 2, landscape ? 306 : 436);
     const cols = this.classRole === 'seeker' ? 3 : 4;
     const colW = Math.min(236, (W - 40) / cols);
-    const scale = Math.max(0.5, Math.min(1, (colW - 10) / 220));
-    const top = 500;
+    const scale = Math.max(0.5, Math.min(1, (colW - 10) / 220)) * (landscape ? 0.8 : 1);
     const n = this.classBtns.length;
     this.classBtns.forEach((btn, i) => {
       const row = Math.floor(i / cols);
       const idx = i - row * cols;
       const inRow = Math.min(cols, n - row * cols);
       btn.scale.set(scale);
-      btn.position.set(W / 2 + (idx - (inRow - 1) / 2) * colW, top + row * 100);
+      btn.position.set(W / 2 + (idx - (inRow - 1) / 2) * colW, top + row * rowH);
     });
+
+    if (landscape) {
+      // Wide, short view: a bot stepper row, then a bottom action row spread
+      // across the width.
+      this.botLabel?.position.set(W / 2, 566);
+      this.botMinus?.position.set(W / 2 - 170, 566);
+      this.botPlus?.position.set(W / 2 + 170, 566);
+      const ay = H - 60;
+      this.wardrobeBtn.position.set(W * 0.18, ay);
+      this.randomBtn?.position.set(W * 0.5, ay);
+      this.startBtn?.position.set(W * 0.82, ay);
+      this.readyBtn?.position.set(W * 0.7, ay);
+      this.waitText?.position.set(W * 0.5, ay - 54);
+      this.statusText.position.set(W / 2, ay - 54);
+      this.layoutWardrobe(W, H);
+      return;
+    }
+
     const rows = Math.max(1, Math.ceil(n / cols));
-    const bottom = top + (rows - 1) * 100 + 90;
-    this.veriumChip.position.set(96, 44);
+    const bottom = top + (rows - 1) * rowH + 90;
     this.wardrobeBtn.position.set(W / 2, bottom + 6);
     this.statusText.position.set(W / 2, bottom + 78);
     this.startBtn?.position.set(W / 2, H - 96);
@@ -128,6 +148,16 @@ export class LobbyScene extends Scene {
   private layoutWardrobe(W: number, H: number): void {
     this.wardBg.clear();
     this.wardBg.rect(0, 0, W, H).fill(0x0a0812);
+    if (W > H) {
+      // Two columns: your blob on the left, the accessory grid on the right.
+      this.wardTitle.position.set(W / 2, 40);
+      this.preview.position.set(W * 0.22, 210);
+      this.wardVerium.position.set(W * 0.22, 330);
+      this.wardNote.position.set(W * 0.22, 372);
+      this.wardGrid.position.set(W * 0.66, 190);
+      this.wardDone.position.set(W * 0.22, H - 60);
+      return;
+    }
     this.wardTitle.position.set(W / 2, 60);
     this.preview.position.set(W / 2, 210);
     this.wardVerium.position.set(W / 2, 320);
