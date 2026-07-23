@@ -26,7 +26,9 @@
     "verify:blobvale": "node scripts/verify-blobvale.mjs",
     "dev:farm": "pnpm --filter @interverse/farm dev",
     "verify:farm": "node scripts/verify-farm.mjs",
-    "verify:visit": "node scripts/verify-visit.mjs"
+    "verify:visit": "node scripts/verify-visit.mjs",
+    "dev:hushfall": "pnpm --filter @interverse/hushfall dev",
+    "verify:hushfall": "node scripts/verify-hushfall.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",
