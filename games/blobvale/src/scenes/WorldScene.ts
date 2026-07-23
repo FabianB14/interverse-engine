@@ -109,6 +109,11 @@ interface ZoneMsg {
   index: number;
 }
 
+/** Joiner -> host: "I'm listening" — host replies with inprogress + roster. */
+interface HelloMsg {
+  type: 'hello';
+}
+
 interface CastMessage {
   type: 'cast';
 }
@@ -173,6 +178,10 @@ interface RosterMsg {
 interface ClassMsg {
   type: 'class';
   cls: string;
+  /** Late joiners bring their full customization with them. */
+  look?: number;
+  acc?: number;
+  voice?: number;
 }
 
 interface PlayerStats {
@@ -208,7 +217,8 @@ type WorldMessage =
   | FxMessage
   | OfferMsg
   | UpgradeMsg
-  | ZoneMsg;
+  | ZoneMsg
+  | HelloMsg;
 
 interface RemotePlayer {
   entity: Entity;
@@ -482,6 +492,8 @@ export class WorldScene extends Scene {
       playerCount: () => this.roster.order.length,
       names: () => this.roster.order.map((id) => this.roster.names[id] ?? '?'),
       classes: () => ({ ...this.roster.classes }),
+      looks: () => ({ ...(this.roster.looks ?? {}) }),
+      accs: () => ({ ...(this.roster.accs ?? {}) }),
       myPos: () => ({ x: this.me.x, y: this.me.y }),
       remotePos: (id: string) => {
         const r = this.remotes.get(id);
@@ -680,6 +692,13 @@ export class WorldScene extends Scene {
   // ----------------------------------------------------------- networking
 
   private onNet(from: string, msg: WorldMessage): void {
+    if (msg?.type === 'hello' && this.session.isHost) {
+      // A late joiner is ready — tell them we're mid-adventure and send the
+      // roster so they can pick a class and customize before joining.
+      this.session.sendTo(from, { type: 'inprogress' });
+      this.session.sendTo(from, { type: 'roster', ...this.roster });
+      return;
+    }
     if (msg?.type === 'pos' && this.session.isHost) {
       this.hostPositions[from] = { x: msg.x, y: msg.y };
       return;
@@ -719,9 +738,13 @@ export class WorldScene extends Scene {
       return;
     }
     if (msg?.type === 'class' && this.session.isHost) {
-      // A late joiner picked a class -> add them to the world for everyone.
+      // A late joiner picked a class -> add them to the world for everyone,
+      // carrying the look / accessory / voice they customized in the lobby.
       if (!this.roster.order.includes(from)) this.roster.order.push(from);
       this.roster.classes[from] = msg.cls;
+      if (msg.look !== undefined) (this.roster.looks ??= {})[from] = msg.look;
+      if (msg.acc !== undefined) (this.roster.accs ??= {})[from] = msg.acc;
+      if (msg.voice !== undefined) (this.roster.voices ??= {})[from] = msg.voice;
       // Without stats the host ignores their casts and damage — the old
       // "late-joining cleric does nothing" bug.
       this.stats[from] ??= { hp: maxHpAtLevel(1), max: maxHpAtLevel(1), lvl: 1, xp: 0 };

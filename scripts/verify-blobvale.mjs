@@ -166,11 +166,25 @@ await p2.evaluate(() => window.__blobvale.sendChat(0)); // "Help!"
 await sleep(700);
 const hostChatsAfter = await p1.evaluate(() => window.__blobvale.chatsSeen());
 
-// LATE JOIN: a 4th phone joins AFTER the adventure started; picking a class
-// should drop it straight into the world, visible to everyone.
-const p4 = await phone(`?join=${code}&class=cleric&name=Remy`);
+// LATE JOIN (M9): a 4th phone joins AFTER the adventure started. It must land
+// in the LOBBY (not auto-start), let the player pick + customize, and only
+// enter the world when they tap JOIN — carrying their customization along.
+const p4 = await phone(`?join=${code}&name=Remy`);
+await p4.waitForFunction(() => window.__blobvale?.scene() === 'lobby', null, { timeout: 10_000 });
+await p4.waitForFunction(() => window.__blobvale?.inProgress?.() === true, null, { timeout: 8_000 });
+await p4.evaluate(() => window.__blobvale.pick('cleric'));
+await sleep(300);
+const lateCustomizeShown = await p4.evaluate(() => window.__blobvale.customizeBtnVisible?.() === true);
+const lateReadyToJoin = await p4.evaluate(() => window.__blobvale.readyToJoin?.() === true);
+const lateStillLobby = (await p4.evaluate(() => window.__blobvale.scene())) === 'lobby';
+// Customize before committing: pick shade 3 (used by nobody else) so we can
+// prove it rides into the world with them.
+await p4.evaluate(() => window.__blobvale.setLook(3));
+await p4.evaluate(() => window.__blobvale.joinNow());
 await p4.waitForFunction(() => window.__blobvale?.scene() === 'world', null, { timeout: 12_000 });
 await sleep(900);
+const lateLookRode = await p1.evaluate(() => Object.values(window.__blobvale.looks?.() ?? {}).includes(3));
+const lateJoinManualOk = lateCustomizeShown && lateReadyToJoin && lateStillLobby && lateLookRode;
 const lateJoinerInWorld = await p4.evaluate(() => window.__blobvale.playerCount());
 const remotesSeenByP2 = await p2.evaluate(() => window.__blobvale.remoteIds().length);
 // PARTY PANEL (M7): a portrait+health row per adventurer, incl. the late one.
@@ -381,6 +395,7 @@ const ok =
   expansionOk &&
   dmgMeterOk &&
   compOk &&
+  lateJoinManualOk &&
   errors.length === 0;
 console.log(
   JSON.stringify(
@@ -425,6 +440,11 @@ console.log(
       compsAfterSkel,
       compsAfterPet,
       petSeenOnP2,
+      lateJoinManualOk,
+      lateCustomizeShown,
+      lateReadyToJoin,
+      lateStillLobby,
+      lateLookRode,
       veriumOk,
       veriumHost,
       veriumJoiner,

@@ -41,6 +41,10 @@ interface RosterMessage extends RosterState {
 interface ClassMessage {
   type: 'class';
   cls: string;
+  /** Late-join carries full customization since the host isn't in the lobby. */
+  look?: number;
+  acc?: number;
+  voice?: number;
 }
 
 interface LookMessage {
@@ -77,6 +81,11 @@ interface InProgressMessage {
   type: 'inprogress';
 }
 
+/** Joiner -> host on entering the lobby: "I'm listening, tell me the state." */
+interface HelloMessage {
+  type: 'hello';
+}
+
 type LobbyMessage =
   | RosterMessage
   | ClassMessage
@@ -86,7 +95,8 @@ type LobbyMessage =
   | ReadyMessage
   | CountdownMessage
   | StartMessage
-  | InProgressMessage;
+  | InProgressMessage
+  | HelloMessage;
 
 /** Lobby: code + roster + class picker; host starts the adventure. */
 export class LobbyScene extends Scene {
@@ -110,6 +120,17 @@ export class LobbyScene extends Scene {
   private startBtn: UIButton | null = null;
   private readyBtn: UIButton | null = null;
   private myReady = false;
+  /** True once we learn the room's adventure is already underway (late join). */
+  private inProgress = false;
+  /**
+   * Session handlers aren't unregistered when a scene is replaced, so a
+   * destroyed lobby's callbacks would still fire (and throw on dead UI),
+   * aborting the handler loop before the live scene's callbacks run. Gate
+   * every handler on this so a replaced lobby goes quiet.
+   */
+  private live = true;
+  /** Late-join: the class chosen but not yet committed (lets you customize). */
+  private pendingClass: string | null = null;
   private countdownText!: Text;
   private countdownSecs: number | null = null;
   private countdownAcc = 0;
@@ -150,17 +171,22 @@ export class LobbyScene extends Scene {
 
   private layout(W: number, H: number): void {
     const landscape = W > H;
-    this.codeLabel.position.set(W / 2, landscape ? 40 : 64);
-    this.codeText.position.set(W / 2, landscape ? 96 : 128);
-    this.countText.position.set(W / 2, landscape ? 152 : 192);
-    this.rosterRow.position.set(W / 2, landscape ? 250 : 300);
-    this.pickLabel.position.set(W / 2, landscape ? 350 : 430);
+    this.codeLabel.position.set(W / 2, landscape ? 30 : 64);
+    this.codeText.position.set(W / 2, landscape ? 80 : 128);
+    this.countText.position.set(W / 2, landscape ? 130 : 192);
+    this.rosterRow.position.set(W / 2, landscape ? 184 : 300);
+    this.pickLabel.position.set(W / 2, landscape ? 284 : 430);
     // Class picker as a centered grid so any roster size (5 or 7 classes)
-    // stays on-screen; the last (short) row is centered too.
+    // stays on-screen; the last (short) row is centered too. Columns and the
+    // button scale are clamped to the real width so the end classes never run
+    // off the edge in landscape ("side view"). Blurbs are hidden in landscape
+    // (the short viewport can't fit them between the two rows).
     const cols = landscape ? 4 : 2;
-    const colW = landscape ? 300 : 340;
+    const prefColW = landscape ? 320 : 344;
+    const colW = Math.min(prefColW, (W - 48) / cols);
+    const btnScale = Math.max(0.5, Math.min(1, (colW - 12) / 300));
     const rowH = 104;
-    const top = landscape ? 404 : 500;
+    const top = landscape ? 348 : 500;
     const n = this.classBtns.length;
     this.classBtns.forEach((btn, i) => {
       const row = Math.floor(i / cols);
@@ -168,18 +194,23 @@ export class LobbyScene extends Scene {
       const inThisRow = Math.min(cols, n - row * cols);
       const cx = W / 2 + (idxInRow - (inThisRow - 1) / 2) * colW;
       const cy = top + row * rowH;
+      btn.scale.set(btnScale);
       btn.position.set(cx, cy);
-      this.classBlurbs[i]?.position.set(cx, cy + 50);
+      const blurb = this.classBlurbs[i];
+      if (blurb) {
+        blurb.visible = !landscape;
+        blurb.position.set(cx, cy + 50);
+      }
     });
     const rowsCount = Math.ceil(n / cols);
     const bottom = top + (rowsCount - 1) * rowH + 96;
-    this.veriumChip.position.set(landscape ? 120 : 110, landscape ? 40 : 48);
-    this.customizeBtn.position.set(W / 2, bottom + 12);
-    this.statusText.position.set(W / 2, bottom + 92);
-    this.countdownText.position.set(W / 2, landscape ? 300 : 700);
-    this.startBtn?.position.set(W / 2, H - (landscape ? 60 : 100));
-    this.readyBtn?.position.set(W / 2, H - (landscape ? 60 : 100));
-    this.waitText?.position.set(W / 2, H - (landscape ? 120 : 190));
+    this.veriumChip.position.set(landscape ? 120 : 110, landscape ? 36 : 48);
+    this.customizeBtn.position.set(W / 2, landscape ? 540 : bottom + 12);
+    this.statusText.position.set(W / 2, landscape ? 606 : bottom + 92);
+    this.countdownText.position.set(W / 2, landscape ? 250 : 700);
+    this.startBtn?.position.set(W / 2, H - (landscape ? 54 : 100));
+    this.readyBtn?.position.set(W / 2, H - (landscape ? 54 : 100));
+    this.waitText?.position.set(W / 2, H - (landscape ? 108 : 190));
     this.layoutCustomize(W, H);
   }
 
@@ -187,6 +218,28 @@ export class LobbyScene extends Scene {
   private layoutCustomize(W: number, H: number): void {
     this.customizeBg.clear();
     this.customizeBg.rect(0, 0, W, H).fill(0x140f1e);
+    if (W > H) {
+      // Landscape ("side view"): two columns so the store grid and the DONE
+      // button never collide. Left = your blob + color/accessory/sound;
+      // right = the store; DONE parks in the bottom-left corner.
+      const lx = W * 0.27;
+      const rx = W * 0.72;
+      this.customizeTitle.position.set(W / 2, 40);
+      this.previewEntity.position.set(lx, 150);
+      this.styleLabel.position.set(lx, 250);
+      this.swatchRow.position.set(lx, 288);
+      this.accLabel.position.set(lx, 338);
+      this.accRow.position.set(lx, 376);
+      this.voiceLabel.position.set(lx, 424);
+      this.voiceRow.position.set(lx, 462);
+      this.storeLabel.position.set(rx - 150, 110);
+      this.storeVeriumText.position.set(rx + 150, 110);
+      this.storeNote.position.set(rx, 142);
+      this.storeRow.position.set(rx, 210);
+      this.buyConfirmBtn.position.set(rx, H - 70);
+      this.doneBtn.position.set(160, H - 60);
+      return;
+    }
     this.customizeTitle.position.set(W / 2, 60);
     this.previewEntity.position.set(W / 2, 220);
     this.styleLabel.position.set(W / 2, 348);
@@ -238,6 +291,10 @@ export class LobbyScene extends Scene {
       },
       ready: () => ({ ...(this.roster.ready ?? {}) }),
       countdown: () => this.countdownSecs,
+      inProgress: () => this.inProgress,
+      readyToJoin: () => this.inProgress && this.pendingClass !== null && !!this.readyBtn?.visible,
+      customizeBtnVisible: () => this.customizeBtn.visible,
+      joinNow: () => this.joinInProgress(),
       ...(session.isHost ? { start: () => this.startAdventure() } : {}),
     };
 
@@ -399,6 +456,7 @@ export class LobbyScene extends Scene {
 
     if (session.isHost) {
       session.onPlayerJoin((p) => {
+        if (!this.live) return;
         this.roster.order.push(p.id);
         this.roster.names[p.id] = this.uniqueName(p.name);
         this.shareRoster();
@@ -407,6 +465,7 @@ export class LobbyScene extends Scene {
         audio.chime();
       });
       session.onPlayerLeave((id) => {
+        if (!this.live) return;
         this.roster.order = this.roster.order.filter((x) => x !== id);
         delete this.roster.classes[id];
         if (this.roster.ready) delete this.roster.ready[id];
@@ -415,6 +474,7 @@ export class LobbyScene extends Scene {
         this.checkAllReady();
       });
       session.onMessage((from, data) => {
+        if (!this.live) return;
         const msg = data as LobbyMessage;
         if (msg?.type === 'class') {
           this.roster.classes[from] = msg.cls;
@@ -437,10 +497,14 @@ export class LobbyScene extends Scene {
           this.shareRoster();
           this.refreshRoster();
           this.checkAllReady();
+        } else if (msg?.type === 'hello') {
+          // A joiner is ready to hear the lobby state — (re)send the roster.
+          this.shareRoster();
         }
       });
     } else {
       session.onMessage((_from, data) => {
+        if (!this.live) return;
         const msg = data as LobbyMessage;
         if (msg?.type === 'roster') {
           this.roster = {
@@ -451,19 +515,22 @@ export class LobbyScene extends Scene {
             accs: msg.accs ?? {},
             voices: msg.voices ?? {},
           };
+          // A late joiner isn't in the world roster yet — keep their own
+          // in-progress picks from being wiped by the host's broadcasts.
+          if (this.inProgress) this.applyMyLocalPicks();
           this.refreshRoster();
         } else if (msg?.type === 'countdown') {
           this.setCountdownText(msg.secs);
         } else if (msg?.type === 'start') {
           this.game.scenes.replace(new WorldScene(this.session, msg.roster));
-        } else if (msg?.type === 'inprogress' && this.waitText) {
-          this.waitText.text = 'adventure in progress — pick a class to jump in!';
-          this.waitText.style.fill = partyPop.accent;
+        } else if (msg?.type === 'inprogress') {
+          this.enterLateJoin();
         }
       });
     }
 
     session.onClose((reason) => {
+      if (!this.live) return;
       this.statusText.text = `Disconnected: ${reason} — returning to menu…`;
       const back = new Entity();
       back.addBehavior(
@@ -474,14 +541,52 @@ export class LobbyScene extends Scene {
       );
       this.add(back);
     });
+
+    if (!session.isHost) {
+      // Ask the host for the current state now that our handler is live. If the
+      // adventure already started, the host's pushed 'inprogress' may have
+      // raced our setup during the scene fade — a hello (re-sent a few times
+      // until we hear back) closes that gap so late joiners always land in the
+      // lobby to customize rather than getting dropped in blind.
+      session.send({ type: 'hello' });
+      let tries = 0;
+      const ping = new Entity();
+      ping.addBehavior(
+        new Timer(
+          1.0,
+          () => {
+            if (this.inProgress || this.roster.classes[session.id] !== undefined || tries >= 4) {
+              this.remove(ping);
+              return;
+            }
+            tries += 1;
+            session.send({ type: 'hello' });
+          },
+          true,
+        ),
+      );
+      this.add(ping);
+    }
   }
 
   protected override onExit(): void {
+    this.live = false;
     delete window.__blobvale;
   }
 
   private pickClass(id: string, silent = false): void {
     if (!silent) audio.blip(1.1);
+    if (this.inProgress) {
+      // Late join: highlight the class and let them customize first — don't
+      // drop them into the world until they tap JOIN.
+      this.pendingClass = id;
+      (this.roster.classes ??= {})[this.session.id] = id;
+      if (this.readyBtn) this.readyBtn.visible = true;
+      this.refreshRoster();
+      this.redrawSwatches();
+      if (this.customizeRoot?.visible) this.redrawPreview();
+      return;
+    }
     if (this.session.isHost) {
       this.roster.classes[this.session.id] = id;
       this.shareRoster();
@@ -497,8 +602,8 @@ export class LobbyScene extends Scene {
   private pickLook(i: number, silent = false): void {
     if (!silent) audio.blip(1.3);
     store.set('look', i);
+    (this.roster.looks ??= {})[this.session.id] = i;
     if (this.session.isHost) {
-      (this.roster.looks ??= {})[this.session.id] = i;
       this.shareRoster();
       this.refreshRoster();
     } else {
@@ -512,8 +617,8 @@ export class LobbyScene extends Scene {
   private pickAcc(i: number, silent = false): void {
     if (!silent) audio.blip(1.2);
     store.set('acc', i);
+    (this.roster.accs ??= {})[this.session.id] = i;
     if (this.session.isHost) {
-      (this.roster.accs ??= {})[this.session.id] = i;
       this.shareRoster();
       this.refreshRoster();
     } else {
@@ -531,8 +636,8 @@ export class LobbyScene extends Scene {
   private pickVoice(i: number, silent = false): void {
     if (!silent) playVoice(i); // hear the sound you're choosing
     store.set('voice', i);
+    (this.roster.voices ??= {})[this.session.id] = i;
     if (this.session.isHost) {
-      (this.roster.voices ??= {})[this.session.id] = i;
       this.shareRoster();
       this.refreshRoster();
     } else {
@@ -813,8 +918,54 @@ export class LobbyScene extends Scene {
     }
   }
 
+  /** Switch the lobby into late-join mode (adventure already running). */
+  private enterLateJoin(): void {
+    if (this.inProgress) return;
+    this.inProgress = true;
+    if (this.waitText) {
+      this.waitText.text = 'adventure in progress — pick a class & customize, then JOIN';
+      this.waitText.style.fill = partyPop.accent;
+    }
+    // Repurpose the Ready button as JOIN; it stays hidden until a class is
+    // chosen so nobody joins classless.
+    this.readyBtn?.setLabel('JOIN ADVENTURE');
+    if (this.readyBtn) this.readyBtn.visible = this.pendingClass !== null;
+  }
+
+  /** Re-stamp my own class/look/acc/voice onto a freshly received roster. */
+  private applyMyLocalPicks(): void {
+    const id = this.session.id;
+    if (this.pendingClass) (this.roster.classes ??= {})[id] = this.pendingClass;
+    (this.roster.looks ??= {})[id] = store.get<number>('look', 2);
+    (this.roster.accs ??= {})[id] = store.get<number>('acc', 0);
+    (this.roster.voices ??= {})[id] = store.get<number>('voice', 0);
+  }
+
+  /** Late join: commit the chosen class + customization and enter the world. */
+  private joinInProgress(): void {
+    if (!this.pendingClass) return;
+    audio.chime();
+    const id = this.session.id;
+    const msg: ClassMessage = {
+      type: 'class',
+      cls: this.pendingClass,
+      look: this.roster.looks?.[id] ?? store.get<number>('look', 2),
+      acc: this.roster.accs?.[id] ?? store.get<number>('acc', 0),
+      voice: this.roster.voices?.[id] ?? store.get<number>('voice', 0),
+    };
+    this.session.send(msg);
+    this.readyBtn?.setLabel('joining…');
+    if (this.readyBtn) this.readyBtn.visible = false;
+    if (this.waitText) this.waitText.text = 'joining the adventure…';
+  }
+
   /** Non-host: flip my Ready flag and tell the host. */
   private toggleReady(): void {
+    // In late-join mode this button means JOIN, not ready-up.
+    if (this.inProgress) {
+      this.joinInProgress();
+      return;
+    }
     this.myReady = !this.myReady;
     audio.blip(this.myReady ? 1.4 : 0.9);
     this.readyBtn?.setLabel(this.myReady ? '✓ READY' : "I'M READY");

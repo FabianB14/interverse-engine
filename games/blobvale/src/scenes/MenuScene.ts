@@ -71,6 +71,10 @@ interface LobbyDebug {
   setReady?: (r: boolean) => void;
   ready?: () => Record<string, boolean>;
   countdown?: () => number | null;
+  inProgress?: () => boolean;
+  readyToJoin?: () => boolean;
+  customizeBtnVisible?: () => boolean;
+  joinNow?: () => void;
   campPos?: () => { x: number; y: number } | null;
   bossPos?: () => { x: number; y: number } | null;
   spawnPos?: () => { x: number; y: number };
