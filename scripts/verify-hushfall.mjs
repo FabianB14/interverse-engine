@@ -180,7 +180,9 @@ const rescueOk = p2Revived === false;
 // ESCAPE: host lights all lanterns, the gate opens, both hiders reach it and
 // escape — ending the hunt as a Hider win.
 await p1.evaluate(() => window.__hushfall.forceLightAll());
-await sleep(400);
+await p2
+  .waitForFunction(() => window.__hushfall.gateOpen?.() === true, null, { timeout: 6_000 })
+  .catch(() => {});
 const gateOnP2 = await p2.evaluate(() => window.__hushfall.gateOpen());
 const gate = await p2.evaluate(() => window.__hushfall.gatePos());
 await p2.evaluate((g) => window.__hushfall.warp(g.x, g.y), gate);
@@ -210,22 +212,36 @@ await pb.evaluate(() => window.__hushfall.start());
 await pb.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { timeout: 12_000 });
 await sleep(600);
 const matchBots = await pb.evaluate(() => window.__hushfall.botCount());
-const botPos0 = await pb.evaluate(() => window.__hushfall.botPos());
+const swarm0 = await pb.evaluate(() => window.__hushfall.botPositions());
 await sleep(3600);
-const botPos1 = await pb.evaluate(() => window.__hushfall.botPos());
-const botMoved =
-  !!botPos0 && !!botPos1 && Math.hypot(botPos1.x - botPos0.x, botPos1.y - botPos0.y) > 20;
+const swarm1 = await pb.evaluate(() => window.__hushfall.botPositions());
+// At least one bot should be travelling (a bot standing on its assigned
+// lantern to light it can be momentarily still, so measure the whole swarm).
+const maxMove = Math.max(
+  0,
+  ...swarm0.map((p, i) =>
+    swarm1[i] ? Math.hypot(swarm1[i].x - p.x, swarm1[i].y - p.y) : 0,
+  ),
+);
+const botMoved = swarm0.length === 3 && maxMove > 20;
+// They should follow different directions, not all chase the same objective:
+// each bot is assigned its own lantern, so their live goals must differ.
+const botGoals = await pb.evaluate(() => window.__hushfall.botGoals());
+const distinctGoals = new Set(botGoals.filter(Boolean)).size;
+const botSpread = distinctGoals >= 2;
 // Open the gate + move the seeker aside; bots should path toward it (they
 // route through doorways, so measure distance-to-gate, not a straight line).
 const gateB = await pb.evaluate(() => window.__hushfall.gatePos());
 await pb.evaluate(() => window.__hushfall.warp(2600, 2280)); // seeker far from the gate
 await pb.evaluate(() => window.__hushfall.forceLightAll());
-const botDist0 = botPos1 ? Math.hypot(botPos1.x - gateB.x, botPos1.y - gateB.y) : 0;
+const nearGate = (s) =>
+  s.length ? Math.min(...s.map((p) => Math.hypot(p.x - gateB.x, p.y - gateB.y))) : 1e9;
+const botDist0 = nearGate(swarm1);
 await sleep(4000);
-const botPos2 = await pb.evaluate(() => window.__hushfall.botPos());
-const botDist1 = botPos2 ? Math.hypot(botPos2.x - gateB.x, botPos2.y - gateB.y) : 1e9;
+const swarm2 = await pb.evaluate(() => window.__hushfall.botPositions());
+const botDist1 = nearGate(swarm2);
 const botToGate = botDist1 < botDist0 - 40;
-const botOk = botLobbyOk && matchBots === 3 && botMoved && botToGate;
+const botOk = botLobbyOk && matchBots === 3 && botMoved && botSpread && botToGate;
 await pb.screenshot({ path: `${outDir}/hf-6-bots-match.png` });
 
 await browser.close();
@@ -285,6 +301,8 @@ console.log(
       botHiders,
       matchBots,
       botMoved,
+      botSpread,
+      distinctGoals,
       botToGate,
       errors: errors.slice(0, 6),
     },

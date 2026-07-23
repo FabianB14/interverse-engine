@@ -31,6 +31,8 @@ export interface HushfallDebug {
   setBots?: (n: number) => void;
   botCount?: () => number;
   botPos?: () => { x: number; y: number } | null;
+  botPositions?: () => { x: number; y: number }[];
+  botGoals?: () => string[];
   hidePos?: (i: number) => { x: number; y: number } | null;
   hideCount?: () => number;
   hiddenIds?: () => string[];

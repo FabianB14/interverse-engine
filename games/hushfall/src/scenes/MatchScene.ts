@@ -866,42 +866,49 @@ export class MatchScene extends Scene {
         }
       } else {
         if (this.down[id] !== undefined) continue; // downed — wait for a rescue
+        // A stable per-bot index so each bot prefers different spots and they
+        // fan out instead of all chasing the single nearest objective.
+        const bi = parseInt(id.slice(3), 10) || 0;
         const fleeing = !!seekerPos && Math.hypot(seekerPos.x - p.x, seekerPos.y - p.y) < BOT_FLEE_DIST;
         if (fleeing && seekerPos) {
-          // Bolt for the nearest hiding spot; failing that, just run.
-          let hd = 440;
-          let hs: { x: number; y: number } | null = null;
-          for (const q of this.hidePts) {
-            const d = Math.hypot(q.x - p.x, q.y - p.y);
-            if (d < hd) {
-              hd = d;
-              hs = q;
-            }
-          }
-          if (hs) {
+          // Scatter: each bot bolts for a *different* nearby hiding spot rather
+          // than every bot piling onto the single closest one.
+          const cand = this.hidePts
+            .map((q) => ({ q, d: Math.hypot(q.x - p.x, q.y - p.y) }))
+            .filter((o) => o.d < 440)
+            .sort((a, b) => a.d - b.d);
+          if (cand.length) {
+            const hs = cand[bi % Math.min(cand.length, 3)]!.q;
             gx = hs.x;
             gy = hs.y;
             stop = 16;
           } else {
-            gx = p.x + (p.x - seekerPos.x);
-            gy = p.y + (p.y - seekerPos.y);
+            // No cover — flee at a bot-specific angle away from the Seeker so
+            // they don't all run the same line.
+            const ax = p.x - seekerPos.x;
+            const ay = p.y - seekerPos.y;
+            const a0 = Math.atan2(ay, ax) + (((bi % 3) - 1) * Math.PI) / 5;
+            gx = p.x + Math.cos(a0) * 220;
+            gy = p.y + Math.sin(a0) * 220;
           }
           speed = cls.speed;
         } else if (this.gateOpen) {
           gx = this.gatePt.x;
           gy = this.gatePt.y;
         } else {
-          let bd = 1e9;
-          this.lanternPts.forEach((q, i) => {
-            if ((this.lant[i] ?? 1) >= 1) return;
-            const d = Math.hypot(q.x - p.x, q.y - p.y);
-            if (d < bd) {
-              bd = d;
-              gx = q.x;
-              gy = q.y;
-            }
-          });
-          if (bd >= 1e9) {
+          // Divide up the objectives: each bot walks its *own* rotation of the
+          // lantern list (starting at its index), taking the first still-unlit
+          // one. So bot0 favours lantern0, bot1 lantern1, … and they spread
+          // across the manor instead of swarming the nearest lantern together.
+          const n = this.lanternPts.length;
+          const unlit: number[] = [];
+          for (let i = 0; i < n; i++) if ((this.lant[i] ?? 1) < 1) unlit.push(i);
+          if (unlit.length) {
+            const rank = (i: number): number => (i - bi + n) % n;
+            const li = unlit.slice().sort((a, b) => rank(a) - rank(b))[0]!;
+            gx = this.lanternPts[li]!.x;
+            gy = this.lanternPts[li]!.y;
+          } else {
             gx = this.gatePt.x;
             gy = this.gatePt.y;
           }
@@ -1497,6 +1504,18 @@ export class MatchScene extends Scene {
         const p = id ? this.hostPositions[id] : null;
         return p ? { x: p.x, y: p.y } : null;
       },
+      botPositions: () =>
+        this.roster.order
+          .filter((x) => x.startsWith('bot'))
+          .map((id) => {
+            const p = this.hostPositions[id];
+            return p ? { x: p.x, y: p.y } : null;
+          })
+          .filter((p): p is { x: number; y: number } => !!p),
+      botGoals: () =>
+        this.roster.order
+          .filter((x) => x.startsWith('bot'))
+          .map((id) => this.botPaths.get(id)?.goal ?? ''),
       hidePos: (i: number) => this.hidePts[i] ?? null,
       hideCount: () => this.hidePts.length,
       hiddenIds: () => this.activeHiders().filter((id) => this.isConcealed(id)),
