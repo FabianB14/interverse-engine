@@ -154,27 +154,28 @@ export class LobbyScene extends Scene {
     this.codeText.position.set(W / 2, landscape ? 96 : 128);
     this.countText.position.set(W / 2, landscape ? 152 : 192);
     this.rosterRow.position.set(W / 2, landscape ? 250 : 300);
-    this.pickLabel.position.set(W / 2, landscape ? 362 : 442);
+    this.pickLabel.position.set(W / 2, landscape ? 350 : 430);
+    // Class picker as a centered grid so any roster size (5 or 7 classes)
+    // stays on-screen; the last (short) row is centered too.
+    const cols = landscape ? 4 : 2;
+    const colW = landscape ? 300 : 340;
+    const rowH = 104;
+    const top = landscape ? 404 : 500;
+    const n = this.classBtns.length;
     this.classBtns.forEach((btn, i) => {
-      if (landscape) {
-        const cx = W / 2 + (i - 2) * 310;
-        btn.position.set(cx, 452);
-        this.classBlurbs[i]?.position.set(cx, 514);
-      } else {
-        const col = i % 2;
-        const row = Math.floor(i / 2);
-        const cx =
-          i === this.classBtns.length - 1 && this.classBtns.length % 2 === 1
-            ? W / 2
-            : W / 2 + (col === 0 ? -170 : 170);
-        const cy = 512 + row * 122;
-        btn.position.set(cx, cy);
-        this.classBlurbs[i]?.position.set(cx, cy + 62);
-      }
+      const row = Math.floor(i / cols);
+      const idxInRow = i - row * cols;
+      const inThisRow = Math.min(cols, n - row * cols);
+      const cx = W / 2 + (idxInRow - (inThisRow - 1) / 2) * colW;
+      const cy = top + row * rowH;
+      btn.position.set(cx, cy);
+      this.classBlurbs[i]?.position.set(cx, cy + 50);
     });
+    const rowsCount = Math.ceil(n / cols);
+    const bottom = top + (rowsCount - 1) * rowH + 96;
     this.veriumChip.position.set(landscape ? 120 : 110, landscape ? 40 : 48);
-    this.customizeBtn.position.set(W / 2, landscape ? 560 : 880);
-    this.statusText.position.set(W / 2, landscape ? 620 : 990);
+    this.customizeBtn.position.set(W / 2, bottom + 12);
+    this.statusText.position.set(W / 2, bottom + 92);
     this.countdownText.position.set(W / 2, landscape ? 300 : 700);
     this.startBtn?.position.set(W / 2, H - (landscape ? 60 : 100));
     this.readyBtn?.position.set(W / 2, H - (landscape ? 60 : 100));

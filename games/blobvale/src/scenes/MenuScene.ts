@@ -71,6 +71,17 @@ interface LobbyDebug {
   setReady?: (r: boolean) => void;
   ready?: () => Record<string, boolean>;
   countdown?: () => number | null;
+  campPos?: () => { x: number; y: number } | null;
+  bossPos?: () => { x: number; y: number } | null;
+  spawnPos?: () => { x: number; y: number };
+  zoneName?: () => string;
+  zoneCount?: () => number;
+  bossCount?: () => number;
+  dmgDealt?: (id?: string) => number;
+  damageMeter?: () => Array<{ id: string; name: string; dmg: number }>;
+  compCount?: () => number;
+  summonSkel?: () => void;
+  setMyClass?: (cls: string) => void;
 }
 
 declare global {

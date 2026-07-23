@@ -81,6 +81,46 @@ function rogueBandana(r: number): Container {
   return c;
 }
 
+function beastEars(r: number): Container {
+  // Beastmaster: a fur hood with pricked wolf ears.
+  const c = new Container();
+  const fur = 0x7a5a3a;
+  c.addChild(
+    new Graphics()
+      .poly([-r * 0.66, -r * 0.5, -r * 0.34, -r * 1.28, -r * 0.06, -r * 0.62])
+      .fill(fur)
+      .poly([r * 0.66, -r * 0.5, r * 0.34, -r * 1.28, r * 0.06, -r * 0.62])
+      .fill(fur)
+      .poly([-r * 0.5, -r * 0.62, -r * 0.34, -r * 1.02, -r * 0.18, -r * 0.66])
+      .fill(lighten(fur, 0.25))
+      .poly([r * 0.5, -r * 0.62, r * 0.34, -r * 1.02, r * 0.18, -r * 0.66])
+      .fill(lighten(fur, 0.25))
+      .roundRect(-r * 0.6, -r * 0.66, r * 1.2, r * 0.3, r * 0.14)
+      .fill(darken(fur, 0.12)),
+  );
+  return c;
+}
+
+function necroHood(r: number): Container {
+  // Necromancer: a dark cowl crowned with a tiny bone sigil.
+  const c = new Container();
+  const cloth = 0x3a2f52;
+  c.addChild(
+    new Graphics()
+      .poly([-r * 0.7, -r * 0.44, 0, -r * 1.34, r * 0.7, -r * 0.44])
+      .fill(cloth)
+      .poly([-r * 0.44, -r * 0.5, 0, -r * 1.08, r * 0.44, -r * 0.5])
+      .fill(darken(cloth, 0.28))
+      .circle(0, -r * 1.28, r * 0.16)
+      .fill(0xe8e2ee)
+      .circle(-r * 0.05, -r * 1.31, r * 0.04)
+      .fill(0x2b2b33)
+      .circle(r * 0.05, -r * 1.31, r * 0.04)
+      .fill(0x2b2b33),
+  );
+  return c;
+}
+
 export const CLASSES: ClassDef[] = [
   {
     id: 'knight',
@@ -126,6 +166,24 @@ export const CLASSES: ClassDef[] = [
     speed: 285,
     blurb: 'Fastest blob alive. Sneaky.',
     accessory: rogueBandana,
+  },
+  {
+    id: 'beast',
+    name: 'Beastmaster',
+    emoji: '🐺',
+    color: 0xc38f5a,
+    speed: 255,
+    blurb: 'Fights beside a loyal pet that bites for you.',
+    accessory: beastEars,
+  },
+  {
+    id: 'necro',
+    name: 'Necromancer',
+    emoji: '💀',
+    color: 0x9d7bd6,
+    speed: 230,
+    blurb: 'Drains life and raises skeletons from the fallen.',
+    accessory: necroHood,
   },
 ];
 

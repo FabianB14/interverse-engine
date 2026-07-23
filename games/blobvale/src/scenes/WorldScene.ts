@@ -12,6 +12,7 @@ import {
   audio,
   blobCharacter,
   buildTileMapView,
+  darken,
   forestDeep,
   moveWithCollision,
   tileMapFromRows,
@@ -31,6 +32,7 @@ import {
   CLASS_MODS,
   CLERIC_HEAL,
   CAMP_VARIANTS,
+  COMPANION,
   MOB,
   MOB_VARIANTS,
   MODS,
@@ -46,8 +48,14 @@ import {
   maxHpAtLevel,
   xpForLevel,
 } from '../combat.js';
-import type { MobState, MobVariant, MobVariantDef, StatusKind } from '../combat.js';
-import { TILE_SIZE, ZONES, valeLegend, valeRows } from '../map.js';
+import type {
+  CompanionKind,
+  MobState,
+  MobVariant,
+  MobVariantDef,
+  StatusKind,
+} from '../combat.js';
+import { TILE_SIZE, ZONES, valeLegend } from '../map.js';
 import { makeText } from '../text.js';
 import { clearLastRoom, saveLastRoom } from '../store.js';
 import { MenuScene } from './MenuScene.js';
@@ -76,10 +84,19 @@ interface MobSnap {
   sh?: number;
 }
 
+/** Companion wire state: o = owner id, k = kind (pet / skeleton). */
+interface CompSnap {
+  x: number;
+  y: number;
+  o: string;
+  k: CompanionKind;
+}
+
 interface SnapMessage {
   type: 'snap';
   players: Record<string, { x: number; y: number }>;
   mobs?: Record<string, MobSnap>;
+  comps?: Record<string, CompSnap>;
   stats?: Record<string, PlayerStats>;
   /** Current zone index, so late joiners repaint to match. */
   zone?: number;
@@ -120,7 +137,10 @@ interface FxMessage {
     | 'poison'
     | 'burn'
     | 'shock'
-    | 'mobshot';
+    | 'mobshot'
+    | 'claw'
+    | 'drain'
+    | 'summon';
   x: number;
   y: number;
   id?: string;
@@ -164,6 +184,8 @@ interface PlayerStats {
   cdMul?: number;
   /** Owned move-changing mods (M4): bomb / freeze / radial. */
   mods?: string[];
+  /** Total damage dealt this run — feeds the party damage meter. */
+  dmgDealt?: number;
 }
 
 interface OfferMsg {
@@ -194,6 +216,18 @@ interface RemotePlayer {
   targetY: number;
   bubble: Container | null;
   bubbleUntil: number;
+}
+
+/** Host-side companion (pet or raised skeleton) fighting for its owner. */
+interface Companion {
+  id: number;
+  ownerId: string;
+  kind: CompanionKind;
+  x: number;
+  y: number;
+  attackIn: number;
+  /** Skeletons crumble at this sim time; pets have none. */
+  expiresAt?: number;
 }
 
 /**
@@ -228,6 +262,13 @@ export class WorldScene extends Scene {
   // Combat (M2)
   private hostMobs = new Map<number, MobState>();
   private mobRespawns: { at: number; homeX: number; homeY: number }[] = [];
+  // Companions (M9): beastmaster pets + necromancer skeletons.
+  private hostComps = new Map<number, Companion>();
+  private nextCompId = COMPANION.ID_BASE;
+  private compViews = new Map<
+    string,
+    { e: Entity; body: Container; targetX: number; targetY: number; kind: CompanionKind }
+  >();
   private stats: Record<string, PlayerStats> = {};
   private upgradeOverlay: {
     root: Entity;
@@ -260,7 +301,10 @@ export class WorldScene extends Scene {
   private hpBar!: Graphics;
   private myBar!: Graphics;
   private partyPanel!: Container;
-  private partyRows = new Map<string, { body: Container; bar: Graphics; nameT: Text }>();
+  private partyRows = new Map<
+    string,
+    { body: Container; bar: Graphics; nameT: Text; dmgT: Text }
+  >();
   private nextMobId = 1;
   private killsSeen = 0;
   private veriumEarned = 0;
@@ -304,7 +348,7 @@ export class WorldScene extends Scene {
     // (Hosts can't rejoin — their room dies with them.)
     if (!session.isHost) saveLastRoom(session.code);
 
-    this.map = tileMapFromRows(valeRows, TILE_SIZE, valeLegend);
+    this.map = tileMapFromRows(ZONES[0]!.rows, TILE_SIZE, valeLegend);
     this.mapLayer = new Container();
     this.uiLayer = new Container();
     this.stage.addChild(this.mapLayer, this.uiLayer);
@@ -412,6 +456,8 @@ export class WorldScene extends Scene {
       }
       const lair = this.map.objects.find((o) => o.name === 'boss');
       if (lair) this.hostSpawnBoss(lair.x, lair.y + 60, this.zone);
+      // Give every beastmaster their loyal pet from the outset.
+      for (const id of this.roster.order) this.hostEnsurePet(id);
     }
 
     const hud = makeText(
@@ -492,7 +538,7 @@ export class WorldScene extends Scene {
       killBoss: () => {
         if (!this.session.isHost) return;
         const b = this.hostMobs.get(BOSS.ID);
-        if (b) this.hostHitMob(b, b.hp);
+        if (b) this.hostHitMob(b, b.hp, this.session.id);
       },
       enterPortal: () => {
         if (this.session.isHost && this.portal) this.me.position.set(this.portal.x, this.portal.y);
@@ -514,6 +560,35 @@ export class WorldScene extends Scene {
         const p = this.joystick.getGlobalPosition();
         return { x: p.x, y: p.y };
       },
+      // Level anchors (layouts are now per-zone, so tests warp by object).
+      campPos: () => {
+        const c = this.map.objects.find((o) => o.name === 'camp');
+        return c ? { x: c.x, y: c.y } : null;
+      },
+      bossPos: () => {
+        const l = this.map.objects.find((o) => o.name === 'boss');
+        return l ? { x: l.x, y: l.y + 60 } : null;
+      },
+      spawnPos: () => ({ ...this.spawnPoint }),
+      zoneName: () => ZONES[this.zone]?.name ?? '?',
+      zoneCount: () => ZONES.length,
+      bossCount: () => BOSSES.length,
+      // Damage meter + companions.
+      dmgDealt: (id?: string) => this.stats[id ?? this.session.id]?.dmgDealt ?? 0,
+      damageMeter: () =>
+        this.roster.order
+          .map((id) => ({ id, name: this.roster.names[id] ?? '?', dmg: this.stats[id]?.dmgDealt ?? 0 }))
+          .sort((a, b) => b.dmg - a.dmg),
+      compCount: () => (this.session.isHost ? this.hostComps.size : this.compViews.size),
+      summonSkel: () => {
+        if (this.session.isHost) this.hostSummon(this.session.id, this.me);
+      },
+      setMyClass: (cls: string) => {
+        if (!this.session.isHost) return;
+        this.roster.classes[this.session.id] = cls;
+        this.hostEnsurePet(this.session.id);
+        this.session.broadcast({ type: 'roster', ...this.roster });
+      },
     };
 
     session.onMessage((from, data) => this.onNet(from, data as WorldMessage));
@@ -534,6 +609,10 @@ export class WorldScene extends Scene {
         this.remotes.delete(id);
       }
       delete this.hostPositions[id];
+      // Their companions leave with them.
+      for (const [cid, c] of [...this.hostComps]) {
+        if (c.ownerId === id) this.hostComps.delete(cid);
+      }
     });
     session.onClose((reason) => {
       if (this.leaving) return; // intentional home-button exit, already handled
@@ -622,6 +701,7 @@ export class WorldScene extends Scene {
         this.me.position.set(this.spawnPoint.x, this.spawnPoint.y);
       }
       if (msg.mobs) this.syncMobViews(msg.mobs);
+      this.syncCompViews(msg.comps ?? {});
       this.syncPortal(msg.portal ?? null);
       return;
     }
@@ -646,6 +726,7 @@ export class WorldScene extends Scene {
       // "late-joining cleric does nothing" bug.
       this.stats[from] ??= { hp: maxHpAtLevel(1), max: maxHpAtLevel(1), lvl: 1, xp: 0 };
       this.spawnRemote(from, this.roster.order.indexOf(from));
+      this.hostEnsurePet(from);
       this.buildPartyPanel();
       this.session.broadcast({ type: 'roster', ...this.roster });
       this.session.sendTo(from, { type: 'start', roster: this.roster });
@@ -811,9 +892,18 @@ export class WorldScene extends Scene {
 
     this.cooldownLeft = Math.max(0, this.cooldownLeft - dt);
     this.castBtn.alpha = this.cooldownLeft > 0 || this.t < this.downUntil ? 0.35 : 1;
-    if (this.session.isHost) this.hostSimMobs(dt);
+    if (this.session.isHost) {
+      this.hostSimMobs(dt);
+      this.hostSimComps(dt);
+    }
     for (const v of this.mobViews.values()) {
       const k = Math.min(1, dt * 12);
+      v.e.x += (v.targetX - v.e.x) * k;
+      v.e.y += (v.targetY - v.e.y) * k;
+      v.e.update(dt);
+    }
+    for (const v of this.compViews.values()) {
+      const k = Math.min(1, dt * 14);
       v.e.x += (v.targetX - v.e.x) * k;
       v.e.y += (v.targetY - v.e.y) * k;
       v.e.update(dt);
@@ -878,16 +968,22 @@ export class WorldScene extends Scene {
             ...(m.shockUntil !== undefined && this.t < m.shockUntil ? { sh: 1 } : {}),
           };
         }
+        const comps: NonNullable<SnapMessage['comps']> = {};
+        for (const c of this.hostComps.values()) {
+          comps[String(c.id)] = { x: c.x, y: c.y, o: c.ownerId, k: c.kind };
+        }
         const snap: SnapMessage = {
           type: 'snap',
           players: this.hostPositions,
           mobs,
+          comps,
           stats: this.stats,
           zone: this.zone,
           portal: this.portal,
         };
         this.session.broadcast(snap);
         this.syncMobViews(mobs);
+        this.syncCompViews(comps);
         this.syncPortal(this.portal);
         this.hostCheckPortalEntry();
       }
@@ -975,6 +1071,182 @@ export class WorldScene extends Scene {
     });
   }
 
+  // --------------------------------------------------------- companions (M9)
+
+  private compOwnerPos(ownerId: string): { x: number; y: number } {
+    if (ownerId === this.session.id) return { x: this.me.x, y: this.me.y };
+    return this.hostPositions[ownerId] ?? { ...this.spawnPoint };
+  }
+
+  /** Beastmasters get exactly one permanent pet; call it liberally (no dupes). */
+  private hostEnsurePet(ownerId: string): void {
+    if (!this.session.isHost) return;
+    if (this.roster.classes[ownerId] !== 'beast') return;
+    for (const c of this.hostComps.values()) {
+      if (c.ownerId === ownerId && c.kind === 'pet') return;
+    }
+    const p = this.compOwnerPos(ownerId);
+    const id = this.nextCompId++;
+    this.hostComps.set(id, {
+      id,
+      ownerId,
+      kind: 'pet',
+      x: p.x - 40,
+      y: p.y + 30,
+      attackIn: 0,
+    });
+  }
+
+  /** Necromancers raise a short-lived skeleton (capped, oldest recycled). */
+  private hostSummon(ownerId: string, near: { x: number; y: number }): void {
+    if (!this.session.isHost) return;
+    const mine = [...this.hostComps.entries()].filter(
+      ([, c]) => c.ownerId === ownerId && c.kind === 'skel',
+    );
+    if (mine.length >= COMPANION.MAX_SKELETONS) {
+      mine.sort((a, b) => a[0] - b[0]);
+      this.hostComps.delete(mine[0]![0]);
+    }
+    const id = this.nextCompId++;
+    const a = ((id % 8) / 8) * Math.PI * 2;
+    this.hostComps.set(id, {
+      id,
+      ownerId,
+      kind: 'skel',
+      x: near.x + Math.cos(a) * 40,
+      y: near.y + Math.sin(a) * 40,
+      attackIn: COMPANION.BITE_EVERY * 0.5,
+      expiresAt: this.t + COMPANION.SKELETON_LIFE,
+    });
+    this.broadcastFx({ type: 'fx', kind: 'summon', x: near.x, y: near.y });
+  }
+
+  /** Host: companions hover near their owner, then dash in and bite mobs. */
+  private hostSimComps(dt: number): void {
+    for (const [cid, c] of [...this.hostComps]) {
+      if (c.expiresAt !== undefined && this.t >= c.expiresAt) {
+        this.hostComps.delete(cid);
+        continue;
+      }
+      // Owner vanished (left the room) — dismiss the companion.
+      if (!this.roster.order.includes(c.ownerId)) {
+        this.hostComps.delete(cid);
+        continue;
+      }
+      const owner = this.compOwnerPos(c.ownerId);
+      let target: MobState | null = null;
+      let bestD = COMPANION.SIGHT;
+      for (const m of this.hostMobs.values()) {
+        const d = Math.hypot(m.x - c.x, m.y - c.y);
+        if (d < bestD) {
+          bestD = d;
+          target = m;
+        }
+      }
+      const ownerD = Math.hypot(owner.x - c.x, owner.y - c.y);
+      let goalX: number;
+      let goalY: number;
+      let stop: number;
+      // Chase mobs while near the owner; otherwise heel back to their side.
+      if (target && ownerD < COMPANION.SIGHT * 1.6) {
+        goalX = target.x;
+        goalY = target.y;
+        stop = COMPANION.BITE_RANGE * 0.7;
+      } else {
+        goalX = owner.x - COMPANION.FOLLOW * 0.6;
+        goalY = owner.y + COMPANION.FOLLOW * 0.6;
+        stop = 10;
+      }
+      const d = Math.hypot(goalX - c.x, goalY - c.y) || 1;
+      if (d > stop) {
+        const moved = moveWithCollision(
+          this.map,
+          c.x,
+          c.y,
+          14,
+          12,
+          ((goalX - c.x) / d) * COMPANION.SPEED * dt,
+          ((goalY - c.y) / d) * COMPANION.SPEED * dt,
+        );
+        c.x = moved.x;
+        c.y = moved.y;
+      }
+      c.attackIn -= dt;
+      if (
+        target &&
+        c.attackIn <= 0 &&
+        Math.hypot(target.x - c.x, target.y - c.y) <= COMPANION.BITE_RANGE
+      ) {
+        c.attackIn = COMPANION.BITE_EVERY;
+        const base = c.kind === 'pet' ? COMPANION.PET_DAMAGE : COMPANION.SKELETON_DAMAGE;
+        const lvl = this.stats[c.ownerId]?.lvl ?? 1;
+        this.hostHitMob(target, damageAtLevel(base, lvl), c.ownerId);
+      }
+    }
+  }
+
+  /** Create/move/remove companion blobs (host + clients, from the snapshot). */
+  private syncCompViews(comps: Record<string, CompSnap>): void {
+    for (const [id, c] of Object.entries(comps)) {
+      let v = this.compViews.get(id);
+      if (!v) {
+        const made = this.makeCompView(c.k, c.o);
+        made.e.position.set(c.x, c.y);
+        this.add(made.e, this.mapLayer);
+        v = { e: made.e, body: made.body, targetX: c.x, targetY: c.y, kind: c.k };
+        this.compViews.set(id, v);
+      }
+      v.targetX = c.x;
+      v.targetY = c.y;
+    }
+    for (const [id, v] of [...this.compViews]) {
+      if (!(id in comps)) {
+        this.remove(v.e);
+        this.compViews.delete(id);
+      }
+    }
+  }
+
+  private makeCompView(kind: CompanionKind, ownerId: string): { e: Entity; body: Container } {
+    const e = new Entity();
+    const cls = classById(this.roster.classes[ownerId]);
+    const r = kind === 'pet' ? 18 : 16;
+    const color = kind === 'pet' ? shadeFor(cls.color, 1) : 0xe8e2ee;
+    const char = blobCharacter({
+      radius: r,
+      color,
+      seed: 200 + Math.max(0, this.roster.order.indexOf(ownerId)),
+      shadow: false,
+    });
+    if (kind === 'pet') {
+      char.body.addChild(
+        new Graphics()
+          .poly([-r * 0.5, -r * 0.5, -r * 0.8, -r * 1.2, -r * 0.15, -r * 0.7])
+          .fill(color)
+          .poly([r * 0.5, -r * 0.5, r * 0.8, -r * 1.2, r * 0.15, -r * 0.7])
+          .fill(color),
+      );
+    } else {
+      char.body.addChild(
+        new Graphics()
+          .circle(-r * 0.32, -r * 0.1, r * 0.16)
+          .fill(0x2b2b33)
+          .circle(r * 0.32, -r * 0.1, r * 0.16)
+          .fill(0x2b2b33),
+      );
+    }
+    e.addChild(char.view);
+    e.addBehavior(
+      new Wobble({
+        target: char.body,
+        amount: 0.08,
+        speed: 5,
+        phase: Math.max(0, this.roster.order.indexOf(ownerId)),
+      }),
+    );
+    return { e, body: char.body };
+  }
+
   // ------------------------------------------------------------- zones (M6)
 
   private applyZoneBackdrop(): void {
@@ -988,20 +1260,28 @@ export class WorldScene extends Scene {
     }
   }
 
-  /** Repaint the world to `index`'s look (collision/spawns are shared). */
+  /**
+   * Rebuild the world for zone `index`: each level now has its OWN layout
+   * (collision + spawn/camps/boss), generated deterministically so the host
+   * and every client agree. Camera bounds and the spawn point move with it.
+   */
   private loadZone(index: number): void {
     this.zone = ((index % ZONES.length) + ZONES.length) % ZONES.length;
-    const painters = ZONES[this.zone]!.painters;
-    const next = buildTileMapView(this.map, painters);
+    const zdef = ZONES[this.zone]!;
+    this.map = tileMapFromRows(zdef.rows, TILE_SIZE, valeLegend);
+    const next = buildTileMapView(this.map, zdef.painters);
     this.mapLayer.removeChild(this.tileView);
     this.tileView.destroy({ children: true });
     this.tileView = next;
     this.mapLayer.addChildAt(this.tileView, 0);
+    const spawn = this.map.objects.find((o) => o.name === 'spawn') ?? { x: 800, y: 1200 };
+    this.spawnPoint = { x: spawn.x, y: spawn.y };
+    this.camera?.setBounds(0, 0, this.map.width * TILE_SIZE, this.map.height * TILE_SIZE);
     this.applyZoneBackdrop();
     if (this.codeHud) {
-      this.codeHud.text = `${this.session.code}  ·  ${ZONES[this.zone]!.name}`;
+      this.codeHud.text = `${this.session.code}  ·  ${zdef.name}`;
     }
-    this.announce(`Entering ${ZONES[this.zone]!.name}!`);
+    this.announce(`Entering ${zdef.name}!`);
   }
 
   /** Host: everyone moves to the next level and a fresh boss awaits. */
@@ -1011,10 +1291,18 @@ export class WorldScene extends Scene {
     this.syncPortal(null);
     this.hostMobs.clear();
     this.mobRespawns = [];
+    // Raised skeletons don't cross over; pets regroup at the new spawn.
+    for (const [cid, c] of [...this.hostComps]) {
+      if (c.kind === 'skel') this.hostComps.delete(cid);
+    }
     this.session.broadcast({ type: 'zone', index: next });
     this.loadZone(next);
     this.me.position.set(this.spawnPoint.x, this.spawnPoint.y);
     this.hostPositions[this.session.id] = { x: this.me.x, y: this.me.y };
+    for (const c of this.hostComps.values()) {
+      c.x = this.spawnPoint.x;
+      c.y = this.spawnPoint.y;
+    }
     for (const camp of this.map.objects.filter((o) => o.name === 'camp')) {
       CAMP_VARIANTS.forEach((v) => this.hostSpawnMob(camp.x, camp.y, v));
     }
@@ -1195,6 +1483,29 @@ export class WorldScene extends Scene {
       this.broadcastFx({ type: 'fx', kind: 'frostbolt', x: m.x, y: m.y, tx: p.x, ty: p.y });
       this.hostHurtPlayer(targetId, bd.specialDamage);
       this.broadcastFx({ type: 'fx', kind: 'chill', x: p.x, y: p.y, id: targetId });
+    } else if (bd.special === 'volley') {
+      // A fan of bolts at the target — one packet of damage, three scary lines.
+      const ang = Math.atan2(p.y - m.y, p.x - m.x);
+      const reach = Math.hypot(p.x - m.x, p.y - m.y) || 1;
+      for (let i = 0; i < BOSS.VOLLEY_BOLTS; i++) {
+        const a = ang + (i - (BOSS.VOLLEY_BOLTS - 1) / 2) * BOSS.VOLLEY_SPREAD;
+        this.broadcastFx({
+          type: 'fx',
+          kind: 'frostbolt',
+          x: m.x,
+          y: m.y,
+          tx: m.x + Math.cos(a) * reach,
+          ty: m.y + Math.sin(a) * reach,
+        });
+      }
+      this.hostHurtPlayer(targetId, bd.specialDamage);
+    } else if (bd.special === 'summon') {
+      // The Bone Lord raises fresh minions beside itself.
+      this.broadcastFx({ type: 'fx', kind: 'summon', x: m.x, y: m.y });
+      for (let i = 0; i < BOSS.SUMMON_COUNT; i++) {
+        const v = CAMP_VARIANTS[i % CAMP_VARIANTS.length] ?? 'melee';
+        this.hostSpawnMob(m.x, m.y, v);
+      }
     } else {
       // Ember Titan lobs a bomb at where you're standing — move!
       const bx = p.x;
@@ -1273,6 +1584,8 @@ export class WorldScene extends Scene {
       tx: target?.x ?? caster.x,
       ty: target?.y ?? caster.y - 60,
     });
+    // Necromancers raise a skeleton on every cast, whether or not a mob is hit.
+    if (def.summons === 'skel') this.hostSummon(casterId, caster);
     if (!target) return;
 
     const victims =
@@ -1281,8 +1594,12 @@ export class WorldScene extends Scene {
             (m) => Math.hypot(m.x - target.x, m.y - target.y) <= def.splash,
           )
         : [target];
-    this.applyStatuses(victims, mods, target.x, target.y);
-    for (const m of victims) this.hostHitMob(m, dmg);
+    this.applyStatuses(victims, mods, target.x, target.y, casterId);
+    for (const m of victims) this.hostHitMob(m, dmg, casterId);
+    // Life drain: the necromancer heals for a slice of the hit.
+    if (def.drain) {
+      st.hp = Math.min(st.max, st.hp + Math.round(dmg * def.drain));
+    }
 
     // Move-changing mods (M4) — extra bursts on top of the base attack.
     if (mods.includes('radial')) {
@@ -1291,7 +1608,7 @@ export class WorldScene extends Scene {
       );
       this.broadcastFx({ type: 'fx', kind: 'radial', x: caster.x, y: caster.y });
       const rDmg = Math.max(1, Math.round(dmg * MODS.RADIAL_FACTOR));
-      for (const m of near) this.hostHitMob(m, rDmg);
+      for (const m of near) this.hostHitMob(m, rDmg, casterId);
     }
     if (mods.includes('bomb')) {
       const bx = target.x;
@@ -1305,7 +1622,7 @@ export class WorldScene extends Scene {
           const caught = [...this.hostMobs.values()].filter(
             (m) => Math.hypot(m.x - bx, m.y - by) <= MODS.BOMB_RADIUS,
           );
-          for (const m of caught) this.hostHitMob(m, bDmg);
+          for (const m of caught) this.hostHitMob(m, bDmg, casterId);
         }),
       );
       this.add(fuse);
@@ -1313,8 +1630,13 @@ export class WorldScene extends Scene {
   }
 
   /** Damage one mob: hit fx, boss enrage phase, death/respawn/XP. */
-  private hostHitMob(m: MobState, dmg: number): void {
+  private hostHitMob(m: MobState, dmg: number, by?: string): void {
     if (!this.hostMobs.has(m.id)) return;
+    // Credit the attacker's damage meter with what actually landed.
+    if (by) {
+      const st = this.stats[by];
+      if (st) st.dmgDealt = (st.dmgDealt ?? 0) + Math.max(0, Math.min(dmg, m.hp));
+    }
     m.hp -= dmg;
     this.broadcastFx({ type: 'fx', kind: 'hit', x: m.x, y: m.y - 30, amount: dmg });
     if (m.id === BOSS.ID && !this.bossEnraged && m.hp <= m.max / 2 && m.hp > 0) {
@@ -1352,21 +1674,27 @@ export class WorldScene extends Scene {
   // ------------------------------------------------------- status effects
 
   /** Roll each owned status mod's chance against each victim. */
-  private applyStatuses(victims: MobState[], mods: string[], fxX: number, fxY: number): void {
+  private applyStatuses(
+    victims: MobState[],
+    mods: string[],
+    fxX: number,
+    fxY: number,
+    by?: string,
+  ): void {
     for (const kind of STATUS_KINDS) {
       if (!mods.includes(kind)) continue;
       let landed = false;
       for (const m of victims) {
         if (!this.hostMobs.has(m.id)) continue;
         if (Math.random() > STATUS[kind].chance) continue;
-        if (this.applyStatus(m, kind)) landed = true;
+        if (this.applyStatus(m, kind, by)) landed = true;
       }
       if (landed) this.broadcastFx({ type: 'fx', kind, x: fxX, y: fxY });
     }
   }
 
   /** Apply one status; returns false if it didn't take (e.g. freeze on CD). */
-  private applyStatus(m: MobState, kind: StatusKind): boolean {
+  private applyStatus(m: MobState, kind: StatusKind, by?: string): boolean {
     const t = this.t;
     if (kind === 'freeze') {
       // CC cooldown: can't be re-frozen until the immunity window passes.
@@ -1378,11 +1706,13 @@ export class WorldScene extends Scene {
     if (kind === 'poison') {
       m.poisonUntil = t + STATUS.poison.duration;
       m.poisonNext = t + STATUS.poison.tick;
+      if (by !== undefined) m.poisonBy = by;
       return true;
     }
     if (kind === 'burn') {
       m.burnUntil = t + STATUS.burn.duration;
       m.burnNext = t + STATUS.burn.tick;
+      if (by !== undefined) m.burnBy = by;
       return true;
     }
     m.shockUntil = t + STATUS.shock.duration; // shock
@@ -1399,7 +1729,7 @@ export class WorldScene extends Scene {
       t >= m.poisonNext
     ) {
       m.poisonNext = t + STATUS.poison.tick;
-      this.hostHitMob(m, STATUS.poison.dmg);
+      this.hostHitMob(m, STATUS.poison.dmg, m.poisonBy);
       if (!this.hostMobs.has(m.id)) return true;
     }
     if (
@@ -1409,7 +1739,7 @@ export class WorldScene extends Scene {
       t >= m.burnNext
     ) {
       m.burnNext = t + STATUS.burn.tick;
-      this.hostHitMob(m, STATUS.burn.dmg);
+      this.hostHitMob(m, STATUS.burn.dmg, m.burnBy);
       if (!this.hostMobs.has(m.id)) return true;
     }
     return false;
@@ -1626,6 +1956,48 @@ export class WorldScene extends Scene {
         life = 0.22;
         break;
       }
+      case 'claw': {
+        // Beastmaster swipe: a trio of raking slashes toward the target.
+        const base = Math.atan2((fx.ty ?? fx.y) - fx.y, (fx.tx ?? fx.x) - fx.x);
+        for (let i = -1; i <= 1; i++) {
+          const a = base + i * 0.24;
+          g.moveTo(Math.cos(a) * 28, Math.sin(a) * 28)
+            .lineTo(Math.cos(a) * 128, Math.sin(a) * 128)
+            .stroke({ color: 0xffe0a3, width: 7, alpha: 0.9 });
+        }
+        audio.blip(1.2);
+        life = 0.24;
+        break;
+      }
+      case 'drain': {
+        // Necromancer siphon: a crimson tether pulling life back to the caster.
+        const tx = (fx.tx ?? fx.x) - fx.x;
+        const ty = (fx.ty ?? fx.y) - fx.y;
+        g.moveTo(0, 0).lineTo(tx, ty).stroke({ color: 0xd6335a, width: 6, alpha: 0.85 });
+        g.circle(tx, ty, 16).fill({ color: 0x9d2340, alpha: 0.7 });
+        for (let i = 1; i <= 4; i++) {
+          const f = i / 5;
+          g.circle(tx * (1 - f), ty * (1 - f), 5).fill({ color: 0xff6b8a, alpha: 0.8 });
+        }
+        audio.buzz();
+        life = 0.3;
+        break;
+      }
+      case 'summon': {
+        // A dark puff coughs up a fresh minion.
+        g.circle(0, 0, 46).fill({ color: 0x2a1f3e, alpha: 0.55 });
+        for (let i = 0; i < 7; i++) {
+          const a = (i / 7) * Math.PI * 2;
+          g.circle(Math.cos(a) * 30, Math.sin(a) * 30, 7).fill({ color: 0xc77dff, alpha: 0.8 });
+        }
+        const sk = makeText('💀', 30, { color: 0xffffff });
+        sk.position.set(0, -6);
+        e.addChild(sk);
+        e.addBehavior(new Tween(e, { y: fx.y - 46, alpha: 0 }, 0.7, { ease: easings.outQuad }));
+        audio.blip(0.5);
+        life = 0.7;
+        break;
+      }
       case 'telegraph': {
         // Red warning ring: get OUT of the circle.
         const r = fx.r ?? 180;
@@ -1775,7 +2147,7 @@ export class WorldScene extends Scene {
           Math.sin(a + 0.11) * r * 1.25,
         ]).fill({ color: 0xdff6ff, alpha: 0.85 });
       }
-    } else {
+    } else if (kind === 2) {
       // Ember Titan: dark horns + glowing cracks.
       g.poly([-r * 0.55, -r * 0.7, -r * 0.95, -r * 1.3, -r * 0.25, -r * 0.85]).fill(0x3b2b2b);
       g.poly([r * 0.55, -r * 0.7, r * 0.95, -r * 1.3, r * 0.25, -r * 0.85]).fill(0x3b2b2b);
@@ -1784,6 +2156,58 @@ export class WorldScene extends Scene {
         g.moveTo(Math.cos(a) * r * 0.25, Math.sin(a) * r * 0.25)
           .lineTo(Math.cos(a + 0.35) * r * 0.75, Math.sin(a + 0.35) * r * 0.75)
           .stroke({ color: 0xffd166, width: Math.max(3, r * 0.07), alpha: 0.9 });
+      }
+    } else if (kind === 3) {
+      // Bog Serpent: dripping fangs + a slitted glare.
+      g.poly([-r * 0.22, -r * 0.1, -r * 0.34, r * 0.42, -r * 0.06, -r * 0.06]).fill(0xf2ffe9);
+      g.poly([r * 0.22, -r * 0.1, r * 0.34, r * 0.42, r * 0.06, -r * 0.06]).fill(0xf2ffe9);
+      g.moveTo(-r * 0.5, -r * 0.34)
+        .lineTo(-r * 0.12, -r * 0.24)
+        .moveTo(r * 0.5, -r * 0.34)
+        .lineTo(r * 0.12, -r * 0.24)
+        .stroke({ color: 0x1c2a12, width: Math.max(4, r * 0.09) });
+    } else if (kind === 4) {
+      // Deep Kraken: a ring of writhing tentacles.
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        g.moveTo(Math.cos(a) * r * 0.7, Math.sin(a) * r * 0.7)
+          .quadraticCurveTo(
+            Math.cos(a + 0.4) * r * 1.15,
+            Math.sin(a + 0.4) * r * 1.15,
+            Math.cos(a + 0.1) * r * 1.4,
+            Math.sin(a + 0.1) * r * 1.4,
+          )
+          .stroke({ color: darken(0x2f9fb8, 0.15), width: Math.max(5, r * 0.14), alpha: 0.9 });
+      }
+    } else if (kind === 5) {
+      // Bone Lord: a bleering skull mask.
+      g.circle(-r * 0.3, -r * 0.2, r * 0.2).fill(0x1a1526);
+      g.circle(r * 0.3, -r * 0.2, r * 0.2).fill(0x1a1526);
+      g.circle(-r * 0.3, -r * 0.2, r * 0.09).fill(0xc77dff);
+      g.circle(r * 0.3, -r * 0.2, r * 0.09).fill(0xc77dff);
+      for (let i = 0; i < 4; i++) {
+        g.rect(-r * 0.28 + i * r * 0.18, r * 0.3, r * 0.1, r * 0.24).fill(0xe8e2ee);
+      }
+    } else if (kind === 6) {
+      // Sand Colossus: a heavy stone brow + cracks.
+      g.roundRect(-r * 0.7, -r * 0.6, r * 1.4, r * 0.28, r * 0.1).fill(darken(0xcaa25e, 0.3));
+      for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * Math.PI * 2 + 0.5;
+        g.moveTo(Math.cos(a) * r * 0.2, Math.sin(a) * r * 0.2)
+          .lineTo(Math.cos(a + 0.3) * r * 0.8, Math.sin(a + 0.3) * r * 0.8)
+          .stroke({ color: darken(0xcaa25e, 0.45), width: Math.max(3, r * 0.06), alpha: 0.8 });
+      }
+    } else {
+      // Void Monarch: a single vast eye ringed by drifting motes.
+      g.circle(0, -r * 0.15, r * 0.42).fill(0xf2ffe9);
+      g.circle(0, -r * 0.15, r * 0.2).fill(0x8f5bff);
+      g.circle(0, -r * 0.15, r * 0.08).fill(0x120e1c);
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2;
+        g.circle(Math.cos(a) * r * 1.15, Math.sin(a) * r * 1.15, r * 0.1).fill({
+          color: 0x5be0ff,
+          alpha: 0.85,
+        });
       }
     }
     return g;
@@ -1890,12 +2314,35 @@ export class WorldScene extends Scene {
       const bar = new Graphics();
       bar.position.set(40, 24);
       row.addChild(bar);
+      // Live damage meter: total damage this adventurer has dealt.
+      const dmgT = makeText('', 14, { color: 0x9ad8ff, weight: '800' });
+      dmgT.anchor.set(0, 0.5);
+      dmgT.position.set(182, 24);
+      row.addChild(dmgT);
       this.partyPanel.addChild(row);
-      this.partyRows.set(id, { body: char.body, bar, nameT });
+      this.partyRows.set(id, { body: char.body, bar, nameT, dmgT });
     });
   }
 
+  /** Compact damage number for the meter (1.2k, 15k). */
+  private fmtDmg(n: number): string {
+    if (n >= 10000) return `${Math.round(n / 1000)}k`;
+    if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+    return `${Math.round(n)}`;
+  }
+
   private updateParty(): void {
+    // The party's top damage-dealer gets a golden meter (only once someone
+    // has actually dealt damage).
+    let leadId = '';
+    let leadDmg = 0;
+    for (const id of this.partyRows.keys()) {
+      const d = this.stats[id]?.dmgDealt ?? 0;
+      if (d > leadDmg) {
+        leadDmg = d;
+        leadId = id;
+      }
+    }
     for (const [id, row] of this.partyRows) {
       const st = this.stats[id];
       const w = 132;
@@ -1907,6 +2354,11 @@ export class WorldScene extends Scene {
         const label = `Lv${st.lvl} ${this.roster.names[id] ?? '?'}${down ? ' 💫' : ''}`;
         if (row.nameT.text !== label) row.nameT.text = label;
         row.body.alpha = down ? 0.4 : 1;
+        const dmg = st.dmgDealt ?? 0;
+        const isLead = id === leadId && leadDmg > 0;
+        const dLabel = `${isLead ? '👑 ' : '⚔ '}${this.fmtDmg(dmg)}`;
+        if (row.dmgT.text !== dLabel) row.dmgT.text = dLabel;
+        row.dmgT.style.fill = isLead ? 0xffd166 : 0x9ad8ff;
       }
     }
   }

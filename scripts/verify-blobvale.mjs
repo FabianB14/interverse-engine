@@ -177,12 +177,17 @@ const remotesSeenByP2 = await p2.evaluate(() => window.__blobvale.remoteIds().le
 const partySizeHost = await p1.evaluate(() => window.__blobvale.partySize());
 const partySizeJoiner = await p2.evaluate(() => window.__blobvale.partySize());
 const partyOk = partySizeHost === 4 && partySizeJoiner === 4;
+// Levels are now per-zone layouts; warp by object anchors, not fixed coords.
+const camp = await p1.evaluate(() => window.__blobvale.campPos());
+const boss = await p1.evaluate(() => window.__blobvale.bossPos());
+const spawnPt = await p1.evaluate(() => window.__blobvale.spawnPos());
+const anchorsOk = !!camp && !!boss && !!spawnPt;
 // COMBAT (M2): host warps to a mob camp and fights until a kill lands.
 // M4: the host owns the 'bomb' mod, so every attack also drops a bomb —
 // booms seen proves move-changing mods resolve host-side.
 await p1.evaluate(() => window.__blobvale.revive());
 await p1.evaluate(() => window.__blobvale.giveMod('bomb'));
-await p1.evaluate(() => window.__blobvale.warp(1248, 980));
+await p1.evaluate((c) => window.__blobvale.warp(c.x, c.y), camp);
 await sleep(500);
 // MOB VARIANTS (M8): each camp fields melee + ranged + aoe mobs.
 const variantsAtCamp = await p1.evaluate(() => window.__blobvale.mobInfo().map((m) => m.v));
@@ -192,7 +197,12 @@ for (let i = 0; i < 16; i++) {
   await p1.evaluate(() => window.__blobvale.cast());
   await sleep(350);
 }
-await sleep(1200);
+// Wait for the joiner to actually register a kill so its kill/verium reads
+// aren't racing the death-fx propagation.
+await p2
+  .waitForFunction(() => (window.__blobvale.kills?.() ?? 0) >= 1, null, { timeout: 6000 })
+  .catch(() => {});
+await sleep(800);
 const boomsHost = await p1.evaluate(() => window.__blobvale.booms());
 const modsHost = await p1.evaluate(() => window.__blobvale.myStats()?.mods ?? []);
 const modOk = boomsHost >= 1 && modsHost.includes('bomb');
@@ -247,11 +257,11 @@ const castZoneOk = castsAfter > castsBefore;
 // time to approach and cast enough to land hits — it still survives its huge
 // HP pool for the cleric check below.
 await p1.evaluate(() => window.__blobvale.revive());
-await p1.evaluate(() => window.__blobvale.warp(770, 290));
+await p1.evaluate((b) => window.__blobvale.warp(b.x, b.y), boss);
 await sleep(600);
 const bossBefore = await p2.evaluate(() => window.__blobvale.bossHp());
 for (let i = 0; i < 16; i++) {
-  await p1.evaluate(() => window.__blobvale.warp(770, 290)); // hold the lair
+  await p1.evaluate((b) => window.__blobvale.warp(b.x, b.y), boss); // hold the lair
   await p1.evaluate(() => window.__blobvale.cast());
   await sleep(320);
 }
@@ -261,8 +271,8 @@ const bossOk = bossBefore !== null && bossAfter !== null && bossAfter < bossBefo
 await p1.screenshot({ path: `${outDir}/bv-6-boss.png` });
 // CLERIC (M4): heal is an attack too — p4's smite must hurt the boss.
 await p1.evaluate(() => window.__blobvale.revive());
-await p1.evaluate(() => window.__blobvale.warp(800, 1400));
-await p4.evaluate(() => window.__blobvale.warp(770, 340));
+await p1.evaluate((s) => window.__blobvale.warp(s.x, s.y), spawnPt);
+await p4.evaluate((b) => window.__blobvale.warp(b.x, b.y), boss);
 await sleep(600);
 const bossBeforeCleric = await p2.evaluate(() => window.__blobvale.bossHp());
 for (let i = 0; i < 10; i++) {
@@ -274,13 +284,16 @@ const bossAfterCleric = await p2.evaluate(() => window.__blobvale.bossHp());
 const clericOk =
   bossBeforeCleric !== null && (bossAfterCleric === null || bossAfterCleric < bossBeforeCleric);
 // Retreat so slimes/boss stop chasing during rotation checks.
-await p4.evaluate(() => window.__blobvale.warp(900, 1400));
+await p4.evaluate((s) => window.__blobvale.warp(s.x, s.y), spawnPt);
 
 // ZONES (M6): fell the boss -> a portal opens -> stepping in takes the whole
 // party to the next level (host and joiner both repaint to zone 1).
 const zoneBefore = await p1.evaluate(() => window.__blobvale.zone());
 await p1.evaluate(() => window.__blobvale.revive());
-await p1.evaluate(() => window.__blobvale.warp(770, 290));
+// Stand clear of the lair before the kill: the portal opens on the boss's
+// home tile, and a host standing there would auto-step through it before we
+// can observe the portal. killBoss() is proximity-free, so range is fine.
+await p1.evaluate((s) => window.__blobvale.warp(s.x, s.y), spawnPt);
 await sleep(300);
 await p1.evaluate(() => window.__blobvale.killBoss());
 await sleep(400);
@@ -307,6 +320,34 @@ await p3.screenshot({ path: `${outDir}/bv-5-landscape.png` });
 await p1.screenshot({ path: `${outDir}/bv-2-world-host.png` });
 await p2.screenshot({ path: `${outDir}/bv-3-world-joiner.png` });
 await p4.screenshot({ path: `${outDir}/bv-4-late-joiner.png` });
+
+// EXPANSION (M9): eight distinct levels + eight bosses now ship.
+const zoneCount = await p1.evaluate(() => window.__blobvale.zoneCount());
+const bossCount = await p1.evaluate(() => window.__blobvale.bossCount());
+const expansionOk = zoneCount >= 8 && bossCount >= 8;
+
+// DAMAGE METER (M9): the host has dealt damage; it's tracked per adventurer.
+const dmgHost = await p1.evaluate(() => window.__blobvale.dmgDealt());
+const meter = await p1.evaluate(() => window.__blobvale.damageMeter());
+const dmgMeterOk = dmgHost > 0 && Array.isArray(meter) && meter.length >= 1;
+
+// COMPANIONS (M9): host raises a skeleton (necromancer path) and, turned
+// beastmaster, gains a permanent pet — both surface as live companions that
+// the joiner also sees.
+const zone1Camp = await p1.evaluate(() => window.__blobvale.campPos());
+await p1.evaluate(() => window.__blobvale.revive());
+await p1.evaluate((c) => window.__blobvale.warp(c.x, c.y), zone1Camp);
+await sleep(300);
+const compsBefore = await p1.evaluate(() => window.__blobvale.compCount());
+await p1.evaluate(() => window.__blobvale.summonSkel());
+await sleep(300);
+const compsAfterSkel = await p1.evaluate(() => window.__blobvale.compCount());
+await p1.evaluate(() => window.__blobvale.setMyClass('beast'));
+await sleep(600);
+const compsAfterPet = await p1.evaluate(() => window.__blobvale.compCount());
+const petSeenOnP2 = await p2.evaluate(() => window.__blobvale.compCount());
+const compOk =
+  compsAfterSkel > compsBefore && compsAfterPet > compsAfterSkel && petSeenOnP2 > 0;
 
 await browser.close();
 relay.kill();
@@ -336,6 +377,10 @@ const ok =
   mobVariantOk &&
   statusOk &&
   ccOk &&
+  anchorsOk &&
+  expansionOk &&
+  dmgMeterOk &&
+  compOk &&
   errors.length === 0;
 console.log(
   JSON.stringify(
@@ -367,6 +412,19 @@ console.log(
       zoneHost,
       zoneJoiner,
       mobsAfterZone,
+      anchorsOk,
+      camp,
+      boss,
+      expansionOk,
+      zoneCount,
+      bossCount,
+      dmgMeterOk,
+      dmgHost,
+      compOk,
+      compsBefore,
+      compsAfterSkel,
+      compsAfterPet,
+      petSeenOnP2,
       veriumOk,
       veriumHost,
       veriumJoiner,
