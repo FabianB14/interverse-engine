@@ -28,6 +28,9 @@ export interface HushfallDebug {
   start?: () => void;
   inProgress?: () => boolean;
   joinNow?: () => void;
+  setBots?: (n: number) => void;
+  botCount?: () => number;
+  botPos?: () => { x: number; y: number } | null;
   // match
   phase?: () => string;
   myPos?: () => { x: number; y: number };

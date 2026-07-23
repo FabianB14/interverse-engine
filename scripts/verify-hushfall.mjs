@@ -166,6 +166,36 @@ const escapeOk = gateOnP2 === true && escapedHost >= 1 && phaseHost === 'hiders-
 await p2.screenshot({ path: `${outDir}/hf-3-escape.png` });
 await p1.screenshot({ path: `${outDir}/hf-4-end.png` });
 
+// BOTS: a short-handed host fills the hunt with AI bots. They appear in the
+// roster as hiders, enter the match, and their AI steers them (they move).
+const pb = await phone('host=1&seeker=1&class=stalker&name=Solo');
+await pb.waitForFunction(() => window.__hushfall?.scene() === 'lobby', null, { timeout: 12_000 });
+await pb.evaluate(() => window.__hushfall.setBots(3));
+await sleep(400);
+const botLobbyPlayers = await pb.evaluate(() => window.__hushfall.playerCount());
+const botLobbyCount = await pb.evaluate(() => window.__hushfall.botCount());
+const rolesB = await pb.evaluate(() => window.__hushfall.roles());
+const botHiders = Object.entries(rolesB).filter(([id, r]) => id.startsWith('bot') && r === 'hider').length;
+const botLobbyOk = botLobbyPlayers === 4 && botLobbyCount === 3 && botHiders === 3;
+await pb.screenshot({ path: `${outDir}/hf-5-bots-lobby.png` });
+await pb.evaluate(() => window.__hushfall.start());
+await pb.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { timeout: 12_000 });
+await sleep(600);
+const matchBots = await pb.evaluate(() => window.__hushfall.botCount());
+const botPos0 = await pb.evaluate(() => window.__hushfall.botPos());
+await sleep(2800);
+const botPos1 = await pb.evaluate(() => window.__hushfall.botPos());
+const botMoved =
+  !!botPos0 && !!botPos1 && Math.hypot(botPos1.x - botPos0.x, botPos1.y - botPos0.y) > 20;
+// Open the gate + move the seeker aside; bots should now head north for it.
+await pb.evaluate(() => window.__hushfall.warp(200, 1780));
+await pb.evaluate(() => window.__hushfall.forceLightAll());
+await sleep(3200);
+const botPos2 = await pb.evaluate(() => window.__hushfall.botPos());
+const botToGate = !!botPos1 && !!botPos2 && botPos2.y < botPos1.y - 20;
+const botOk = botLobbyOk && matchBots === 3 && botMoved && botToGate;
+await pb.screenshot({ path: `${outDir}/hf-6-bots-match.png` });
+
 await browser.close();
 relay.kill();
 
@@ -178,6 +208,7 @@ const ok =
   downOk &&
   rescueOk &&
   escapeOk &&
+  botOk &&
   errors.length === 0;
 console.log(
   JSON.stringify(
@@ -206,6 +237,14 @@ console.log(
       escapedHost,
       phaseHost,
       phaseP2,
+      botOk,
+      botLobbyOk,
+      botLobbyPlayers,
+      botLobbyCount,
+      botHiders,
+      matchBots,
+      botMoved,
+      botToGate,
       errors: errors.slice(0, 6),
     },
     null,

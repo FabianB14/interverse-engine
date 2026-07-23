@@ -40,6 +40,8 @@ const SNARE_SECONDS = 2.6;
 const VANISH_SECONDS = 4.5;
 const DECOY_SECONDS = 8;
 const BUSH_RADIUS = 46;
+const BOT_FLEE_DIST = 250;
+const BOT_ATTACK_EVERY = 1.2;
 
 interface PosMsg {
   type: 'pos';
@@ -148,6 +150,9 @@ export class MatchScene extends Scene {
   private snapHidden = new Set<string>();
   private snapVanished = new Set<string>();
   private snapRooted = new Set<string>();
+
+  // bots (host-simulated)
+  private botAtkCd = 0;
 
   // local ability
   private cooldownLeft = 0;
@@ -731,6 +736,107 @@ export class MatchScene extends Scene {
     }
   }
 
+  /** Host: drive the AI bots (fill-in players). Everything else — lantern
+   *  progress, revives, escapes, bleed — already resolves by position, so a
+   *  bot only needs to steer; standing on a lantern lights it like anyone. */
+  private hostSimBots(dt: number): void {
+    this.botAtkCd = Math.max(0, this.botAtkCd - dt);
+    const seekerPos = this.hostPositions[this.seekerId];
+    for (const id of this.roster.order) {
+      if (!id.startsWith('bot')) continue;
+      if (this.escaped.has(id) || this.out.has(id)) continue;
+      const p = this.hostPositions[id];
+      if (!p) continue;
+      if ((this.rootUntil[id] ?? 0) > this.t) continue; // snared
+      const cls = classById(this.roster.classes[id]);
+      const isSeeker = this.roster.roles[id] === 'seeker';
+      let gx = p.x;
+      let gy = p.y;
+      let speed = cls.speed * 0.9;
+      let stop = 40;
+
+      if (isSeeker) {
+        speed = cls.speed * 0.82; // a touch slower so humans can juke
+        stop = ATTACK_RANGE * 0.55;
+        let tgt: { x: number; y: number } | null = null;
+        let best = 1e9;
+        for (const hid of this.activeHiders()) {
+          if ((this.vanishUntil[hid] ?? 0) > this.t) continue;
+          const hp = this.hostPositions[hid];
+          if (!hp) continue;
+          const d = Math.hypot(hp.x - p.x, hp.y - p.y);
+          if (d < best) {
+            best = d;
+            tgt = hp;
+          }
+        }
+        if (tgt) {
+          gx = tgt.x;
+          gy = tgt.y;
+          if (best < ATTACK_RANGE * 0.9 && this.botAtkCd <= 0) {
+            this.botAtkCd = BOT_ATTACK_EVERY;
+            this.hostAttack(id);
+          }
+        } else {
+          const lp = this.lanternPts[0];
+          if (lp) {
+            gx = lp.x;
+            gy = lp.y;
+          }
+        }
+      } else {
+        if (this.down[id] !== undefined) continue; // downed — wait for a rescue
+        const fleeing = !!seekerPos && Math.hypot(seekerPos.x - p.x, seekerPos.y - p.y) < BOT_FLEE_DIST;
+        if (fleeing && seekerPos) {
+          gx = p.x + (p.x - seekerPos.x);
+          gy = p.y + (p.y - seekerPos.y);
+          speed = cls.speed;
+        } else if (this.gateOpen) {
+          gx = this.gatePt.x;
+          gy = this.gatePt.y;
+        } else {
+          let bd = 1e9;
+          this.lanternPts.forEach((q, i) => {
+            if ((this.lant[i] ?? 1) >= 1) return;
+            const d = Math.hypot(q.x - p.x, q.y - p.y);
+            if (d < bd) {
+              bd = d;
+              gx = q.x;
+              gy = q.y;
+            }
+          });
+          if (bd >= 1e9) {
+            gx = this.gatePt.x;
+            gy = this.gatePt.y;
+          }
+          // Help up a nearby downed ally if the coast is reasonably clear.
+          for (const did of Object.keys(this.down)) {
+            const dp = this.hostPositions[did];
+            if (dp && Math.hypot(dp.x - p.x, dp.y - p.y) < 260) {
+              gx = dp.x;
+              gy = dp.y;
+            }
+          }
+        }
+      }
+
+      const d = Math.hypot(gx - p.x, gy - p.y) || 1;
+      if (d > stop) {
+        const moved = moveWithCollision(
+          this.map,
+          p.x,
+          p.y,
+          16,
+          14,
+          ((gx - p.x) / d) * speed * dt,
+          ((gy - p.y) / d) * speed * dt,
+        );
+        p.x = moved.x;
+        p.y = moved.y;
+      }
+    }
+  }
+
   private reveal(points: { x: number; y: number }[], color: number, secs: number): void {
     this.session.broadcast({ type: 'reveal', points, color, secs });
     this.playReveal(points, color, secs);
@@ -749,7 +855,10 @@ export class MatchScene extends Scene {
     this.attackCd = Math.max(0, this.attackCd - dt);
     const myCls = classById(this.roster.classes[this.session.id]);
 
-    if (this.session.isHost) this.hostSim(dt);
+    if (this.session.isHost) {
+      this.hostSim(dt);
+      this.hostSimBots(dt);
+    }
 
     const iAmDown = this.snapDown[this.session.id] !== undefined || this.down[this.session.id] !== undefined;
     const iAmRooted = this.snapRooted.has(this.session.id) || (this.rootUntil[this.session.id] ?? 0) > this.t;
@@ -1152,6 +1261,12 @@ export class MatchScene extends Scene {
       },
       revealSeen: () => this.revealSeen,
       abilityUses: () => this.abilityUses,
+      botCount: () => this.roster.order.filter((id) => id.startsWith('bot')).length,
+      botPos: () => {
+        const id = this.roster.order.find((x) => x.startsWith('bot'));
+        const p = id ? this.hostPositions[id] : null;
+        return p ? { x: p.x, y: p.y } : null;
+      },
     };
   }
 }

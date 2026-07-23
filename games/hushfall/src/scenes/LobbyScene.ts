@@ -51,6 +51,10 @@ export class LobbyScene extends Scene {
   private startBtn: UIButton | null = null;
   private randomBtn: UIButton | null = null;
   private readyBtn: UIButton | null = null;
+  private botCount = 0;
+  private botMinus: UIButton | null = null;
+  private botPlus: UIButton | null = null;
+  private botLabel: Text | null = null;
   private waitText: Text | null = null;
   private statusText!: Text;
 
@@ -113,6 +117,9 @@ export class LobbyScene extends Scene {
     this.statusText.position.set(W / 2, bottom + 78);
     this.startBtn?.position.set(W / 2, H - 96);
     this.randomBtn?.position.set(W / 2, H - 190);
+    this.botLabel?.position.set(W / 2, H - 296);
+    this.botMinus?.position.set(W / 2 - 150, H - 296);
+    this.botPlus?.position.set(W / 2 + 150, H - 296);
     this.readyBtn?.position.set(W / 2, H - 96);
     this.waitText?.position.set(W / 2, H - 176);
     this.layoutWardrobe(W, H);
@@ -181,6 +188,28 @@ export class LobbyScene extends Scene {
     this.stage.addChild(this.statusText);
 
     if (session.isHost) {
+      // AI bots to fill out a short-handed hunt.
+      this.botLabel = makeText('🤖 Bots: 0/7', 26, { color: NIGHT.ghost, weight: '800' });
+      this.stage.addChild(this.botLabel);
+      this.botMinus = new UIButton('➖', {
+        width: 76,
+        height: 76,
+        fontSize: 32,
+        fill: 0x2a3a4a,
+        textColor: NIGHT.ink,
+        onTap: () => this.setBots(this.botCount - 1),
+      });
+      this.botPlus = new UIButton('➕', {
+        width: 76,
+        height: 76,
+        fontSize: 32,
+        fill: 0x2a3a4a,
+        textColor: NIGHT.ink,
+        onTap: () => this.setBots(this.botCount + 1),
+      });
+      this.add(this.botMinus);
+      this.add(this.botPlus);
+      this.updateBotLabel();
       this.randomBtn = new UIButton('🎲 RANDOM SEEKER', {
         width: 440,
         height: 84,
@@ -241,7 +270,14 @@ export class LobbyScene extends Scene {
       },
       inProgress: () => this.inProgress,
       joinNow: () => this.joinInProgress(),
-      ...(session.isHost ? { start: () => this.startMatch(), randomSeeker: () => this.randomSeeker() } : {}),
+      botCount: () => this.botCount,
+      ...(session.isHost
+        ? {
+            start: () => this.startMatch(),
+            randomSeeker: () => this.randomSeeker(),
+            setBots: (n: number) => this.setBots(n),
+          }
+        : {}),
     };
 
     this.wireNet();
@@ -262,10 +298,16 @@ export class LobbyScene extends Scene {
     if (session.isHost) {
       session.onPlayerJoin((p) => {
         if (!this.live) return;
+        // Insert humans before the bot block so bot ids stay contiguous.
+        const bots = this.roster.order.filter((id) => this.isBot(id));
+        this.roster.order = this.roster.order.filter((id) => !this.isBot(id));
         if (!this.roster.order.includes(p.id)) this.roster.order.push(p.id);
+        this.roster.order.push(...bots);
         this.roster.names[p.id] = this.uniqueName(p.name);
         this.roster.roles[p.id] = 'hider';
         this.roster.classes[p.id] ??= defaultClassFor('hider');
+        this.rebuildBots(); // re-clamp: a new human lowers the bot ceiling
+        this.updateBotLabel();
         this.shareRoster();
         this.refreshRoster();
         sting('blip');
@@ -277,6 +319,8 @@ export class LobbyScene extends Scene {
         delete this.roster.classes[id];
         if (this.roster.ready) delete this.roster.ready[id];
         if (this.roster.seekerId === id) this.roster.seekerId = null;
+        this.rebuildBots();
+        this.updateBotLabel();
         this.shareRoster();
         this.refreshRoster();
       });
@@ -374,6 +418,12 @@ export class LobbyScene extends Scene {
 
   private setSeeker(id: string): void {
     this.roster.seekerId = id;
+    this.applyRoles();
+  }
+
+  /** Re-derive every player's role from the current seekerId (host only). */
+  private applyRoles(): void {
+    const id = this.roster.seekerId;
     for (const pid of this.roster.order) {
       const role: Role = pid === id ? 'seeker' : 'hider';
       const prev = this.roster.roles[pid];
@@ -386,6 +436,49 @@ export class LobbyScene extends Scene {
         this.layout(this.game.viewWidth, this.game.viewHeight);
       }
     }
+  }
+
+  // ------------------------------------------------------------------ bots
+
+  private isBot(id: string): boolean {
+    return id.startsWith('bot');
+  }
+
+  /** Host: (re)generate the bot roster entries to match `botCount` (cap 8). */
+  private rebuildBots(): void {
+    this.roster.order = this.roster.order.filter((id) => !this.isBot(id));
+    for (const rec of [this.roster.roles, this.roster.classes, this.roster.names, this.roster.accs ?? {}]) {
+      for (const id of Object.keys(rec)) if (this.isBot(id)) delete rec[id];
+    }
+    const humans = this.roster.order.length;
+    const n = Math.max(0, Math.min(this.botCount, 8 - humans));
+    for (let i = 0; i < n; i++) {
+      const id = `bot${i}`;
+      this.roster.order.push(id);
+      this.roster.names[id] = `Bot ${i + 1}`;
+      this.roster.roles[id] = 'hider';
+      this.roster.classes[id] = (HIDERS[i % HIDERS.length] ?? HIDERS[0]!).id;
+      (this.roster.accs ??= {})[id] = i % 4 === 0 ? 2 : 0;
+    }
+    if (this.roster.seekerId && !this.roster.order.includes(this.roster.seekerId)) this.roster.seekerId = null;
+    this.applyRoles();
+  }
+
+  private setBots(n: number): void {
+    if (!this.session.isHost) return;
+    const humans = this.roster.order.filter((id) => !this.isBot(id)).length;
+    this.botCount = Math.max(0, Math.min(n, 8 - humans));
+    sting('blip');
+    this.rebuildBots();
+    this.updateBotLabel();
+    this.shareRoster();
+    this.refreshRoster();
+  }
+
+  private updateBotLabel(): void {
+    const humans = this.roster.order.filter((id) => !this.isBot(id)).length;
+    const max = Math.max(0, 8 - humans);
+    if (this.botLabel) this.botLabel.text = `🤖 Bots: ${this.botCount}/${max}`;
   }
 
   private toggleSeeker(): void {
@@ -650,8 +743,9 @@ export class LobbyScene extends Scene {
       const nm = makeText(this.roster.names[id] ?? '?', 18, { color: NIGHT.ink, weight: 'bold' });
       nm.position.set(0, 52);
       chip.addChild(nm);
-      const tag = makeText(isSeeker ? '🩸 SEEKER' : cls.name, 15, {
-        color: isSeeker ? NIGHT.blood : NIGHT.inkSoft,
+      const bot = this.isBot(id);
+      const tag = makeText(isSeeker ? '🩸 SEEKER' : bot ? `🤖 ${cls.name}` : cls.name, 15, {
+        color: isSeeker ? NIGHT.blood : bot ? NIGHT.ghost : NIGHT.inkSoft,
         weight: '800',
       });
       tag.position.set(0, 74);
