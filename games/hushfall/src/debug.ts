@@ -31,6 +31,11 @@ export interface HushfallDebug {
   setBots?: (n: number) => void;
   botCount?: () => number;
   botPos?: () => { x: number; y: number } | null;
+  hidePos?: (i: number) => { x: number; y: number } | null;
+  hideCount?: () => number;
+  hiddenIds?: () => string[];
+  visionActive?: () => boolean;
+  reachOk?: () => boolean;
   // match
   phase?: () => string;
   myPos?: () => { x: number; y: number };

@@ -44,6 +44,7 @@ export class LobbyScene extends Scene {
   private rosterRow!: Entity;
   private roleBtn!: UIButton;
   private pickLabel!: Text;
+  private abilityInfo!: Text;
   private classBtns: UIButton[] = [];
   private classRole: Role = 'hider';
   private veriumChip!: Text;
@@ -101,7 +102,7 @@ export class LobbyScene extends Scene {
     this.countText.position.set(W / 2, landscape ? 100 : 178);
     this.rosterRow.position.set(W / 2, landscape ? 150 : 262);
     this.roleBtn.position.set(W / 2, landscape ? 260 : 360);
-    this.pickLabel.position.set(W / 2, landscape ? 306 : 436);
+    this.pickLabel.position.set(W / 2, landscape ? 306 : 430);
     const cols = this.classRole === 'seeker' ? 3 : 4;
     const colW = Math.min(236, (W - 40) / cols);
     const scale = Math.max(0.5, Math.min(1, (colW - 10) / 220)) * (landscape ? 0.8 : 1);
@@ -117,6 +118,7 @@ export class LobbyScene extends Scene {
     if (landscape) {
       // Wide, short view: a bot stepper row, then a bottom action row spread
       // across the width.
+      this.abilityInfo.position.set(W / 2, 512);
       this.botLabel?.position.set(W / 2, 566);
       this.botMinus?.position.set(W / 2 - 170, 566);
       this.botPlus?.position.set(W / 2 + 170, 566);
@@ -133,8 +135,9 @@ export class LobbyScene extends Scene {
 
     const rows = Math.max(1, Math.ceil(n / cols));
     const bottom = top + (rows - 1) * rowH + 90;
-    this.wardrobeBtn.position.set(W / 2, bottom + 6);
-    this.statusText.position.set(W / 2, bottom + 78);
+    this.abilityInfo.position.set(W / 2, bottom - 40);
+    this.wardrobeBtn.position.set(W / 2, bottom + 24);
+    this.statusText.position.set(W / 2, bottom + 92);
     this.startBtn?.position.set(W / 2, H - 96);
     this.randomBtn?.position.set(W / 2, H - 190);
     this.botLabel?.position.set(W / 2, H - 296);
@@ -200,6 +203,8 @@ export class LobbyScene extends Scene {
 
     this.pickLabel = makeText('CHOOSE YOUR SURVIVOR', 30, { color: NIGHT.ink });
     this.stage.addChild(this.pickLabel);
+    this.abilityInfo = makeText('', 20, { color: NIGHT.ghost, weight: 'bold', wrapWidth: 620 });
+    this.stage.addChild(this.abilityInfo);
 
     this.veriumChip = makeText('⬡ 0', 24, { color: NIGHT.ghost, weight: '800' });
     this.stage.addChild(this.veriumChip);
@@ -549,6 +554,7 @@ export class LobbyScene extends Scene {
     this.classBtns = [];
     const list: ClassDef[] = this.classRole === 'seeker' ? SEEKERS : HIDERS;
     this.pickLabel.text = this.classRole === 'seeker' ? 'CHOOSE YOUR SEEKER' : 'CHOOSE YOUR SURVIVOR';
+    this.updateAbilityInfo();
     for (const cls of list) {
       const btn = new UIButton(`${cls.emoji} ${cls.name}`, {
         width: 220,
@@ -569,6 +575,7 @@ export class LobbyScene extends Scene {
     if (!silent) sting('blip');
     store.set(cls.role === 'seeker' ? 'seekerClass' : 'hiderClass', id);
     this.roster.classes[this.session.id] = id;
+    this.updateAbilityInfo();
     if (this.session.isHost) {
       this.shareRoster();
       this.refreshRoster();
@@ -576,6 +583,11 @@ export class LobbyScene extends Scene {
       this.session.send({ type: 'class', cls: id, acc: this.myAcc() });
     }
     if (this.wardRoot.visible) this.redrawPreview();
+  }
+
+  private updateAbilityInfo(): void {
+    const a = classById(this.myClass()).ability;
+    this.abilityInfo.text = `${a.emoji} ${a.name} — ${a.blurb}`;
   }
 
   private pickAcc(i: number): void {

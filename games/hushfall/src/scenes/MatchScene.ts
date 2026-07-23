@@ -12,6 +12,7 @@ import {
   buildTileMapView,
   easings,
   moveWithCollision,
+  solidAt,
   tileMapFromRows,
   verium,
 } from '@interverse/engine';
@@ -31,16 +32,21 @@ const SEND = 0.1;
 const LANTERN_RADIUS = 96;
 const LANTERN_SECONDS = 8; // one hider lights a lantern in ~8s (faster in a group)
 const ATTACK_RANGE = 170; // the Seeker strikes from a fair reach (longer than melee)
-// Fog of war: you see a lit disc around yourself and darkness beyond. Players
-// beyond your sight radius are hidden — the Seeker only spots hiders up close,
-// and hiders only glimpse the Seeker when it's near.
-const FOG_CLEAR = 330; // fully lit within this radius (design units)
-const FOG_DARK = 540; // fully dark beyond this radius
+// Fog of war: a small lit disc around you, darkness beyond. Vision is tight by
+// default and only grows with an ability (Flashlight / Third Eye).
+const FOG_CLEAR = 210; // fully lit within this radius (design units)
+const FOG_DARK = 360; // fully dark beyond this radius
 const FOG_SPRITE_R = 2000; // fog texture reach (must cover the screen)
-const SEEKER_SIGHT_FULL = 300;
-const SEEKER_SIGHT_FADE = 470;
-const HIDER_SIGHT_FULL = 400;
-const HIDER_SIGHT_FADE = 560;
+const SEEKER_SIGHT_FULL = 190;
+const SEEKER_SIGHT_FADE = 320;
+const HIDER_SIGHT_FULL = 240;
+const HIDER_SIGHT_FADE = 380;
+const VISION_BOOST = 2.3; // how much Flashlight / Third Eye widens your vision
+const VISION_BOOST_SECS = 6;
+// Hiding: a hider inside a hiding spot is invisible to the Seeker (and can't be
+// struck) until the Seeker searches — steps within SEARCH_RADIUS of them.
+const HIDE_RADIUS = 68;
+const SEARCH_RADIUS = 104;
 const REVIVE_RADIUS = 86;
 const REVIVE_SECONDS = 4;
 const BLEED_SECONDS = 30;
@@ -49,7 +55,6 @@ const SNARE_RADIUS = 60;
 const SNARE_SECONDS = 2.6;
 const VANISH_SECONDS = 4.5;
 const DECOY_SECONDS = 8;
-const BUSH_RADIUS = 46;
 const BOT_FLEE_DIST = 250;
 const BOT_ATTACK_EVERY = 1.2;
 
@@ -168,7 +173,7 @@ export class MatchScene extends Scene {
   private spawn = { x: 0, y: 0 };
   private seekerSpawn = { x: 0, y: 0 };
   private lanternPts: { x: number; y: number }[] = [];
-  private bushPts: { x: number; y: number }[] = [];
+  private hidePts: { x: number; y: number }[] = [];
   private gatePt = { x: 0, y: 0 };
 
   // host sim state
@@ -194,11 +199,14 @@ export class MatchScene extends Scene {
 
   // bots (host-simulated)
   private botAtkCd = 0;
+  private botPaths = new Map<string, { goal: string; path: [number, number][]; idx: number }>();
 
   // local ability
   private cooldownLeft = 0;
   private boostUntil = 0;
   private boostFactor = 1;
+  private visionBoostUntil = 0;
+  private fogBaseScale = 1;
   private abilityUses = 0;
   private revealSeen = 0;
   private attackCd = 0;
@@ -264,7 +272,7 @@ export class MatchScene extends Scene {
     this.seekerSpawn = { x: seekObj.x, y: seekObj.y };
     this.gatePt = { x: gateObj.x, y: gateObj.y };
     this.lanternPts = this.map.objects.filter((o) => o.name === 'lantern').map((o) => ({ x: o.x, y: o.y }));
-    this.bushPts = this.map.objects.filter((o) => o.name === 'bush').map((o) => ({ x: o.x, y: o.y }));
+    this.hidePts = this.map.objects.filter((o) => o.name === 'hide').map((o) => ({ x: o.x, y: o.y }));
     this.lant = this.lanternPts.map(() => 0);
     this.snapLant = this.lanternPts.map(() => 0);
 
@@ -347,6 +355,21 @@ export class MatchScene extends Scene {
     this.gateView = new Graphics();
     this.gateView.position.set(this.gatePt.x, this.gatePt.y);
     this.objectiveLayer.addChild(this.gateView);
+    // Hiding spots: big wardrobes/curtained nooks you can duck inside.
+    for (const p of this.hidePts) {
+      const g = new Graphics();
+      g.position.set(p.x, p.y);
+      const w = 76;
+      const h = 96;
+      g.roundRect(-w / 2, -h / 2, w, h, 8).fill(0x2a2036);
+      g.roundRect(-w / 2, -h / 2, w, h, 8).stroke({ color: NIGHT.violet, width: 3, alpha: 0.7 });
+      // curtain folds
+      for (let i = -1; i <= 1; i++) {
+        g.roundRect(i * 20 - 8, -h / 2 + 6, 16, h - 12, 6).fill({ color: 0x3a2c4e, alpha: 0.9 });
+      }
+      g.circle(w / 2 - 14, 0, 4).fill(NIGHT.lantern); // little handle
+      this.objectiveLayer.addChildAt(g, 0); // behind lanterns/gate
+    }
     this.redrawObjectives();
   }
 
@@ -426,7 +449,8 @@ export class MatchScene extends Scene {
     if (tex) {
       this.fog = new Sprite(tex);
       this.fog.anchor.set(0.5);
-      this.fog.scale.set(FOG_SPRITE_R / 256);
+      this.fogBaseScale = FOG_SPRITE_R / 256;
+      this.fog.scale.set(this.fogBaseScale);
       this.uiLayer.addChild(this.fog);
     }
     this.terrorVignette = new Graphics();
@@ -587,6 +611,9 @@ export class MatchScene extends Scene {
       const p = this.hostPositions[id];
       if (!p) continue;
       const d = Math.hypot(p.x - sp.x, p.y - sp.y);
+      // Vanished hiders can't be struck; hidden ones only once searched.
+      if ((this.vanishUntil[id] ?? 0) > this.t) continue;
+      if (this.isConcealed(id) && d > SEARCH_RADIUS) continue;
       if (d < best) {
         best = d;
         target = id;
@@ -695,7 +722,7 @@ export class MatchScene extends Scene {
   private isConcealed(id: string): boolean {
     const p = this.hostPositions[id];
     if (!p) return false;
-    return this.bushPts.some((b) => Math.hypot(b.x - p.x, b.y - p.y) < BUSH_RADIUS);
+    return this.hidePts.some((b) => Math.hypot(b.x - p.x, b.y - p.y) < HIDE_RADIUS);
   }
 
   private hostSim(dt: number): void {
@@ -841,8 +868,24 @@ export class MatchScene extends Scene {
         if (this.down[id] !== undefined) continue; // downed — wait for a rescue
         const fleeing = !!seekerPos && Math.hypot(seekerPos.x - p.x, seekerPos.y - p.y) < BOT_FLEE_DIST;
         if (fleeing && seekerPos) {
-          gx = p.x + (p.x - seekerPos.x);
-          gy = p.y + (p.y - seekerPos.y);
+          // Bolt for the nearest hiding spot; failing that, just run.
+          let hd = 440;
+          let hs: { x: number; y: number } | null = null;
+          for (const q of this.hidePts) {
+            const d = Math.hypot(q.x - p.x, q.y - p.y);
+            if (d < hd) {
+              hd = d;
+              hs = q;
+            }
+          }
+          if (hs) {
+            gx = hs.x;
+            gy = hs.y;
+            stop = 16;
+          } else {
+            gx = p.x + (p.x - seekerPos.x);
+            gy = p.y + (p.y - seekerPos.y);
+          }
           speed = cls.speed;
         } else if (this.gateOpen) {
           gx = this.gatePt.x;
@@ -873,21 +916,91 @@ export class MatchScene extends Scene {
         }
       }
 
-      const d = Math.hypot(gx - p.x, gy - p.y) || 1;
-      if (d > stop) {
+      // Steer along a BFS path so bots route through doorways instead of
+      // pressing into walls. Fall back to a straight line if no path exists.
+      let wx = gx;
+      let wy = gy;
+      let wstop = stop;
+      const gc = Math.floor(gx / TILE_SIZE);
+      const gr = Math.floor(gy / TILE_SIZE);
+      const gk = `${gc},${gr}`;
+      let info = this.botPaths.get(id);
+      if (!info || info.goal !== gk) {
+        info = { goal: gk, path: this.bfsPath(p.x, p.y, gx, gy), idx: 1 };
+        this.botPaths.set(id, info);
+      }
+      if (info.path.length > info.idx) {
+        const [c, r] = info.path[info.idx]!;
+        wx = c * TILE_SIZE + TILE_SIZE / 2;
+        wy = r * TILE_SIZE + TILE_SIZE / 2;
+        if (Math.hypot(wx - p.x, wy - p.y) < TILE_SIZE * 0.6) info.idx++;
+        if (info.idx < info.path.length - 1) wstop = 6; // keep moving between nodes
+      }
+      const d = Math.hypot(wx - p.x, wy - p.y) || 1;
+      if (d > wstop) {
         const moved = moveWithCollision(
           this.map,
           p.x,
           p.y,
           16,
           14,
-          ((gx - p.x) / d) * speed * dt,
-          ((gy - p.y) / d) * speed * dt,
+          ((wx - p.x) / d) * speed * dt,
+          ((wy - p.y) / d) * speed * dt,
         );
         p.x = moved.x;
         p.y = moved.y;
       }
     }
+  }
+
+  /** BFS over walkable tiles → a tile path from (fx,fy) to (tx,ty). Returns
+   *  just the start tile if the target is unreachable/solid. */
+  private bfsPath(fx: number, fy: number, tx: number, ty: number): [number, number][] {
+    const tw = this.map.width;
+    const th = this.map.height;
+    const fc = Math.max(0, Math.min(tw - 1, Math.floor(fx / TILE_SIZE)));
+    const fr = Math.max(0, Math.min(th - 1, Math.floor(fy / TILE_SIZE)));
+    const tc = Math.max(0, Math.min(tw - 1, Math.floor(tx / TILE_SIZE)));
+    const tr = Math.max(0, Math.min(th - 1, Math.floor(ty / TILE_SIZE)));
+    const start: [number, number] = [fc, fr];
+    if ((fc === tc && fr === tr) || solidAt(this.map, tc, tr)) return [start];
+    const prev = new Map<number, number>();
+    const seen = new Set<number>([fr * tw + fc]);
+    const queue: [number, number][] = [start];
+    let head = 0;
+    let found = false;
+    while (head < queue.length) {
+      const [c, r] = queue[head++]!;
+      if (c === tc && r === tr) {
+        found = true;
+        break;
+      }
+      for (const [dc, dr] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ] as const) {
+        const nc = c + dc;
+        const nr = r + dr;
+        if (nc < 0 || nr < 0 || nc >= tw || nr >= th) continue;
+        if (solidAt(this.map, nc, nr)) continue;
+        const k = nr * tw + nc;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        prev.set(k, r * tw + c);
+        queue.push([nc, nr]);
+      }
+    }
+    if (!found) return [start];
+    const path: [number, number][] = [];
+    let cur: number | undefined = tr * tw + tc;
+    while (cur !== undefined) {
+      path.push([cur % tw, Math.floor(cur / tw)]);
+      cur = prev.get(cur);
+    }
+    path.reverse();
+    return path;
   }
 
   private reveal(points: { x: number; y: number }[], color: number, secs: number): void {
@@ -965,8 +1078,14 @@ export class MatchScene extends Scene {
     this.updateHud();
     this.updateTerror(dt);
     this.camera.update(dt);
-    // Keep the lit disc centred on me (mapLayer is what the camera pans).
-    if (this.fog) this.fog.position.set(this.me.x + this.mapLayer.x, this.me.y + this.mapLayer.y);
+    // Keep the lit disc centred on me and grow it while a vision ability runs.
+    if (this.fog) {
+      this.fog.position.set(this.me.x + this.mapLayer.x, this.me.y + this.mapLayer.y);
+      const target = this.t < this.visionBoostUntil ? VISION_BOOST : 1;
+      const cur = this.fog.scale.x / this.fogBaseScale;
+      const next = cur + (target - cur) * Math.min(1, dt * 6);
+      this.fog.scale.set(this.fogBaseScale * next);
+    }
   }
 
   private styleRemote(id: string, r: Remote): void {
@@ -975,18 +1094,19 @@ export class MatchScene extends Scene {
     const gone = this.escaped.has(id) || this.out.has(id);
     r.entity.visible = !gone;
     // Fog of war: anyone beyond your sight radius is hidden; they fade in as
-    // they cross into view. The Seeker sees hiders only up close; hiders only
-    // glimpse the Seeker (and each other) when near.
-    const full = this.amSeeker ? SEEKER_SIGHT_FULL : HIDER_SIGHT_FULL;
-    const fade = this.amSeeker ? SEEKER_SIGHT_FADE : HIDER_SIGHT_FADE;
+    // they cross into view. Sight widens while your vision ability is active.
+    const boost = this.t < this.visionBoostUntil ? VISION_BOOST : 1;
+    const full = (this.amSeeker ? SEEKER_SIGHT_FULL : HIDER_SIGHT_FULL) * boost;
+    const fade = (this.amSeeker ? SEEKER_SIGHT_FADE : HIDER_SIGHT_FADE) * boost;
     const dist = Math.hypot(r.entity.x - this.me.x, r.entity.y - this.me.y);
-    r.entity.alpha = sightAlpha(dist, full, fade);
-    // Concealment (bush/vanish) on top, from the Seeker's side only.
+    let distAlpha = sightAlpha(dist, full, fade);
+    // A hider in a hiding spot is invisible to the Seeker until searched — the
+    // Seeker must step within SEARCH_RADIUS of them to reveal them.
+    if (this.amSeeker && !isSeeker && this.snapHidden.has(id) && dist > SEARCH_RADIUS) distAlpha = 0;
+    r.entity.alpha = distAlpha;
+    // Vanish (Ghost) hides fully from the Seeker.
     let alpha = 1;
-    if (this.amSeeker && !isSeeker) {
-      if (this.snapVanished.has(id)) alpha = 0;
-      else if (this.snapHidden.has(id)) alpha = 0.18;
-    }
+    if (this.amSeeker && !isSeeker && this.snapVanished.has(id)) alpha = 0;
     r.body.alpha = downed ? 0.4 : alpha;
     r.mark.clear();
     if (downed) {
@@ -1203,6 +1323,12 @@ export class MatchScene extends Scene {
       this.boostFactor = id === 'lunge' ? 2.6 : 1.8;
       return;
     }
+    if (id === 'flashlight' || id === 'thirdeye') {
+      // Client-local: widen your own vision for a while.
+      this.visionBoostUntil = this.t + VISION_BOOST_SECS;
+      sting('lantern');
+      return;
+    }
     if (this.session.isHost) this.hostAbility(this.session.id, id, this.me.x, this.me.y);
     else this.session.send({ type: 'ability', id, x: this.me.x, y: this.me.y });
   }
@@ -1287,6 +1413,47 @@ export class MatchScene extends Scene {
     this.game.scenes.replace(new MenuScene());
   }
 
+  /** Flood-fill from the hider spawn: are the gate, Seeker spawn and every
+   *  lantern actually reachable? Guards against a bad building generation. */
+  private reachabilityOk(): boolean {
+    const tw = this.map.width;
+    const th = this.map.height;
+    const tile = (x: number, y: number): [number, number] => [
+      Math.floor(x / TILE_SIZE),
+      Math.floor(y / TILE_SIZE),
+    ];
+    const [sc, sr] = tile(this.spawn.x, this.spawn.y);
+    const seen = new Set<number>([sr * tw + sc]);
+    const stack: [number, number][] = [[sc, sr]];
+    while (stack.length) {
+      const [c, r] = stack.pop()!;
+      for (const [dc, dr] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ] as const) {
+        const nc = c + dc;
+        const nr = r + dr;
+        if (nc < 0 || nr < 0 || nc >= tw || nr >= th) continue;
+        if (solidAt(this.map, nc, nr)) continue;
+        const k = nr * tw + nc;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        stack.push([nc, nr]);
+      }
+    }
+    const reach = (x: number, y: number): boolean => {
+      const [c, r] = tile(x, y);
+      return seen.has(r * tw + c);
+    };
+    return (
+      reach(this.gatePt.x, this.gatePt.y) &&
+      reach(this.seekerSpawn.x, this.seekerSpawn.y) &&
+      this.lanternPts.every((p) => reach(p.x, p.y))
+    );
+  }
+
   // --------------------------------------------------------------- debug
 
   private installDebug(): void {
@@ -1330,6 +1497,11 @@ export class MatchScene extends Scene {
         const p = id ? this.hostPositions[id] : null;
         return p ? { x: p.x, y: p.y } : null;
       },
+      hidePos: (i: number) => this.hidePts[i] ?? null,
+      hideCount: () => this.hidePts.length,
+      hiddenIds: () => this.activeHiders().filter((id) => this.isConcealed(id)),
+      visionActive: () => this.t < this.visionBoostUntil,
+      reachOk: () => this.reachabilityOk(),
     };
   }
 }

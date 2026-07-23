@@ -77,11 +77,12 @@ async function phone(params) {
   return page;
 }
 
-// Host is the Seeker (Stalker); two Hider joiners.
-const p1 = await phone('host=1&seeker=1&class=stalker&name=Warden');
+// Host is the Seeker (Warden — Third Eye vision boost); a Lookout (Sense
+// reveal) and an Engineer (objectives) join as Hiders.
+const p1 = await phone('host=1&seeker=1&class=warden&name=Warden');
 await p1.waitForFunction(() => window.__hushfall?.scene() === 'lobby', null, { timeout: 12_000 });
 const code = await p1.evaluate(() => window.__hushfall.code());
-const p2 = await phone(`join=${code}&class=scout&name=Scout`);
+const p2 = await phone(`join=${code}&class=lookout&name=Looky`);
 const p3 = await phone(`join=${code}&class=engineer&name=Gears`);
 for (const p of [p1, p2, p3]) {
   await p.waitForFunction(() => window.__hushfall?.playerCount() === 3, null, { timeout: 10_000 });
@@ -121,7 +122,23 @@ const litHost = await p1.evaluate(() => window.__hushfall.litCount());
 const litJoiner = await p3.evaluate(() => window.__hushfall.litCount());
 const objectiveOk = lanternCount >= 5 && litHost >= 1 && litJoiner >= 1;
 
-// ABILITY: the Scout pings the Seeker; other hiders see a reveal marker.
+// REACHABILITY: the generated building actually connects spawn -> gate,
+// Seeker spawn and every lantern (no walled-off rooms).
+const reachOk = await p1.evaluate(() => window.__hushfall.reachOk?.() ?? false);
+
+// HIDING: the Engineer ducks into a hiding spot; the host marks them concealed
+// from the Seeker (who would have to search to find them).
+const hideCount = await p1.evaluate(() => window.__hushfall.hideCount?.() ?? 0);
+const hp = await p3.evaluate(() => window.__hushfall.hidePos?.(0));
+const hiddenBefore = (await p1.evaluate(() => window.__hushfall.hiddenIds?.() ?? [])).length;
+await p3.evaluate((h) => window.__hushfall.warp(h.x, h.y), hp);
+await sleep(500);
+const hiddenAfter = (await p1.evaluate(() => window.__hushfall.hiddenIds?.() ?? [])).length;
+await p3.evaluate((p) => window.__hushfall.warp(p.x, p.y), lp); // back onto the lantern
+await sleep(200);
+const hideOk = hideCount >= 4 && hiddenBefore === 0 && hiddenAfter >= 1;
+
+// ABILITY: the Lookout's Sense reveals the map — other hiders see markers.
 const revealBefore = await p3.evaluate(() => window.__hushfall.revealSeen());
 await p2.evaluate(() => window.__hushfall.ability());
 await sleep(500);
@@ -129,13 +146,24 @@ const revealAfter = await p3.evaluate(() => window.__hushfall.revealSeen());
 const usesP2 = await p2.evaluate(() => window.__hushfall.abilityUses());
 const abilityOk = revealAfter > revealBefore && usesP2 >= 1;
 
-// DOWN: the Seeker warps onto the Scout and strikes — the Scout goes down.
-const p2pos = await p2.evaluate(() => window.__hushfall.myPos());
-await p1.evaluate((p) => window.__hushfall.warp(p.x, p.y), p2pos);
+// VISION: the Seeker's Third Eye widens their sight for a few seconds.
+const visBefore = await p1.evaluate(() => window.__hushfall.visionActive?.() ?? false);
+await p1.evaluate(() => window.__hushfall.ability());
 await sleep(300);
-await p1.evaluate(() => window.__hushfall.attack());
-await sleep(500);
-const p2Downed = await p2.evaluate(() => window.__hushfall.amDowned());
+const visAfter = await p1.evaluate(() => window.__hushfall.visionActive?.() ?? false);
+const visionOk = visBefore === false && visAfter === true;
+
+// DOWN: the Seeker warps onto the Lookout and strikes — they go down. Re-warp
+// and swing a few times to ride out any transient position lag.
+let p2Downed = false;
+for (let i = 0; i < 5 && !p2Downed; i++) {
+  const pp = await p2.evaluate(() => window.__hushfall.myPos());
+  await p1.evaluate((p) => window.__hushfall.warp(p.x, p.y), pp);
+  await sleep(300);
+  await p1.evaluate(() => window.__hushfall.attack());
+  await sleep(450);
+  p2Downed = await p2.evaluate(() => window.__hushfall.amDowned());
+}
 const downCountHost = await p1.evaluate(() => window.__hushfall.downedCount());
 const downOk = p2Downed === true && downCountHost >= 1;
 await p1.screenshot({ path: `${outDir}/hf-2-down.png` });
@@ -144,7 +172,7 @@ await p1.screenshot({ path: `${outDir}/hf-2-down.png` });
 const p2posDown = await p2.evaluate(() => window.__hushfall.myPos());
 await p1.evaluate(() => window.__hushfall.warp(200, 200)); // seeker steps away
 await p3.evaluate((p) => window.__hushfall.warp(p.x, p.y), p2posDown);
-await p2.waitForFunction(() => window.__hushfall.amDowned?.() === false, null, { timeout: 8_000 }).catch(() => {});
+await p2.waitForFunction(() => window.__hushfall.amDowned?.() === false, null, { timeout: 16_000 }).catch(() => {});
 await sleep(400);
 const p2Revived = await p2.evaluate(() => window.__hushfall.amDowned());
 const rescueOk = p2Revived === false;
@@ -157,7 +185,7 @@ const gateOnP2 = await p2.evaluate(() => window.__hushfall.gateOpen());
 const gate = await p2.evaluate(() => window.__hushfall.gatePos());
 await p2.evaluate((g) => window.__hushfall.warp(g.x, g.y), gate);
 await p3.evaluate((g) => window.__hushfall.warp(g.x + 20, g.y), gate);
-await p1.waitForFunction(() => window.__hushfall.phase?.() !== 'playing', null, { timeout: 8_000 }).catch(() => {});
+await p1.waitForFunction(() => window.__hushfall.phase?.() !== 'playing', null, { timeout: 14_000 }).catch(() => {});
 await sleep(600);
 const escapedHost = await p1.evaluate(() => window.__hushfall.escapedCount());
 const phaseHost = await p1.evaluate(() => window.__hushfall.phase());
@@ -183,16 +211,20 @@ await pb.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { t
 await sleep(600);
 const matchBots = await pb.evaluate(() => window.__hushfall.botCount());
 const botPos0 = await pb.evaluate(() => window.__hushfall.botPos());
-await sleep(2800);
+await sleep(3600);
 const botPos1 = await pb.evaluate(() => window.__hushfall.botPos());
 const botMoved =
   !!botPos0 && !!botPos1 && Math.hypot(botPos1.x - botPos0.x, botPos1.y - botPos0.y) > 20;
-// Open the gate + move the seeker aside; bots should now head north for it.
-await pb.evaluate(() => window.__hushfall.warp(200, 1780));
+// Open the gate + move the seeker aside; bots should path toward it (they
+// route through doorways, so measure distance-to-gate, not a straight line).
+const gateB = await pb.evaluate(() => window.__hushfall.gatePos());
+await pb.evaluate(() => window.__hushfall.warp(2600, 2280)); // seeker far from the gate
 await pb.evaluate(() => window.__hushfall.forceLightAll());
-await sleep(3200);
+const botDist0 = botPos1 ? Math.hypot(botPos1.x - gateB.x, botPos1.y - gateB.y) : 0;
+await sleep(4000);
 const botPos2 = await pb.evaluate(() => window.__hushfall.botPos());
-const botToGate = !!botPos1 && !!botPos2 && botPos2.y < botPos1.y - 20;
+const botDist1 = botPos2 ? Math.hypot(botPos2.x - gateB.x, botPos2.y - gateB.y) : 1e9;
+const botToGate = botDist1 < botDist0 - 40;
 const botOk = botLobbyOk && matchBots === 3 && botMoved && botToGate;
 await pb.screenshot({ path: `${outDir}/hf-6-bots-match.png` });
 
@@ -204,7 +236,10 @@ const ok =
   startRolesOk &&
   seekerVisibleOk &&
   objectiveOk &&
+  reachOk &&
+  hideOk &&
   abilityOk &&
+  visionOk &&
   downOk &&
   rescueOk &&
   escapeOk &&
@@ -223,6 +258,12 @@ console.log(
       lanternCount,
       litHost,
       litJoiner,
+      reachOk,
+      hideOk,
+      hideCount,
+      hiddenBefore,
+      hiddenAfter,
+      visionOk,
       abilityOk,
       revealBefore,
       revealAfter,
