@@ -9,6 +9,7 @@ import { ACCESSORIES, FREE_ACCESSORIES, accessoryView } from '../accessories.js'
 import { NIGHT, sting } from '../theme.js';
 import { makeText } from '../text.js';
 import { savedClass, store } from '../store.js';
+import { LEVELS } from '../map.js';
 import { MatchScene } from './MatchScene.js';
 import { MenuScene } from './MenuScene.js';
 import '../debug.js';
@@ -21,6 +22,7 @@ export interface RosterState {
   accs?: Record<string, number>;
   ready?: Record<string, boolean>;
   seekerId?: string | null;
+  level?: number;
 }
 
 type LobbyMsg =
@@ -34,7 +36,7 @@ type LobbyMsg =
   | { type: 'hello' };
 
 export class LobbyScene extends Scene {
-  private roster: RosterState = { order: [], names: {}, roles: {}, classes: {}, accs: {}, ready: {} };
+  private roster: RosterState = { order: [], names: {}, roles: {}, classes: {}, accs: {}, ready: {}, level: 0 };
   private live = true;
   private inProgress = false;
 
@@ -56,6 +58,9 @@ export class LobbyScene extends Scene {
   private botMinus: UIButton | null = null;
   private botPlus: UIButton | null = null;
   private botLabel: Text | null = null;
+  private levelMinus: UIButton | null = null;
+  private levelPlus: UIButton | null = null;
+  private levelLabel: Text | null = null;
   private waitText: Text | null = null;
   private statusText!: Text;
 
@@ -119,9 +124,12 @@ export class LobbyScene extends Scene {
       // Wide, short view: a bot stepper row, then a bottom action row spread
       // across the width.
       this.abilityInfo.position.set(W / 2, 512);
-      this.botLabel?.position.set(W / 2, 566);
-      this.botMinus?.position.set(W / 2 - 170, 566);
-      this.botPlus?.position.set(W / 2 + 170, 566);
+      this.botLabel?.position.set(W * 0.3, 566);
+      this.botMinus?.position.set(W * 0.3 - 150, 566);
+      this.botPlus?.position.set(W * 0.3 + 150, 566);
+      this.levelLabel?.position.set(W * 0.7, 566);
+      this.levelMinus?.position.set(W * 0.7 - 150, 566);
+      this.levelPlus?.position.set(W * 0.7 + 150, 566);
       const ay = H - 60;
       this.wardrobeBtn.position.set(W * 0.18, ay);
       this.randomBtn?.position.set(W * 0.5, ay);
@@ -143,6 +151,9 @@ export class LobbyScene extends Scene {
     this.botLabel?.position.set(W / 2, H - 296);
     this.botMinus?.position.set(W / 2 - 150, H - 296);
     this.botPlus?.position.set(W / 2 + 150, H - 296);
+    this.levelLabel?.position.set(W / 2, H - 380);
+    this.levelMinus?.position.set(W / 2 - 150, H - 380);
+    this.levelPlus?.position.set(W / 2 + 150, H - 380);
     this.readyBtn?.position.set(W / 2, H - 96);
     this.waitText?.position.set(W / 2, H - 176);
     this.layoutWardrobe(W, H);
@@ -245,6 +256,28 @@ export class LobbyScene extends Scene {
       this.add(this.botMinus);
       this.add(this.botPlus);
       this.updateBotLabel();
+      // Level (map) picker.
+      this.levelLabel = makeText('', 26, { color: NIGHT.lantern, weight: '800' });
+      this.stage.addChild(this.levelLabel);
+      this.levelMinus = new UIButton('◀', {
+        width: 76,
+        height: 76,
+        fontSize: 32,
+        fill: 0x2a3a4a,
+        textColor: NIGHT.ink,
+        onTap: () => this.setLevel((this.roster.level ?? 0) - 1),
+      });
+      this.levelPlus = new UIButton('▶', {
+        width: 76,
+        height: 76,
+        fontSize: 32,
+        fill: 0x2a3a4a,
+        textColor: NIGHT.ink,
+        onTap: () => this.setLevel((this.roster.level ?? 0) + 1),
+      });
+      this.add(this.levelMinus);
+      this.add(this.levelPlus);
+      this.updateLevelLabel();
       this.randomBtn = new UIButton('🎲 RANDOM SEEKER', {
         width: 440,
         height: 84,
@@ -306,11 +339,14 @@ export class LobbyScene extends Scene {
       inProgress: () => this.inProgress,
       joinNow: () => this.joinInProgress(),
       botCount: () => this.botCount,
+      levelIndex: () => this.roster.level ?? 0,
+      levelCount: () => LEVELS.length,
       ...(session.isHost
         ? {
             start: () => this.startMatch(),
             randomSeeker: () => this.randomSeeker(),
             setBots: (n: number) => this.setBots(n),
+            setLevel: (i: number) => this.setLevel(i),
           }
         : {}),
     };
@@ -395,6 +431,7 @@ export class LobbyScene extends Scene {
             accs: msg.accs ?? {},
             ready: msg.ready ?? {},
             seekerId: msg.seekerId ?? null,
+            level: msg.level ?? 0,
           };
           if (this.inProgress && mine) this.roster.classes[session.id] = mine;
           if (this.inProgress && myAcc !== undefined) (this.roster.accs ??= {})[session.id] = myAcc;
@@ -514,6 +551,22 @@ export class LobbyScene extends Scene {
     const humans = this.roster.order.filter((id) => !this.isBot(id)).length;
     const max = Math.max(0, 8 - humans);
     if (this.botLabel) this.botLabel.text = `🤖 Bots: ${this.botCount}/${max}`;
+  }
+
+  // ---------------------------------------------------------------- levels
+
+  private setLevel(i: number): void {
+    if (!this.session.isHost) return;
+    const n = LEVELS.length;
+    this.roster.level = ((i % n) + n) % n; // wrap both ways
+    sting('blip');
+    this.updateLevelLabel();
+    this.shareRoster();
+  }
+
+  private updateLevelLabel(): void {
+    const lv = LEVELS[this.roster.level ?? 0] ?? LEVELS[0]!;
+    if (this.levelLabel) this.levelLabel.text = `🏚️ ${lv.name} · ${lv.lanterns} lanterns`;
   }
 
   private toggleSeeker(): void {

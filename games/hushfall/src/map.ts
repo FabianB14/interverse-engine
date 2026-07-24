@@ -33,15 +33,36 @@ function lcg(seed: number): () => number {
   };
 }
 
-const W = 44;
-const H = 38;
-const MIN = 9; // smallest room-region side (rooms vary from this up to very large)
-
 interface Rect {
   x: number;
   y: number;
   w: number;
   h: number;
+}
+
+/** A playable manor. Each level is a differently-sized, differently-seeded
+ *  building with its own lantern count, so hunts feel distinct. */
+export interface LevelDef {
+  name: string;
+  blurb: string;
+  seed: number;
+  w: number;
+  h: number;
+  /** smallest room-region side (rooms vary from this up to very large). */
+  min: number;
+  lanterns: number;
+}
+
+export const LEVELS: LevelDef[] = [
+  { name: 'Hollow Manor', blurb: 'A cramped, boarded-up house.', seed: 91027, w: 44, h: 38, min: 9, lanterns: 5 },
+  { name: 'Ashen Asylum', blurb: 'Long wards and cold cells.', seed: 40213, w: 52, h: 40, min: 8, lanterns: 6 },
+  { name: 'The Cellars', blurb: 'Twisting stone vaults below.', seed: 13001, w: 44, h: 48, min: 6, lanterns: 5 },
+  { name: 'Grand Estate', blurb: 'A sprawling manor of wings.', seed: 52020, w: 58, h: 46, min: 6, lanterns: 7 },
+];
+
+export function levelRows(i: number): string[] {
+  const idx = Math.max(0, Math.min(LEVELS.length - 1, i | 0));
+  return generateBuilding(LEVELS[idx]!);
 }
 
 /**
@@ -51,7 +72,8 @@ interface Rect {
  * collision. Fixed anchors (hider spawn, Seeker spawn, escape gate, five
  * lanterns) live in different rooms.
  */
-export function generateBuilding(seed = 91027): string[] {
+export function generateBuilding(level: LevelDef = LEVELS[0]!): string[] {
+  const { seed, w: W, h: H, min: MIN } = level;
   const rng = lcg(seed);
   const grid: number[][] = Array.from({ length: H }, () => Array<number>(W).fill(TILE.WALL));
   const corridor = new Set<string>();
@@ -188,13 +210,14 @@ export function generateBuilding(seed = 91027): string[] {
   stampCenter(gateRoom, 'G');
   const used = new Set([spawnRoom, seekerRoom, gateRoom]);
   const rest = sorted.filter((r) => !used.has(r));
-  // Spread the five lanterns across the widest-apart rooms available.
+  const want = level.lanterns;
+  // Spread the lanterns across the widest-apart rooms available.
   const lanternRooms = rest.slice().sort((a, b) => b.w * b.h - a.w * a.h);
-  for (let i = 0; i < Math.min(5, lanternRooms.length); i++) stampCenter(lanternRooms[i]!, 'L');
+  for (let i = 0; i < Math.min(want, lanternRooms.length); i++) stampCenter(lanternRooms[i]!, 'L');
   // If there were too few rooms, drop extra lanterns into big rooms' corners.
-  let lanterns = Math.min(5, lanternRooms.length);
+  let lanterns = Math.min(want, lanternRooms.length);
   for (const room of lanternRooms) {
-    if (lanterns >= 5) break;
+    if (lanterns >= want) break;
     if (stampFree(room.x + 2, room.y + 2, 'L')) lanterns++;
   }
 

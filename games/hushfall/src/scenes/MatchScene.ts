@@ -22,7 +22,7 @@ import { UIButton } from '@interverse/ui';
 import { classById } from '../classes.js';
 import { NIGHT, setTerror, sting, updateHeartbeat } from '../theme.js';
 import { accessoryView } from '../accessories.js';
-import { TILE_SIZE, arenaRows, legend, painters } from '../map.js';
+import { LEVELS, TILE_SIZE, legend, levelRows, painters } from '../map.js';
 import { makeText } from '../text.js';
 import { saveLastRoom, clearLastRoom } from '../store.js';
 import { MenuScene } from './MenuScene.js';
@@ -173,6 +173,7 @@ export class MatchScene extends Scene {
 
   // shared/derived
   private amSeeker = false;
+  private level = 0;
   private seekerId = '';
   private spawn = { x: 0, y: 0 };
   private seekerSpawn = { x: 0, y: 0 };
@@ -273,7 +274,8 @@ export class MatchScene extends Scene {
     this.amSeeker = this.seekerId === session.id;
     if (!session.isHost) saveLastRoom(session.code);
 
-    this.map = tileMapFromRows(arenaRows, TILE_SIZE, legend);
+    this.level = this.roster.level ?? 0;
+    this.map = tileMapFromRows(levelRows(this.level), TILE_SIZE, legend);
     this.mapLayer = new Container();
     this.uiLayer = new Container();
     this.stage.addChild(this.mapLayer, this.uiLayer);
@@ -519,7 +521,8 @@ export class MatchScene extends Scene {
     });
     this.add(this.homeBtn, this.uiLayer);
 
-    this.codeHud = makeText(`${this.session.code}`, 24, { color: NIGHT.inkSoft, weight: 'bold' });
+    const lvName = LEVELS[this.level]?.name ?? '';
+    this.codeHud = makeText(`${this.session.code} · ${lvName}`, 24, { color: NIGHT.inkSoft, weight: 'bold' });
     this.uiLayer.addChild(this.codeHud);
     this.hud = makeText('', 24, { color: NIGHT.lantern, weight: '800' });
     this.hud.anchor.set(0, 0.5);
@@ -874,15 +877,24 @@ export class MatchScene extends Scene {
     }
     // Expire decoys.
     this.decoys = this.decoys.filter((d) => d.until > this.t);
-    // End check.
+    // End check. The hunt is over when nobody's left in play (all escaped or
+    // lost), OR when everyone still in is downed at once — with no one left
+    // standing to rescue them, the Seeker has won.
     if (this.phase === 'playing') {
-      const stillIn = this.activeHiders().length;
-      if (stillIn === 0) {
-        this.phase = this.escaped.size > 0 ? 'hiders-win' : 'seeker-wins';
-        this.session.broadcast({ type: 'end', result: this.phase });
-        this.showEnd(this.phase);
+      const inPlay = this.activeHiders();
+      const allDown = inPlay.length > 0 && inPlay.every((id) => this.down[id] !== undefined);
+      if (inPlay.length === 0) {
+        this.endMatch(this.escaped.size > 0 ? 'hiders-win' : 'seeker-wins');
+      } else if (allDown) {
+        this.endMatch('seeker-wins');
       }
     }
+  }
+
+  private endMatch(result: string): void {
+    this.phase = result;
+    this.session.broadcast({ type: 'end', result });
+    this.showEnd(result);
   }
 
   /** Host: drive the AI bots (fill-in players). Everything else — lantern
@@ -1591,14 +1603,34 @@ export class MatchScene extends Scene {
       64,
       { color: iWon ? NIGHT.gate : NIGHT.blood },
     );
-    title.position.set(W / 2, H * 0.32);
+    title.position.set(W / 2, H * 0.3);
     this.endRoot.addChild(title);
+
+    // Announce the winners by name.
+    const escNames = [...this.escaped]
+      .filter((id) => this.roster.roles[id] !== 'seeker')
+      .map((id) => this.roster.names[id] ?? '?');
+    const seekerName = this.roster.names[this.seekerId] ?? 'The Seeker';
+    const winnersLine = hidersWin
+      ? escNames.length
+        ? `🏆 Escaped: ${escNames.join(', ')}`
+        : '🏆 The hiders got away'
+      : `🏆 ${seekerName} wins — nobody escaped`;
+    const winners = makeText(winnersLine, 34, {
+      color: hidersWin ? NIGHT.gate : NIGHT.blood,
+      weight: '800',
+      wrapWidth: 680,
+    });
+    winners.position.set(W / 2, H * 0.43);
+    this.endRoot.addChild(winners);
+
+    const lv = LEVELS[this.level] ?? LEVELS[0]!;
     const sub = makeText(
-      `${this.escaped.size} escaped · ${this.out.size} lost\n+${reward} ⬡ Verium`,
-      30,
+      `${lv.name} — ${this.escaped.size} escaped · ${this.out.size} lost\n+${reward} ⬡ Verium`,
+      28,
       { color: NIGHT.ink, weight: 'bold', wrapWidth: 640 },
     );
-    sub.position.set(W / 2, H * 0.46);
+    sub.position.set(W / 2, H * 0.54);
     this.endRoot.addChild(sub);
 
     if (this.session.isHost) {
@@ -1697,6 +1729,7 @@ export class MatchScene extends Scene {
       myPos: () => ({ x: this.me.x, y: this.me.y }),
       warp: (x: number, y: number) => {
         this.me.position.set(x, y);
+        this.hideTarget = null; // a teleport cancels any pending auto-walk
       },
       litCount: () => this.snapLant.filter((v) => v >= 1).length,
       lanternCount: () => this.snapLant.length,
@@ -1728,6 +1761,17 @@ export class MatchScene extends Scene {
         this.lant = this.lanternPts.map(() => 1);
         this.gateOpen = true;
       },
+      forceDownAll: () => {
+        if (!this.session.isHost) return;
+        for (const id of this.activeHiders()) {
+          this.hurt.delete(id);
+          this.down[id] = BLEED_SECONDS;
+          this.reviveProg[id] = 0;
+        }
+      },
+      levelIndex: () => this.level,
+      levelName: () => LEVELS[this.level]?.name ?? '',
+      levelCount: () => LEVELS.length,
       revealSeen: () => this.revealSeen,
       abilityUses: () => this.abilityUses,
       botCount: () => this.roster.order.filter((id) => id.startsWith('bot')).length,

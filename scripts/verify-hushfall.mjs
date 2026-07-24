@@ -114,10 +114,14 @@ const seekerVisibleOk = seekerPosOnP2 && Number.isFinite(seekerPosOnP2.x);
 // OBJECTIVE: the Engineer stands on a lantern; it lights within a few seconds.
 const lanternCount = await p1.evaluate(() => window.__hushfall.lanternCount());
 const lp = await p3.evaluate(() => window.__hushfall.lanternPos(0));
-await p3.evaluate((p) => window.__hushfall.warp(p.x, p.y), lp);
-await sleep(400);
-await p3.evaluate((p) => window.__hushfall.warp(p.x, p.y), lp);
-await p3.waitForFunction(() => (window.__hushfall.litCount?.() ?? 0) >= 1, null, { timeout: 18_000 }).catch(() => {});
+// Keep the Engineer planted on the lantern (re-warp each second) so a slow
+// headless sim can't drift them off before it lights.
+let litYet = false;
+for (let i = 0; i < 24 && !litYet; i++) {
+  await p3.evaluate((p) => window.__hushfall.warp(p.x, p.y), lp);
+  await sleep(1000);
+  litYet = (await p3.evaluate(() => window.__hushfall.litCount?.() ?? 0)) >= 1;
+}
 const litHost = await p1.evaluate(() => window.__hushfall.litCount());
 const litJoiner = await p3.evaluate(() => window.__hushfall.litCount());
 const objectiveOk = lanternCount >= 5 && litHost >= 1 && litJoiner >= 1;
@@ -141,12 +145,18 @@ const hideOk = hideCount >= 4 && hiddenBefore === 0 && hiddenAfter >= 1;
 // TAP-TO-HIDE: tapping a hiding spot registers intent only when it's within
 // reach. Far away → ignored; nearby → the hider auto-walks in to hide.
 const hp0 = await p2.evaluate(() => window.__hushfall.hidePos?.(0));
-await p2.evaluate((h) => window.__hushfall.warp(h.x + 1000, h.y), hp0); // out of reach
-await p2.evaluate(() => window.__hushfall.tapHide?.(0));
-const tapFar = await p2.evaluate(() => window.__hushfall.hideTargetSet?.() ?? false);
-await p2.evaluate((h) => window.__hushfall.warp(h.x + 120, h.y), hp0); // within reach
-await p2.evaluate(() => window.__hushfall.tapHide?.(0));
-const tapNear = await p2.evaluate(() => window.__hushfall.hideTargetSet?.() ?? false);
+// Warp + tap + read in one page eval so no update frame can clear the target
+// between tapping and reading (the auto-walk clears it once you arrive).
+const tapFar = await p2.evaluate((h) => {
+  window.__hushfall.warp(h.x + 1000, h.y); // out of reach
+  window.__hushfall.tapHide?.(0);
+  return window.__hushfall.hideTargetSet?.() ?? false;
+}, hp0);
+const tapNear = await p2.evaluate((h) => {
+  window.__hushfall.warp(h.x + 120, h.y); // within reach
+  window.__hushfall.tapHide?.(0);
+  return window.__hushfall.hideTargetSet?.() ?? false;
+}, hp0);
 await p2.waitForFunction(() => window.__hushfall.amConcealed?.() === true, null, { timeout: 3_000 }).catch(() => {});
 const tapConcealed = await p2.evaluate(() => window.__hushfall.amConcealed?.() ?? false);
 const tapHideOk = tapFar === false && tapNear === true;
@@ -272,9 +282,37 @@ const botDist0 = nearGate(swarm1);
 await sleep(5200);
 const swarm2 = await pb.evaluate(() => window.__hushfall.botPositions());
 const botDist1 = nearGate(swarm2);
-const botToGate = botDist1 < botDist0 - 40;
+// Bots head for the gate: either the nearest closes in, or one already made it
+// out (an escaped bot drops off the position list, so count that as success).
+const botEscaped = await pb.evaluate(() => window.__hushfall.escapedCount?.() ?? 0);
+const botToGate = botDist1 < botDist0 - 40 || botEscaped >= 1;
 const botOk = botLobbyOk && matchBots === 3 && botMoved && botSpread && botToGate;
 await pb.screenshot({ path: `${outDir}/hf-6-bots-match.png` });
+
+// LEVELS + ALL-DOWN END: a solo host picks a non-default level (Ashen Asylum,
+// 6 lanterns) and fills with bots. The match loads THAT level, and downing
+// every hider at once ends the hunt as a Seeker win.
+const pe = await phone('host=1&seeker=1&class=stalker&name=Lvl');
+await pe.waitForFunction(() => window.__hushfall?.scene() === 'lobby', null, { timeout: 12_000 });
+const levelCount = await pe.evaluate(() => window.__hushfall.levelCount?.() ?? 0);
+await pe.evaluate(() => window.__hushfall.setLevel?.(1));
+await pe.evaluate(() => window.__hushfall.setBots?.(2));
+const lvlLobby = await pe.evaluate(() => window.__hushfall.levelIndex?.() ?? -1);
+await pe.evaluate(() => window.__hushfall.start());
+await pe.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { timeout: 12_000 });
+await sleep(500);
+const lvlMatch = await pe.evaluate(() => window.__hushfall.levelIndex?.() ?? -1);
+const lvlName = await pe.evaluate(() => window.__hushfall.levelName?.() ?? '');
+const lvlLanterns = await pe.evaluate(() => window.__hushfall.lanternCount?.() ?? 0);
+const levelOk = levelCount >= 3 && lvlLobby === 1 && lvlMatch === 1 && lvlLanterns === 6;
+// Down everyone at once → immediate Seeker win.
+await pe.evaluate(() => window.__hushfall.forceDownAll?.());
+await pe
+  .waitForFunction(() => window.__hushfall.phase?.() === 'seeker-wins', null, { timeout: 6_000 })
+  .catch(() => {});
+const allDownPhase = await pe.evaluate(() => window.__hushfall.phase?.());
+const allDownOk = allDownPhase === 'seeker-wins';
+await pe.screenshot({ path: `${outDir}/hf-7-level-end.png` });
 
 await browser.close();
 relay.kill();
@@ -294,6 +332,8 @@ const ok =
   rescueOk &&
   escapeOk &&
   botOk &&
+  levelOk &&
+  allDownOk &&
   errors.length === 0;
 console.log(
   JSON.stringify(
@@ -345,6 +385,15 @@ console.log(
       botSpread,
       distinctGoals,
       botToGate,
+      botEscaped,
+      levelOk,
+      levelCount,
+      lvlLobby,
+      lvlMatch,
+      lvlName,
+      lvlLanterns,
+      allDownOk,
+      allDownPhase,
       errors: errors.slice(0, 6),
     },
     null,

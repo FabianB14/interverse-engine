@@ -30,6 +30,10 @@ export interface HushfallDebug {
   joinNow?: () => void;
   setBots?: (n: number) => void;
   botCount?: () => number;
+  setLevel?: (i: number) => void;
+  levelIndex?: () => number;
+  levelCount?: () => number;
+  levelName?: () => string;
   botPos?: () => { x: number; y: number } | null;
   botPositions?: () => { x: number; y: number }[];
   botGoals?: () => string[];
@@ -62,6 +66,7 @@ export interface HushfallDebug {
   gatePos?: () => { x: number; y: number } | null;
   spawnPos?: () => { x: number; y: number };
   forceLightAll?: () => void;
+  forceDownAll?: () => void;
   revealSeen?: () => number;
   abilityUses?: () => number;
 }
