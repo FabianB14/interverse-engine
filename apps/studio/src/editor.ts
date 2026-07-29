@@ -10,6 +10,8 @@ import type { Game } from '@interverse/engine';
 import type { EntityDef, EntityKind, ProjectDef, SceneDef } from './model.js';
 import { defaultEntity, defaultProject, defaultScene, freshId, parseProject } from './model.js';
 import { PlayScene, buildView } from './runtime.js';
+import { StudioNet, resolveRelayUrl } from './net.js';
+import { slugify } from './publish.js';
 
 const SAVE_KEY = 'interverse.studio.project';
 
@@ -168,7 +170,24 @@ export class StudioEditor {
 
   // ----------------------------------------------------------------- play
 
+  net: StudioNet | null = null;
+  /** Set by main: opens the host/join/solo lobby overlay. */
+  onNeedLobby: () => void = () => {};
+
   play(): void {
+    if (this.project.multiplayer && !this.net) {
+      this.onNeedLobby();
+      return;
+    }
+    this.beginPlay();
+  }
+
+  /** Play without multiplayer even when the project has it on. */
+  playSolo(): void {
+    this.beginPlay();
+  }
+
+  private beginPlay(): void {
     this.playing = true;
     this.selectedId = null;
     this.openPlayScene(this.scene);
@@ -176,7 +195,28 @@ export class StudioEditor {
     this.onPlayState();
   }
 
+  private gameTag(): string {
+    return `studio-${slugify(this.project.name)}`;
+  }
+
+  async hostMultiplayer(): Promise<string> {
+    const relay = resolveRelayUrl();
+    if (!relay) throw new Error('no relay configured');
+    this.net = await StudioNet.host(relay, this.gameTag());
+    this.beginPlay();
+    return this.net.code;
+  }
+
+  async joinMultiplayer(code: string): Promise<void> {
+    const relay = resolveRelayUrl();
+    if (!relay) throw new Error('no relay configured');
+    this.net = await StudioNet.join(code.toUpperCase(), relay, this.gameTag());
+    this.beginPlay();
+  }
+
   stop(): void {
+    this.net?.leave();
+    this.net = null;
     this.openEditScene();
   }
 
@@ -191,6 +231,7 @@ export class StudioEditor {
         this.onChanged();
       },
       (err) => this.onScriptError(err),
+      this.net,
     );
     this.game.scenes.replace(this.playScene);
   }

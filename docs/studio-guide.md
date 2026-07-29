@@ -18,6 +18,7 @@ edit is the real engine, live — press **▶ Play** at any moment.
   | Blob Arena | Top-down | Action survival waves |
   | A Quiet Evening | 2D | Cozy room, stories, no fail state |
   | Tiny Quest | Top-down RPG | NPCs, training, branching **skill tree** |
+  | Firefly Party | Multiplayer co-op | Host a room code, catch fireflies together |
 
   First-person / 3D templates arrive when the engine grows a 3D renderer.
 
@@ -100,7 +101,34 @@ api.skills.onUnlock((id) => {});  // react to unlocks
 Node positions are laid out automatically from `requires` chains — linear
 paths and branching trees both work. Unlocks persist per project.
 
-## 7 · Publish — your repo, and the Interverse world
+## 7 · Multiplayer blocks
+
+Tick **Multiplayer** in the toolbar and press ▶ Play — you get a lobby:
+**HOST A ROOM** (share the 4-letter code), **JOIN** a friend's code, or play
+solo. It's drop-in co-op: friends can join mid-game, and every player's
+avatar walks around live in everyone else's world (name tag included) with
+no netcode written. Try the **Firefly Party** template to see it wired up.
+
+From the Code window (`api.net` is null when playing solo):
+
+```js
+if (api.net) {
+  api.net.code                    // the room code
+  api.net.isHost                  // am I the host?
+  api.net.players()               // everyone in the room
+  api.net.setState('score', 5)    // shared state — host-authoritative,
+  api.net.state('score')          //   synced to every player
+  api.net.onState((k, v) => {})   // react to changes
+  api.net.send({ hi: true })      // custom messages
+  api.net.onMessage((from, d) => {})
+}
+```
+
+The pattern for shared objects: when a player takes/changes something, set a
+state key; every client (including late joiners, who get a full state sync)
+applies it locally. Firefly Party's script is a worked example.
+
+## 8 · Publish — your repo, and the Interverse world
 
 **🌍 Publish** opens two paths (your credentials stay on YOUR device):
 
@@ -115,14 +143,14 @@ paths and branching trees both work. Unlocks persist per project.
    Play mode shows the local Verium wallet — and the on-chain IVX balance
    once a wallet address is configured in the project.
 
-## 8 · AI copilot
+## 9 · AI copilot
 
 The **AI Chat** tab is a dev-time copilot: paste your Anthropic API key
 (stored locally, never shipped) and ask — "add a forest of 8 plants",
 "make the button jump to Level 2", "write the wizard's story". Claude edits
 the project through tools while you watch the canvas change.
 
-## 9 · The Windows app (and iOS later)
+## 10 · The Windows app (and iOS later)
 
 The `Studio Windows app` GitHub Actions workflow builds a desktop installer
 (Tauri shell). Tauri is the same shell that will target iOS when we get

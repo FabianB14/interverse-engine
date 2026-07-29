@@ -25,6 +25,7 @@ import { defaultEntity } from './model.js';
 import type { EntityDef, ProjectDef, SceneDef, TapSound } from './model.js';
 import { SkillTree } from './skills.js';
 import type { SkillTreeDef } from './skills.js';
+import type { StudioNet } from './net.js';
 
 const textureCache = new Map<string, Texture>();
 
@@ -212,6 +213,19 @@ export interface ScriptApi {
   skills: SkillTree;
   /** End the game with a message (score shown too). */
   gameOver: (message?: string) => void;
+  /** Multiplayer (null when playing solo / multiplayer off): room + players +
+   *  shared state. Other players appear automatically as live avatars. */
+  net: {
+    id: string;
+    isHost: boolean;
+    code: string;
+    players: () => { id: string; name: string }[];
+    setState: (k: string, v: unknown) => void;
+    state: (k: string) => unknown;
+    onState: (cb: (k: string, v: unknown) => void) => void;
+    send: (data: unknown) => void;
+    onMessage: (cb: (from: string, data: unknown) => void) => void;
+  } | null;
 }
 
 /** Live play-through of a project scene: behaviors, taps, stories, script. */
@@ -238,8 +252,52 @@ export class PlayScene extends Scene {
     private readonly sceneDef: SceneDef,
     private readonly onGoto: (scene: SceneDef) => void,
     private readonly onScriptError: (err: unknown) => void,
+    private readonly net: StudioNet | null = null,
   ) {
     super();
+  }
+
+  private remoteViews = new Map<string, { root: Entity; label: Text }>();
+
+  /** Other players render as live blob avatars with name tags. */
+  private syncRemotes(dt: number): void {
+    if (!this.net) return;
+    const seen = new Set<string>();
+    this.net.remotes().forEach((r, i) => {
+      seen.add(r.id);
+      let v = this.remoteViews.get(r.id);
+      if (!v) {
+        const root = new Entity();
+        const colors = [0x6fc3ff, 0xff6f91, 0x8affc1, 0xffd166, 0xc77dff, 0xffb86b, 0x8fd0ff];
+        const char = blobCharacter({ radius: 30, color: colors[i % colors.length]!, seed: 7 + i });
+        root.addChild(char.view);
+        const label = new Text({
+          text: r.name,
+          style: { fontFamily: 'system-ui, sans-serif', fontSize: 17, fontWeight: '700', fill: 0xe6e4f0 },
+        });
+        label.anchor.set(0.5);
+        label.position.set(0, 46);
+        root.addChild(label);
+        root.position.set(r.x, r.y);
+        this.add(root);
+        v = { root, label };
+        this.remoteViews.set(r.id, v);
+      }
+      if (r.x > -9000) {
+        const k = Math.min(1, dt * 12);
+        v.root.visible = true;
+        v.root.x += (r.x - v.root.x) * k;
+        v.root.y += (r.y - v.root.y) * k;
+      } else {
+        v.root.visible = false; // joined but no position yet
+      }
+    });
+    for (const [id, v] of this.remoteViews) {
+      if (!seen.has(id)) {
+        this.remove(v.root);
+        this.remoteViews.delete(id);
+      }
+    }
   }
 
   protected override onEnter(): void {
@@ -280,6 +338,7 @@ export class PlayScene extends Scene {
   protected override onExit(): void {
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
+    this.net?.resetSceneBindings();
   }
 
   spawnDef(def: EntityDef): Entity {
@@ -410,6 +469,19 @@ export class PlayScene extends Scene {
       },
       random: (min, max) => min + Math.random() * (max - min),
       skills: this.skillsTree,
+      net: this.net
+        ? {
+            id: this.net.id,
+            isHost: this.net.isHost,
+            code: this.net.code,
+            players: () => this.net!.players(),
+            setState: (k, v) => this.net!.setState(k, v),
+            state: (k) => this.net!.getState(k),
+            onState: (cb) => this.net!.onState(cb),
+            send: (data) => this.net!.send(data),
+            onMessage: (cb) => this.net!.onMsg(cb),
+          }
+        : null,
       gameOver: (message = 'GAME OVER') => {
         if (this.over) return;
         this.over = true;
@@ -462,10 +534,20 @@ export class PlayScene extends Scene {
       }
       for (const cb of this.updaters) cb(dt);
     }
+    // Multiplayer: ship my position, render everyone else.
+    if (this.net) {
+      const me = this.players[0]?.entity;
+      this.net.tick(dt, me && !me.destroyed ? { x: me.x, y: me.y } : null);
+      this.syncRemotes(dt);
+    }
   }
 
   entityCount(): number {
     return this.byName.size;
+  }
+
+  remoteCount(): number {
+    return this.remoteViews.size;
   }
 
   skillTree(): SkillTree | null {

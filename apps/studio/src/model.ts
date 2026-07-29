@@ -64,6 +64,8 @@ export interface ProjectDef {
   name: string;
   /** Wire up the Verium wallet + Interverse hooks in Play/exported games. */
   interverse: boolean;
+  /** Multiplayer blocks: Play opens a host/join lobby; players share a room. */
+  multiplayer?: boolean;
   /** Optional Interverse-world connection (public fields only). */
   platform?: PlatformDef;
   startScene: string;

@@ -23,11 +23,12 @@ function E(kind: EntityKind, name: string, x: number, y: number, over: Partial<E
   return d;
 }
 
-function project(name: string, scenes: SceneDef[]): ProjectDef {
+function project(name: string, scenes: SceneDef[], multiplayer = false): ProjectDef {
   return {
     version: 1,
     name,
     interverse: false,
+    multiplayer,
     startScene: scenes[0]!.id,
     scenes,
     assets: {},
@@ -259,6 +260,49 @@ function rpg(): ProjectDef {
   return project('Tiny Quest (RPG)', [s]);
 }
 
+function party(): ProjectDef {
+  const s = defaultScene('Meadow');
+  s.background = 0x142618;
+  s.entities.push(
+    E('blob', 'Hero', 360, 900, { color: 0xffd166 }),
+    E('text', 'Title', 360, 130, { text: '🎉 FIREFLY PARTY\ncatch them together!', fontSize: 34, color: 0x8affc1 }),
+    ...[1, 2, 3, 4, 5, 6, 7, 8].map((i) =>
+      E('lantern', `Fly ${i}`, 80 + ((i * 199) % 570), 260 + ((i * 313) % 880), { scale: 0.65 }),
+    ),
+  );
+  s.script = S([
+    '// Co-op collect: every player sees every catch, score is shared.',
+    "api.player('Hero', 330);",
+    'function applyTaken(k) {',
+    "  if (k.indexOf('taken-') === 0) {",
+    '    var e = api.entity(k.slice(6));',
+    '    if (e && !e.destroyed) { api.remove(e); api.sfx.pop(1.2); }',
+    '  }',
+    "  if (k === 'score' && api.net) api.score.set(api.net.state('score') || 0);",
+    '}',
+    'if (api.net) {',
+    '  api.net.onState(applyTaken);',
+    '  // catch up on state that changed before we joined',
+    '  for (var i = 1; i <= 8; i++) if (api.net.state("taken-Fly " + i)) applyTaken("taken-Fly " + i);',
+    "  api.score.set(api.net.state('score') || 0);",
+    '}',
+    'api.onUpdate(function () {',
+    '  for (var i = 1; i <= 8; i++) {',
+    "    var name = 'Fly ' + i;",
+    '    var f = api.entity(name);',
+    "    if (f && !f.destroyed && api.overlap('Hero', f, 70)) {",
+    '      api.remove(f); api.sfx.pop(1.2);',
+    '      if (api.net) {',
+    "        api.net.setState('taken-' + name, true);",
+    "        api.net.setState('score', (api.net.state('score') || 0) + 1);",
+    '      } else { api.score.add(1); }',
+    '    }',
+    '  }',
+    '});',
+  ]);
+  return project('Firefly Party (co-op)', [s], true);
+}
+
 export const TEMPLATES: TemplateDef[] = [
   { id: 'blank', name: 'Blank', emoji: '⬜', view: '2D', blurb: 'An empty canvas with one hero.', make: () => project('My Game', [(() => { const s = defaultScene('Level 1'); s.entities.push(E('blob', 'Hero', 360, 640)); return s; })()]) },
   { id: 'topdown', name: 'Garden Explorer', emoji: '🧭', view: 'Top-down', blurb: 'Walk anywhere, collect the fireflies. Cozy-action starter.', make: topDown },
@@ -268,4 +312,5 @@ export const TEMPLATES: TemplateDef[] = [
   { id: 'action', name: 'Blob Arena', emoji: '⚔️', view: 'Top-down', blurb: 'Survive the waves — dodge and zap.', make: action },
   { id: 'cozy', name: 'A Quiet Evening', emoji: '🍂', view: '2D', blurb: 'A warm room, gentle stories, zero fail states.', make: cozy },
   { id: 'rpg', name: 'Tiny Quest', emoji: '🗡️', view: 'Top-down RPG', blurb: 'NPCs, training, and a branching skill tree.', make: rpg },
+  { id: 'party', name: 'Firefly Party', emoji: '🎉', view: 'Multiplayer co-op', blurb: 'Host a room, share the code, catch fireflies together with a shared score.', make: party },
 ];

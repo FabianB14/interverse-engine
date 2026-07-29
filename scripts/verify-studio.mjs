@@ -4,12 +4,23 @@
 // Run the studio dev server first (pnpm dev:studio):
 //
 //   node scripts/verify-studio.mjs [url]
-import { mkdirSync, readdirSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { chromium } from 'playwright-core';
 
 const url = process.argv[2] ?? 'http://localhost:5179/';
 const outDir = process.env.SHOT_DIR ?? 'verify-shots';
 mkdirSync(outDir, { recursive: true });
+
+// Local relay for the multiplayer section.
+if (!existsSync('relay/dist/server.js')) {
+  console.error('relay/dist missing — run: pnpm --filter @interverse/relay build');
+  process.exit(1);
+}
+const relay = spawn('node', ['relay/dist/server.js'], {
+  env: { ...process.env, PORT: '8787' },
+  stdio: 'ignore',
+});
 
 function findChromium() {
   if (process.env.CHROMIUM_BIN) return process.env.CHROMIUM_BIN;
@@ -26,7 +37,15 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const browser = await chromium.launch({
   ...(findChromium() ? { executablePath: findChromium() } : {}),
-  args: ['--use-gl=angle', '--use-angle=swiftshader', '--no-sandbox', '--enable-webgl'],
+  args: [
+    '--use-gl=angle',
+    '--use-angle=swiftshader',
+    '--no-sandbox',
+    '--enable-webgl',
+    '--disable-background-timer-throttling',
+    '--disable-backgrounding-occluded-windows',
+    '--disable-renderer-backgrounding',
+  ],
 });
 const errors = [];
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
@@ -146,16 +165,49 @@ const scoreOk = score >= 7;
 await page.screenshot({ path: `${outDir}/st-5-rpg.png` });
 await page.evaluate(() => window.__studio.stop());
 
+// MULTIPLAYER BLOCKS: two browsers share a room on the co-op template —
+// roster syncs, the remote avatar appears and tracks movement, and shared
+// state (the co-op score) reaches the joiner.
+const pageB = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+pageB.on('pageerror', (e) => errors.push(`B pageerror: ${e.message}`));
+pageB.on('dialog', (d) => void d.dismiss());
+await pageB.goto(url, { waitUntil: 'networkidle' });
+await pageB.waitForFunction(() => window.__studio?.ready?.() === true, null, { timeout: 30_000 });
+await page.evaluate(() => window.__studio.loadTemplate('party'));
+await pageB.evaluate(() => window.__studio.loadTemplate('party'));
+await sleep(300);
+const roomCode = await page.evaluate(() => window.__studio.netHost());
+await pageB.evaluate((c) => window.__studio.netJoin(c), roomCode);
+await sleep(1600);
+const playersA = await page.evaluate(() => window.__studio.netPlayerCount());
+const playersB = await pageB.evaluate(() => window.__studio.netPlayerCount());
+const remotesB = await pageB.evaluate(() => window.__studio.netRemoteCount());
+// Host's hero moves; the joiner's view of that avatar follows.
+await page.evaluate(() => window.__studio.applyScriptNow("api.entity('Hero').x = 620; api.entity('Hero').y = 400;"));
+await sleep(1200);
+const remotePosB = await pageB.evaluate(() => window.__studio.netRemotePos());
+const moveOk = !!remotePosB && Math.abs(remotePosB.x - 620) < 60 && Math.abs(remotePosB.y - 400) < 60;
+// Shared state: host bumps the co-op score; joiner reads it.
+await page.evaluate(() => window.__studio.netSetState('score', 5));
+await sleep(500);
+const stateB = await pageB.evaluate(() => window.__studio.netGetState('score'));
+const netOk = playersA === 2 && playersB === 2 && remotesB === 1 && moveOk && stateB === 5;
+await pageB.screenshot({ path: `${outDir}/st-6-mp.png` });
+await page.evaluate(() => window.__studio.stop());
+await pageB.evaluate(() => window.__studio.stop());
+
 await browser.close();
+relay.kill();
 
 const ok =
   placeOk && editOk && storyOk && levelsOk && playOk && stopOk && exportOk && importOk &&
-  templatesOk && skillsOk && scoreOk && errors.length === 0;
+  templatesOk && skillsOk && scoreOk && netOk && errors.length === 0;
 console.log(
   JSON.stringify(
     {
       ok, placeOk, editOk, storyOk, levelsOk, playOk, playCount, stopOk, exportOk, importOk,
       templatesOk, templates, skillsOk, skillNodes, stormEarly, strength, scoreOk, score,
+      netOk, playersA, playersB, remotesB, moveOk, remotePosB, stateB,
       errors: errors.slice(0, 6),
     },
     null,

@@ -19,12 +19,14 @@ async function main(): Promise<void> {
   const nameInput = $<HTMLInputElement>('project-name');
   const sceneSelect = $<HTMLSelectElement>('scene-select');
   const chkInterverse = $<HTMLInputElement>('chk-interverse');
+  const chkMultiplayer = $<HTMLInputElement>('chk-multiplayer');
   const playBtn = $<HTMLButtonElement>('btn-play');
   const banner = $('play-banner');
 
   const refreshToolbar = (): void => {
     nameInput.value = editor.project.name;
     chkInterverse.checked = editor.project.interverse;
+    chkMultiplayer.checked = !!editor.project.multiplayer;
     sceneSelect.innerHTML = '';
     for (const s of editor.project.scenes) {
       const o = document.createElement('option');
@@ -43,6 +45,10 @@ async function main(): Promise<void> {
   };
   chkInterverse.onchange = () => {
     editor.project.interverse = chkInterverse.checked;
+    editor.touch();
+  };
+  chkMultiplayer.onchange = () => {
+    editor.project.multiplayer = chkMultiplayer.checked;
     editor.touch();
   };
   sceneSelect.onchange = () => editor.switchScene(sceneSelect.value);
@@ -67,6 +73,48 @@ async function main(): Promise<void> {
     build(modal);
     modalBack.classList.add('open');
   };
+
+  // -------------------------------------------------- multiplayer lobby
+  editor.onNeedLobby = () =>
+    openModal((root) => {
+      root.innerHTML = `<h2>🎮 Multiplayer — "${editor.project.name}"</h2>
+        <p class="muted">Host a room and share the 4-letter code, join a friend's, or play alone.</p>
+        <div class="row" style="margin-bottom:12px">
+          <button class="btn primary" id="mp-host">🏠 HOST A ROOM</button>
+          <input id="mp-code" type="text" maxlength="4" placeholder="CODE" style="width:90px;text-transform:uppercase" />
+          <button class="btn" id="mp-join">JOIN</button>
+          <button class="btn" id="mp-solo">Play solo</button>
+        </div>
+        <div class="out" id="mp-out" style="display:none"></div>`;
+      const out = root.querySelector<HTMLElement>('#mp-out')!;
+      const show = (msg: string): void => {
+        out.style.display = 'block';
+        out.textContent = msg;
+      };
+      root.querySelector<HTMLButtonElement>('#mp-host')!.onclick = () => {
+        show('Opening a room…');
+        editor
+          .hostMultiplayer()
+          .then((code) => {
+            closeModal();
+            alert(`Room open! Share this code: ${code}\n(Friends: Play → JOIN → ${code})`);
+          })
+          .catch((err) => show(`Could not host: ${err instanceof Error ? err.message : String(err)}`));
+      };
+      root.querySelector<HTMLButtonElement>('#mp-join')!.onclick = () => {
+        const code = root.querySelector<HTMLInputElement>('#mp-code')!.value.trim();
+        if (code.length !== 4) return show('Enter the 4-letter room code.');
+        show('Joining…');
+        editor
+          .joinMultiplayer(code)
+          .then(() => closeModal())
+          .catch((err) => show(`Could not join: ${err instanceof Error ? err.message : String(err)}`));
+      };
+      root.querySelector<HTMLButtonElement>('#mp-solo')!.onclick = () => {
+        closeModal();
+        editor.playSolo();
+      };
+    });
 
   // ------------------------------------------------- templates ("✚ New")
   const openTemplates = (): void =>
@@ -419,6 +467,22 @@ async function main(): Promise<void> {
     skillAddPoints: (n: number) => editor.getPlayScene()?.skillTree()?.addPoints(n),
     skillUnlock: (id: string) => editor.getPlayScene()?.skillTree()?.unlock(id) ?? false,
     skillUnlocked: () => editor.getPlayScene()?.skillTree()?.unlockedIds() ?? [],
+    setMultiplayer: (b: boolean) => {
+      editor.project.multiplayer = b;
+      editor.touch();
+    },
+    netHost: () => editor.hostMultiplayer(),
+    netJoin: (code: string) => editor.joinMultiplayer(code),
+    netCode: () => editor.net?.code ?? null,
+    netIsHost: () => editor.net?.isHost ?? false,
+    netPlayerCount: () => editor.net?.players().length ?? 0,
+    netRemoteCount: () => editor.getPlayScene()?.remoteCount() ?? 0,
+    netRemotePos: () => {
+      const r = editor.net?.remotes()[0];
+      return r && r.x > -9000 ? { x: r.x, y: r.y } : null;
+    },
+    netSetState: (k: string, v: unknown) => editor.net?.setState(k, v),
+    netGetState: (k: string) => editor.net?.getState(k),
   };
 
   // Player boot: ?load=<url-to-project-json> (+ &play=1 to jump straight in).

@@ -32,6 +32,16 @@ export interface StudioDebug {
   skillAddPoints: (n: number) => void;
   skillUnlock: (id: string) => boolean;
   skillUnlocked: () => string[];
+  setMultiplayer: (b: boolean) => void;
+  netHost: () => Promise<string>;
+  netJoin: (code: string) => Promise<void>;
+  netCode: () => string | null;
+  netIsHost: () => boolean;
+  netPlayerCount: () => number;
+  netRemoteCount: () => number;
+  netRemotePos: () => { x: number; y: number } | null;
+  netSetState: (k: string, v: unknown) => void;
+  netGetState: (k: string) => unknown;
 }
 
 declare global {
