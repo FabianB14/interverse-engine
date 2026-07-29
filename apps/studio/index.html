@@ -354,11 +354,20 @@
         <input id="project-name" type="text" title="Project name" />
         <select id="scene-select" title="Scene"></select>
         <button class="btn" id="btn-add-scene" title="Add a scene/level">+ Level</button>
-        <select id="view-select" title="How this level is viewed and controlled">
+        <select id="view-select" title="How this level is viewed (rotating the device just letterboxes — that's not a game style)">
           <option value="top">👁 Top-down</option>
-          <option value="side">👁 Side view</option>
-          <option value="depth">👁 2.5D depth</option>
+          <option value="depth">👁 2.5D</option>
         </select>
+        <select id="size-select" title="Level size in screens — the camera follows the player across bigger worlds">
+          <option value="720x1280">⛶ 1 screen</option>
+          <option value="1440x1280">⛶ 2 wide</option>
+          <option value="2160x1280">⛶ 3 wide</option>
+          <option value="720x2560">⛶ 2 tall</option>
+          <option value="1440x2560">⛶ 2×2</option>
+        </select>
+        <label class="muted" title="Gravity physics: run left/right, jump with up/W/joystick-up"
+          ><input type="checkbox" id="chk-gravity" /> Gravity</label
+        >
         <button class="btn" id="btn-tiles" title="Paint terrain tiles onto this level">🗺 Tiles</button>
         <button class="btn" id="btn-install" style="display: none" title="Install Interverse Studio as an app">⬇ Install</button>
         <span style="flex: 1"></span>

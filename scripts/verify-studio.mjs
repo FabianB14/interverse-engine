@@ -200,6 +200,27 @@ const tilesOk =
 await page.evaluate(() => window.__studio.stop());
 await sleep(150);
 
+// CAMERA FOLLOW: Sunset Street is 3 screens wide (2.5D travels long-ways);
+// walking east must carry the hero past the first screen while the camera
+// pans the world to keep them in frame.
+await page.evaluate(() => window.__studio.loadTemplate('side25'));
+await sleep(300);
+const worldSize = await page.evaluate(() => window.__studio.worldSize());
+await page.evaluate(() => window.__studio.play());
+await sleep(900);
+await page.keyboard.down('ArrowRight');
+await sleep(3200);
+await page.keyboard.up('ArrowRight');
+const heroX2 = await page.evaluate(() => {
+  window.__studio.applyScriptNow("window.__probeX2 = api.entity('Hero').x");
+  return window.__probeX2;
+});
+const camX = await page.evaluate(() => window.__studio.cameraX());
+const cameraOk = worldSize.w === 2160 && heroX2 > 750 && camX > 60;
+await page.screenshot({ path: `${outDir}/st-9-camera.png` });
+await page.evaluate(() => window.__studio.stop());
+await sleep(150);
+
 // MULTIPLAYER BLOCKS: two browsers share a room on the co-op template —
 // roster syncs, the remote avatar appears and tracks movement, and shared
 // state (the co-op score) reaches the joiner.
@@ -236,13 +257,14 @@ relay.kill();
 
 const ok =
   placeOk && editOk && storyOk && levelsOk && playOk && stopOk && exportOk && importOk &&
-  templatesOk && skillsOk && scoreOk && tilesOk && netOk && errors.length === 0;
+  templatesOk && skillsOk && scoreOk && tilesOk && cameraOk && netOk && errors.length === 0;
 console.log(
   JSON.stringify(
     {
       ok, placeOk, editOk, storyOk, levelsOk, playOk, playCount, stopOk, exportOk, importOk,
       templatesOk, templates, skillsOk, skillNodes, stormEarly, strength, scoreOk, score,
       tilesOk, tileBefore, tilePainted, tilesPersist, playTiles, heroX,
+      cameraOk, worldSize, heroX2, camX,
       netOk, playersA, playersB, remotesB, moveOk, remotePosB, stateB,
       errors: errors.slice(0, 6),
     },

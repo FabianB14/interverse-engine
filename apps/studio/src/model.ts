@@ -4,7 +4,7 @@
  * games ship the same JSON + runtime. Keep every field concrete (with a
  * default) so the inspector and the AI copilot can edit anything safely.
  */
-import { normalizeRows } from './tiles.js';
+import { colsFor, normalizeRows, rowsFor } from './tiles.js';
 
 export type EntityKind =
   | 'blob' // playable-looking character
@@ -45,18 +45,25 @@ export interface EntityDef {
   lines: string[];
 }
 
-/** How the scene is viewed/controlled:
- *  - top:  free 4-direction movement (top-down worlds)
- *  - side: gravity + jump — left/right to run, up/W/joystick-up to jump
- *  - depth: 2.5D — higher on screen = further away (auto scale + z-sort) */
-export type SceneView = 'top' | 'side' | 'depth';
+/** How the scene is VIEWED (a device rotated to landscape just letterboxes —
+ *  that's presentation, not a game style):
+ *  - top:   flat top-down world
+ *  - depth: 2.5D — higher on screen = further away (auto scale + z-sort);
+ *           these worlds default WIDE, so the journey runs long-ways. */
+export type SceneView = 'top' | 'depth';
 
 export interface SceneDef {
   id: string;
   name: string;
   background: number;
   view: SceneView;
-  /** Painted tile grid (18x32 chars, see tiles.ts) — optional per level. */
+  /** Physics: gravity + jumping (platformers) — ←→ run, ↑/W/joystick-up jump. */
+  gravity: boolean;
+  /** World size in design units — up to several screens; the camera follows
+   *  the player when the world is bigger than 720x1280. */
+  worldW: number;
+  worldH: number;
+  /** Painted tile grid (worldW/40 x worldH/40 chars) — optional per level. */
   tiles?: string[];
   /** Scene script (the Code tab) — runs when the scene starts in Play mode. */
   script: string;
@@ -146,7 +153,17 @@ export function defaultEntity(kind: EntityKind, x: number, y: number): EntityDef
 }
 
 export function defaultScene(name: string): SceneDef {
-  return { id: freshId('s'), name, background: 0x101018, view: 'top', script: '', entities: [] };
+  return {
+    id: freshId('s'),
+    name,
+    background: 0x101018,
+    view: 'top',
+    gravity: false,
+    worldW: 720,
+    worldH: 1280,
+    script: '',
+    entities: [],
+  };
 }
 
 export function defaultProject(): ProjectDef {
@@ -178,8 +195,17 @@ export function parseProject(json: string): ProjectDef {
     s.id ||= freshId('s');
     s.name ||= 'Level';
     s.background ??= 0x101018;
-    s.view ??= 'top';
-    if (s.tiles !== undefined) s.tiles = normalizeRows(s.tiles);
+    // Older projects had a 'side' view style — that was really just gravity
+    // physics (a rotated device is presentation, not a game style).
+    if ((s.view as string) === 'side') {
+      s.view = 'top';
+      s.gravity = true;
+    }
+    s.view = s.view === 'depth' ? 'depth' : 'top';
+    s.gravity = !!s.gravity;
+    s.worldW = Math.max(720, Math.min(2880, Number(s.worldW) || 720));
+    s.worldH = Math.max(1280, Math.min(2560, Number(s.worldH) || 1280));
+    if (s.tiles !== undefined) s.tiles = normalizeRows(s.tiles, colsFor(s.worldW), rowsFor(s.worldH));
     s.script ??= '';
     s.entities ||= [];
     for (const e of s.entities) {

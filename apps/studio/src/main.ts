@@ -20,6 +20,8 @@ async function main(): Promise<void> {
   const nameInput = $<HTMLInputElement>('project-name');
   const sceneSelect = $<HTMLSelectElement>('scene-select');
   const viewSelect = $<HTMLSelectElement>('view-select');
+  const sizeSelect = $<HTMLSelectElement>('size-select');
+  const chkGravity = $<HTMLInputElement>('chk-gravity');
   const chkInterverse = $<HTMLInputElement>('chk-interverse');
   const chkMultiplayer = $<HTMLInputElement>('chk-multiplayer');
   const playBtn = $<HTMLButtonElement>('btn-play');
@@ -38,6 +40,9 @@ async function main(): Promise<void> {
       sceneSelect.appendChild(o);
     }
     viewSelect.value = editor.scene.view ?? 'top';
+    sizeSelect.value = `${editor.scene.worldW}x${editor.scene.worldH}`;
+    if (![...sizeSelect.options].some((o) => o.value === sizeSelect.value)) sizeSelect.value = '720x1280';
+    chkGravity.checked = !!editor.scene.gravity;
     playBtn.textContent = editor.playing ? '⏹ Stop' : '▶ Play';
     playBtn.className = editor.playing ? 'btn good' : 'btn primary';
     banner.style.display = editor.playing ? 'block' : 'none';
@@ -56,11 +61,19 @@ async function main(): Promise<void> {
   };
   sceneSelect.onchange = () => editor.switchScene(sceneSelect.value);
   viewSelect.onchange = () => {
-    editor.scene.view = viewSelect.value as 'top' | 'side' | 'depth';
+    editor.scene.view = viewSelect.value as 'top' | 'depth';
     editor.touch();
     // Re-open the editor scene so the change is visible immediately —
     // 2.5D depth previews live in the editor, not just in Play mode.
     if (!editor.playing) editor.openEditScene();
+  };
+  sizeSelect.onchange = () => {
+    const [w, h] = sizeSelect.value.split('x').map(Number);
+    editor.setWorldSize(w!, h!);
+  };
+  chkGravity.onchange = () => {
+    editor.scene.gravity = chkGravity.checked;
+    editor.touch();
   };
   $('btn-add-scene').onclick = () => {
     const name = prompt('Level name?', `Level ${editor.project.scenes.length + 1}`);
@@ -598,7 +611,14 @@ async function main(): Promise<void> {
     tileAt: (c: number, r: number) => editor.tileAt(c, r),
     setTileMode: (ch: string | null) => editor.setTileMode(ch),
     playHasTiles: () => editor.getPlayScene()?.hasTiles() ?? false,
-    setView: (v: 'top' | 'side' | 'depth') => {
+    setWorldSize: (w: number, h: number) => editor.setWorldSize(w, h),
+    worldSize: () => editor.getPlayScene()?.worldSize() ?? { w: editor.scene.worldW, h: editor.scene.worldH },
+    cameraX: () => editor.getPlayScene()?.cameraX() ?? 0,
+    setGravity: (g: boolean) => {
+      editor.scene.gravity = g;
+      editor.touch();
+    },
+    setView: (v: 'top' | 'depth') => {
       editor.scene.view = v;
       editor.touch();
       if (!editor.playing) editor.openEditScene();

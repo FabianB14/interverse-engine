@@ -47,7 +47,11 @@ export interface StudioDebug {
   tileAt: (c: number, r: number) => string;
   setTileMode: (ch: string | null) => void;
   playHasTiles: () => boolean;
-  setView: (v: 'top' | 'side' | 'depth') => void;
+  setView: (v: 'top' | 'depth') => void;
+  setGravity: (g: boolean) => void;
+  setWorldSize: (w: number, h: number) => void;
+  worldSize: () => { w: number; h: number };
+  cameraX: () => number;
 }
 
 declare global {

@@ -12,7 +12,16 @@ import { defaultEntity, defaultProject, defaultScene, freshId, parseProject } fr
 import { PlayScene, buildView } from './runtime.js';
 import { StudioNet, resolveRelayUrl } from './net.js';
 import { slugify } from './publish.js';
-import { COLS, ROWS, TILE_SIZE, buildTileLayer, emptyRows, setTileChar, tileCharAt } from './tiles.js';
+import {
+  TILE_SIZE,
+  buildTileLayer,
+  colsFor,
+  emptyRows,
+  normalizeRows,
+  rowsFor,
+  setTileChar,
+  tileCharAt,
+} from './tiles.js';
 
 const SAVE_KEY = 'interverse.studio.project';
 
@@ -22,6 +31,7 @@ class BootScene extends Scene {}
 class EditScene extends Scene {
   views = new Map<string, Container>();
   ring = new Graphics();
+  world = new Container();
   private tileLayer: Container | null = null;
 
   constructor(
@@ -32,41 +42,53 @@ class EditScene extends Scene {
   }
 
   protected override onEnter(): void {
-    const bg = new Graphics()
-      .rect(0, 0, this.game.designWidth, this.game.designHeight)
-      .fill(this.def.background);
+    // Everything sits in a pannable world so levels bigger than one screen
+    // can be edited — the wheel/trackpad scrolls around them.
+    this.stage.addChildAt(this.world, 0);
+    const bg = new Graphics().rect(0, 0, this.def.worldW, this.def.worldH).fill(this.def.background);
     bg.eventMode = 'static';
     bg.on('pointerdown', (ev) => this.editor.canvasDown(ev.globalX, ev.globalY));
-    this.stage.addChildAt(bg, 0);
+    this.world.addChildAt(bg, 0);
     this.refreshTiles();
-    // design-space frame so authors see the phone bounds
+    // World frame + one guide line per extra screen of size.
     const frame = new Graphics()
-      .rect(1, 1, this.game.designWidth - 2, this.game.designHeight - 2)
+      .rect(1, 1, this.def.worldW - 2, this.def.worldH - 2)
       .stroke({ color: 0xc77dff, width: 2, alpha: 0.35 });
-    this.stage.addChild(frame);
+    for (let gx = 720; gx < this.def.worldW; gx += 720) {
+      frame.moveTo(gx, 0).lineTo(gx, this.def.worldH).stroke({ color: 0xc77dff, width: 1, alpha: 0.15 });
+    }
+    for (let gy = 1280; gy < this.def.worldH; gy += 1280) {
+      frame.moveTo(0, gy).lineTo(this.def.worldW, gy).stroke({ color: 0xc77dff, width: 1, alpha: 0.15 });
+    }
+    this.world.addChild(frame);
     for (const e of this.def.entities) this.addViewFor(e);
-    this.stage.addChild(this.ring);
+    this.world.addChild(this.ring);
     this.editor.refreshRing();
+    this.applyPan();
+  }
+
+  applyPan(): void {
+    this.world.position.set(-this.editor.panX, -this.editor.panY);
   }
 
   /** Rebuild the painted-tile layer (sits just above the background). */
   refreshTiles(): void {
     // Scene transitions are async — before onEnter the stage is empty and
     // onEnter will call us again, so bail rather than mis-index.
-    if (!this.stage.children.length) return;
+    if (!this.world.children.length) return;
     this.tileLayer?.destroy({ children: true });
     this.tileLayer = null;
     if (this.def.tiles) {
       this.tileLayer = buildTileLayer(this.def.tiles).view;
       this.tileLayer.eventMode = 'none';
-      this.stage.addChildAt(this.tileLayer, Math.min(1, this.stage.children.length));
+      this.world.addChildAt(this.tileLayer, Math.min(1, this.world.children.length));
     }
   }
 
   /** Live 2.5D preview in the EDITOR: depth-scale + sort while view=depth. */
   protected override onUpdate(): void {
     if (this.def.view !== 'depth') return;
-    this.stage.sortableChildren = true;
+    this.world.sortableChildren = true;
     for (const def of this.def.entities) {
       const v = this.views.get(def.id);
       if (!v || v.destroyed) continue;
@@ -86,7 +108,7 @@ class EditScene extends Scene {
       this.editor.select(def.id);
       this.editor.beginDrag(def, ev.globalX, ev.globalY);
     });
-    this.stage.addChild(v);
+    this.world.addChild(v);
     this.views.set(def.id, v);
   }
 
@@ -107,7 +129,7 @@ class EditScene extends Scene {
     // Cheap + correct: rebuild the one view (defs are tiny).
     this.removeViewFor(def.id);
     this.addViewFor(def);
-    this.stage.addChild(this.ring); // keep the ring on top
+    this.world.addChild(this.ring); // keep the ring on top
   }
 }
 
@@ -181,6 +203,41 @@ export class StudioEditor {
         this.touch();
       }
     });
+    // Wheel/trackpad pans around levels bigger than one screen.
+    canvas.addEventListener(
+      'wheel',
+      (ev) => {
+        if (this.playing) return;
+        ev.preventDefault();
+        const scale = this.game.world.scale.x || 1;
+        this.panBy(ev.deltaX / scale, ev.deltaY / scale);
+      },
+      { passive: false },
+    );
+  }
+
+  // ------------------------------------------------------------ panning
+
+  panX = 0;
+  panY = 0;
+
+  panBy(dx: number, dy: number): void {
+    this.panX = Math.max(0, Math.min(this.scene.worldW - 720, this.panX + dx));
+    this.panY = Math.max(0, Math.min(this.scene.worldH - 1280, this.panY + dy));
+    this.editScene?.applyPan();
+  }
+
+  /** Resize the level (design units); painted tiles are preserved. */
+  setWorldSize(w: number, h: number): void {
+    this.scene.worldW = w;
+    this.scene.worldH = h;
+    if (this.scene.tiles) {
+      this.scene.tiles = normalizeRows(this.scene.tiles, colsFor(w), rowsFor(h));
+    }
+    this.panX = 0;
+    this.panY = 0;
+    this.openEditScene();
+    this.touch();
   }
 
   // ------------------------------------------------------------- painting
@@ -214,8 +271,10 @@ export class StudioEditor {
     if (!ch) return;
     const col = Math.floor(x / TILE_SIZE);
     const row = Math.floor(y / TILE_SIZE);
-    if (col < 0 || row < 0 || col >= COLS || row >= ROWS) return;
-    this.scene.tiles ??= emptyRows();
+    const cols = colsFor(this.scene.worldW);
+    const rows = rowsFor(this.scene.worldH);
+    if (col < 0 || row < 0 || col >= cols || row >= rows) return;
+    this.scene.tiles ??= emptyRows(cols, rows);
     if (tileCharAt(this.scene.tiles, col, row) === ch) return;
     setTileChar(this.scene.tiles, col, row, ch);
     // Throttled rebuild while the stroke is in flight; final on pointerup.
@@ -228,7 +287,7 @@ export class StudioEditor {
   }
 
   setTile(col: number, row: number, ch: string): void {
-    this.scene.tiles ??= emptyRows();
+    this.scene.tiles ??= emptyRows(colsFor(this.scene.worldW), rowsFor(this.scene.worldH));
     setTileChar(this.scene.tiles, col, row, ch);
     this.editScene?.refreshTiles();
     this.touch();
@@ -256,6 +315,8 @@ export class StudioEditor {
     if (!this.project.scenes.some((s) => s.id === id)) return;
     this.sceneId = id;
     this.selectedId = null;
+    this.panX = 0;
+    this.panY = 0;
     if (this.playing) this.openPlayScene(this.scene);
     else this.openEditScene();
     this.onSelection();
@@ -444,7 +505,11 @@ export class StudioEditor {
 
   private toDesignFromGlobal(gx: number, gy: number): { x: number; y: number } {
     const w = this.game.world;
-    return { x: (gx - w.position.x) / w.scale.x, y: (gy - w.position.y) / w.scale.y };
+    // Screen -> design space, then shift by the editor pan into world coords.
+    return {
+      x: (gx - w.position.x) / w.scale.x + this.panX,
+      y: (gy - w.position.y) / w.scale.y + this.panY,
+    };
   }
 
   // ---------------------------------------------------------- persistence

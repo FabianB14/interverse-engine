@@ -5,6 +5,7 @@
  */
 import { AnimatedSprite, Container, Graphics, Rectangle, Sprite, Text, Texture } from 'pixi.js';
 import {
+  Camera,
   DialogueRunner,
   Entity,
   Scene,
@@ -284,6 +285,8 @@ export class PlayScene extends Scene {
   private scoreText: Text | null = null;
   private skillsTree: SkillTree | null = null;
   private tileMap: TileMapData | null = null;
+  private world = new Container();
+  private camera: Camera | null = null;
   private over = false;
   private onKeyDown = (e: KeyboardEvent): void => {
     this.keys.add(e.key.toLowerCase());
@@ -324,7 +327,7 @@ export class PlayScene extends Scene {
         label.position.set(0, 46);
         root.addChild(label);
         root.position.set(r.x, r.y);
-        this.add(root);
+        this.add(root, this.world);
         v = { root, label };
         this.remoteViews.set(r.id, v);
       }
@@ -346,16 +349,26 @@ export class PlayScene extends Scene {
   }
 
   protected override onEnter(): void {
+    // Game space lives in `world`; the camera pans it when the level is
+    // bigger than one screen. HUD/UI stays on the stage (screen space).
+    this.stage.addChildAt(this.world, 0);
     const bg = new Graphics()
-      .rect(0, 0, this.game.designWidth, this.game.designHeight)
+      .rect(0, 0, this.sceneDef.worldW, this.sceneDef.worldH)
       .fill(this.sceneDef.background);
-    this.stage.addChildAt(bg, 0);
+    this.world.addChildAt(bg, 0);
     // Painted tiles render above the background; solid tiles collide.
     if (anyTiles(this.sceneDef.tiles)) {
       const layer = buildTileLayer(this.sceneDef.tiles!);
       layer.view.eventMode = 'none';
-      this.stage.addChildAt(layer.view, 1);
+      this.world.addChildAt(layer.view, 1);
       this.tileMap = layer.map;
+    }
+    if (this.sceneDef.worldW > this.game.designWidth || this.sceneDef.worldH > this.game.designHeight) {
+      this.camera = new Camera(this.world, this.game.designWidth, this.game.designHeight, {
+        deadzoneWidth: 120,
+        deadzoneHeight: 160,
+      });
+      this.camera.setBounds(0, 0, this.sceneDef.worldW, this.sceneDef.worldH);
     }
     for (const def of this.sceneDef.entities) this.spawnDef(def);
     window.addEventListener('keydown', this.onKeyDown);
@@ -395,7 +408,7 @@ export class PlayScene extends Scene {
 
   spawnDef(def: EntityDef): Entity {
     const e = buildView(def, this.project.assets);
-    this.add(e);
+    this.add(e, this.world);
     this.byName.set(def.name, e);
     // Juice: each animation owns its own wrapper (see buildView) — the root
     // keeps the author's transform, pop-in and wobble can never collide.
@@ -470,6 +483,7 @@ export class PlayScene extends Scene {
         const e = this.byName.get(name);
         if (!e) return undefined;
         this.players.push({ entity: e, speed, groundY: e.y, vy: 0 });
+        this.camera?.follow(e);
         if (!this.joystick) {
           this.joystick = new VirtualJoystick({ radius: 90 });
           this.joystick.position.set(150, this.game.designHeight - 170);
@@ -594,10 +608,10 @@ export class PlayScene extends Scene {
       const jy = this.joystick?.value.y ?? 0;
       const mx = kx || jx;
       const my = ky || jy;
-      const W = this.game.designWidth;
-      const H = this.game.designHeight;
-      if (this.sceneDef.view === 'side') {
-        // Side view: run left/right; up (or joystick up) jumps with gravity.
+      const W = this.sceneDef.worldW;
+      const H = this.sceneDef.worldH;
+      if (this.sceneDef.gravity) {
+        // Gravity physics: run left/right; up (or joystick up) jumps.
         for (const p of this.players) {
           if (p.entity.destroyed) continue;
           if (mx) p.entity.x = Math.max(20, Math.min(W - 20, p.entity.x + mx * p.speed * dt));
@@ -636,6 +650,15 @@ export class PlayScene extends Scene {
       this.syncRemotes(dt);
     }
     if (this.sceneDef.view === 'depth') this.applyDepth();
+    this.camera?.update(dt);
+  }
+
+  cameraX(): number {
+    return -this.world.position.x;
+  }
+
+  worldSize(): { w: number; h: number } {
+    return { w: this.sceneDef.worldW, h: this.sceneDef.worldH };
   }
 
   /** 2.5D: higher on screen = further away — smaller and drawn behind. */

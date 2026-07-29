@@ -11,8 +11,12 @@ import { buildTileMapView, darken, lighten, tileMapFromRows } from '@interverse/
 import type { TileLegendEntry, TileMapData, TilePainter } from '@interverse/engine';
 
 export const TILE_SIZE = 40;
+/** Grid dims for one screen (720x1280); bigger worlds scale these up. */
 export const COLS = 18;
 export const ROWS = 32;
+
+export const colsFor = (worldW: number): number => Math.max(1, Math.round(worldW / TILE_SIZE));
+export const rowsFor = (worldH: number): number => Math.max(1, Math.round(worldH / TILE_SIZE));
 
 export interface TileType {
   ch: string;
@@ -101,19 +105,20 @@ for (const t of TILE_TYPES) {
   };
 }
 
-export function emptyRows(): string[] {
-  return Array.from({ length: ROWS }, () => '.'.repeat(COLS));
+export function emptyRows(cols = COLS, rows = ROWS): string[] {
+  return Array.from({ length: rows }, () => '.'.repeat(cols));
 }
 
-/** Normalize arbitrary imported rows to the 18x32 grid of known chars. */
-export function normalizeRows(rows: unknown): string[] {
+/** Normalize arbitrary imported rows to a cols x rows grid of known chars —
+ *  also how a level's painting is preserved when its size changes. */
+export function normalizeRows(rowsIn: unknown, cols = COLS, rows = ROWS): string[] {
   const known = new Set(Object.keys(legend));
-  const out = emptyRows();
-  if (!Array.isArray(rows)) return out;
-  for (let r = 0; r < ROWS; r++) {
-    const src = typeof rows[r] === 'string' ? (rows[r] as string) : '';
+  const out = emptyRows(cols, rows);
+  if (!Array.isArray(rowsIn)) return out;
+  for (let r = 0; r < rows; r++) {
+    const src = typeof rowsIn[r] === 'string' ? (rowsIn[r] as string) : '';
     let line = '';
-    for (let c = 0; c < COLS; c++) {
+    for (let c = 0; c < cols; c++) {
       const ch = src[c] ?? '.';
       line += known.has(ch) ? ch : '.';
     }
@@ -123,8 +128,8 @@ export function normalizeRows(rows: unknown): string[] {
 }
 
 export function setTileChar(rows: string[], col: number, row: number, ch: string): void {
-  if (col < 0 || row < 0 || col >= COLS || row >= ROWS) return;
-  const line = rows[row]!;
+  const line = rows[row];
+  if (line === undefined || col < 0 || col >= line.length) return;
   rows[row] = line.slice(0, col) + ch + line.slice(col + 1);
 }
 

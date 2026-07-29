@@ -12,13 +12,13 @@ edit is the real engine, live — press **▶ Play** at any moment.
   | --- | --- | --- |
   | Blank | 2D | Empty canvas + a hero |
   | Garden Explorer | Top-down | Walk anywhere, collect fireflies |
-  | Sunset Street | Side 2.5D | Depth-scaled street — walk "into" the scene |
-  | Blob Dash | Side 2D | Endless runner with jumping + ramping speed |
+  | Sunset Street | 2.5D · 3 screens wide | A long street to journey down, camera follows |
+  | Blob Dash | 2D | Endless runner with jumping + ramping speed |
   | Slash Frenzy | 2D | Fruit-ninja tap-slashing |
   | Blob Arena | Top-down | Action survival waves |
   | A Quiet Evening | 2D | Cozy room, stories, no fail state |
   | Tiny Quest | Top-down RPG | NPCs, training, branching **skill tree** |
-  | Hilltop Hop | Side view | Run + JUMP with built-in gravity |
+  | Hilltop Hop | Gravity run · wide | Run + JUMP across 3 screens, camera follows |
   | Firefly Party | Multiplayer co-op | Host a room code, catch fireflies together |
 
   First-person / 3D templates arrive when the engine grows a 3D renderer.
@@ -36,18 +36,24 @@ edit is the real engine, live — press **▶ Play** at any moment.
 - The purple frame is the phone screen (720×1280 design units). Players on
   any device see this space, letterboxed.
 
-## 3 · Views: top-down, side, 2.5D
+## 3 · Views, level size, camera & gravity
 
-Every level has a **View** (toolbar selector) that sets how it plays — and
-the editor previews it immediately when you switch:
+Every level has a **View** (how it's seen), a **size** (how big the world
+is), and **Gravity** (a physics toggle). Rotating the device is neither —
+a landscape phone/tablet just sees the same game letterboxed.
 
 - **👁 Top-down** — the player moves freely in all directions.
-- **👁 Side view** — gravity is built in: ← → run, ↑ / W / joystick-up to
-  **jump**. Great for platform-y games (try the Hilltop Hop template).
-- **👁 2.5D depth** — things higher on screen are further away: they scale
-  down and sort behind, so walking "up" walks *into* the scene. Drag an
-  entity up the canvas and watch it shrink into the distance — then press
-  ▶ Play and walk it. Sunset Street is the worked example.
+- **👁 2.5D** — things higher on screen are further away: they scale down
+  and sort behind, so walking "up" walks *into* the scene. 2.5D worlds are
+  usually **wide** — the journey travels long-ways, and the camera follows.
+  The editor previews depth immediately when you switch.
+- **⛶ Level size** — 1 screen up to 3-wide / 2-tall / 2×2. When the world
+  is bigger than one screen, the **camera follows your player**
+  automatically (with a comfortable deadzone). In the editor, scroll with
+  the wheel/trackpad to pan around big levels; faint guide lines mark each
+  screen.
+- **Gravity** — check it for platformers: ← → run, ↑ / W / joystick-up to
+  **jump**. It's level physics, not a view — Hilltop Hop is the example.
 
 The engine renders with **WebGPU/WebGL** (PixiJS) — hardware-accelerated on
 phones and desktops alike.

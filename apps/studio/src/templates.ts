@@ -92,17 +92,22 @@ function side25(): ProjectDef {
   const s = defaultScene('Street');
   s.background = 0x1a1826;
   s.view = 'depth'; // built-in 2.5D: higher on screen = further away
+  s.worldW = 2160; // three screens wide — the journey runs LONG-WAYS
   s.entities.push(
-    E('text', 'Sky', 360, 120, { text: '🌇 SUNSET STREET', fontSize: 40, color: 0xffb86b }),
-    E('blob', 'Hero', 360, 900, { color: 0x6fc3ff }),
-    E('npc', 'Vendor', 200, 700, { color: 0xffd166, lines: ['Fresh juice!', 'Walk deeper up the street — see how everything shrinks?'] }),
+    E('text', 'Sky', 360, 120, { text: '🌇 SUNSET STREET →', fontSize: 40, color: 0xffb86b }),
+    E('blob', 'Hero', 200, 900, { color: 0x6fc3ff }),
+    E('npc', 'Vendor', 340, 700, { color: 0xffd166, lines: ['Fresh juice!', 'The street runs east — the camera follows you.', 'Walk up to head deeper in; things shrink into the distance.'] }),
     E('crate', 'Stall', 540, 760, { color: 0x4a3826 }),
-    E('plant', 'Tree A', 120, 560, { color: 0x2f8d4a }),
-    E('plant', 'Tree B', 600, 620, { color: 0x2f8d4a }),
-    E('lantern', 'Lamp', 360, 520),
+    E('plant', 'Tree A', 820, 560, { color: 0x2f8d4a }),
+    E('plant', 'Tree B', 1120, 780, { color: 0x2f8d4a }),
+    E('lantern', 'Lamp A', 960, 520),
+    E('npc', 'Busker', 1400, 860, { color: 0xc77dff, lines: ['🎶 Halfway down the street!', 'Keep going east.'] }),
+    E('plant', 'Tree C', 1700, 620, { color: 0x2f8d4a }),
+    E('lantern', 'Lamp B', 1860, 540),
+    E('npc', 'Innkeeper', 2000, 760, { color: 0x8affc1, lines: ['You made it to the end of the street!', 'Rooms are free for travelers.'] }),
   );
   s.script = S([
-    "// The scene's View is set to 2.5D — depth scaling + sorting is built in.",
+    '// 2.5D + a 3-screen-wide world: the camera follows the Hero long-ways.',
     "api.player('Hero', 300);",
   ]);
   return project('Sunset Street (2.5D)', [s]);
@@ -111,21 +116,22 @@ function side25(): ProjectDef {
 function sideView(): ProjectDef {
   const s = defaultScene('Hills');
   s.background = 0x11202e;
-  s.view = 'side'; // built-in gravity: ← → run, ↑ / W / joystick-up to jump
+  s.gravity = true; // physics option: ← → run, ↑ / W / joystick-up to jump
+  s.worldW = 2160; // a long run — the camera follows
   s.entities.push(
     E('text', 'Hint', 360, 180, { text: '⬅➡ run · ⬆ jump\ncatch every spark!', fontSize: 30, color: 0x9a97b8 }),
     E('blob', 'Hero', 120, 1020, { color: 0x8affc1 }),
-    E('crate', 'Ground', 360, 1120, { color: 0x2a3a4a, radius: 400, scale: 1 }),
-    ...[1, 2, 3, 4, 5].map((i) =>
-      E('lantern', `Spark ${i}`, 90 + i * 120, i % 2 ? 880 : 700, { scale: 0.6 }),
+    ...[1, 2, 3, 4, 5, 6, 7, 8].map((i) =>
+      E('lantern', `Spark ${i}`, 150 + i * 240, i % 2 ? 880 : 700, { scale: 0.6 }),
     ),
   );
   s.script = S([
-    '// Side view: gravity + jumping come from the scene View setting.',
+    '// Gravity is a physics toggle on the level (not a "view" — rotate the',
+    '// device any time; the game just letterboxes).',
     "api.player('Hero', 330);",
-    'var left = 5;',
+    'var left = 8;',
     'api.onUpdate(function () {',
-    '  for (var i = 1; i <= 5; i++) {',
+    '  for (var i = 1; i <= 8; i++) {',
     "    var sp = api.entity('Spark ' + i);",
     "    if (sp && !sp.destroyed && api.overlap('Hero', sp, 70)) {",
     '      api.remove(sp); api.sfx.chime(); api.score.add(1); left--;',
@@ -134,7 +140,7 @@ function sideView(): ProjectDef {
     '  }',
     '});',
   ]);
-  return project('Hilltop Hop (side view)', [s]);
+  return project('Hilltop Hop (gravity run)', [s]);
 }
 
 function runner(): ProjectDef {
@@ -343,8 +349,8 @@ function party(): ProjectDef {
 export const TEMPLATES: TemplateDef[] = [
   { id: 'blank', name: 'Blank', emoji: '⬜', view: '2D', blurb: 'An empty canvas with one hero.', make: () => project('My Game', [(() => { const s = defaultScene('Level 1'); s.entities.push(E('blob', 'Hero', 360, 640)); return s; })()]) },
   { id: 'topdown', name: 'Garden Explorer', emoji: '🧭', view: 'Top-down', blurb: 'Walk anywhere, collect the fireflies. Cozy-action starter.', make: topDown },
-  { id: 'side25', name: 'Sunset Street', emoji: '🌇', view: 'Side 2.5D', blurb: 'Depth-scaled side view — walk “into” the scene.', make: side25 },
-  { id: 'side', name: 'Hilltop Hop', emoji: '⛰️', view: 'Side view', blurb: 'Run and JUMP — gravity comes free with the side-view scene setting.', make: sideView },
+  { id: 'side25', name: 'Sunset Street', emoji: '🌇', view: '2.5D · 3 screens wide', blurb: 'A long street to journey down — depth scaling + camera follow built in.', make: side25 },
+  { id: 'side', name: 'Hilltop Hop', emoji: '⛰️', view: 'Gravity run · wide', blurb: 'Run and JUMP across a 3-screen world — gravity is a level physics toggle.', make: sideView },
   { id: 'runner', name: 'Blob Dash', emoji: '🏃', view: 'Side 2D', blurb: 'Endless runner: jump the crates, speed ramps up.', make: runner },
   { id: 'slash', name: 'Slash Frenzy', emoji: '🍉', view: '2D', blurb: 'Fruit-ninja style: tap-slash the flying fruit.', make: slash },
   { id: 'action', name: 'Blob Arena', emoji: '⚔️', view: 'Top-down', blurb: 'Survive the waves — dodge and zap.', make: action },
