@@ -67,6 +67,12 @@ export interface HushfallDebug {
   spawnPos?: () => { x: number; y: number };
   forceLightAll?: () => void;
   forceDownAll?: () => void;
+  amRooted?: () => boolean;
+  myLives?: () => number;
+  livesOf?: (id: string) => number;
+  bustedCount?: () => number;
+  outCount?: () => number;
+  backToLobby?: () => void;
   revealSeen?: () => number;
   abilityUses?: () => number;
 }

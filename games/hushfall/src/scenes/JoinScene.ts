@@ -13,15 +13,54 @@ import '../debug.js';
 
 const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const CODE_LENGTH = 4;
+const SLOT_W = 110;
+const SLOT_H = 130;
+const SLOT_GAP = 22;
+const KEY_W = 76;
+const KEY_H = 84;
+const KEY_GAP = 10;
 
 export class JoinScene extends Scene {
   private code = '';
   private busy = false;
-  private slots: Text[] = [];
+  private title!: Text;
+  private slotViews: { box: Graphics; ch: Text }[] = [];
   private status!: Text;
+  private keyBtns: UIButton[] = [];
+  private back!: UIButton;
 
   constructor(private readonly prefill = '') {
     super();
+  }
+
+  protected override onResize(w: number, h: number): void {
+    this.layout(w, h);
+  }
+
+  /** Portrait: stacked. Landscape: code + status on the left, keyboard on the
+   *  right, BACK tucked bottom-left — nothing overlaps at either aspect. */
+  private layout(W: number, H: number): void {
+    const landscape = W > H;
+    const codeCx = landscape ? W * 0.26 : W / 2;
+    this.title.position.set(codeCx, landscape ? 120 : 120);
+    const total = CODE_LENGTH * SLOT_W + (CODE_LENGTH - 1) * SLOT_GAP;
+    this.slotViews.forEach((s, i) => {
+      const x = codeCx - total / 2 + SLOT_W / 2 + i * (SLOT_W + SLOT_GAP);
+      const y = landscape ? 250 : 255;
+      s.box.position.set(x, y);
+      s.ch.position.set(x, y);
+    });
+    this.status.position.set(codeCx, landscape ? 400 : 380);
+    const perRow = 8;
+    const rowW = perRow * KEY_W + (perRow - 1) * KEY_GAP;
+    const keysCx = landscape ? W * 0.68 : W / 2;
+    const keysTop = landscape ? 160 : 470;
+    this.keyBtns.forEach((btn, i) => {
+      const row = Math.floor(i / perRow);
+      const col = i % perRow;
+      btn.position.set(keysCx - rowW / 2 + KEY_W / 2 + col * (KEY_W + KEY_GAP), keysTop + row * (KEY_H + KEY_GAP));
+    });
+    this.back.position.set(landscape ? codeCx : W / 2, H - (landscape ? 90 : 110));
   }
 
   protected override onEnter(): void {
@@ -29,55 +68,39 @@ export class JoinScene extends Scene {
     const H = this.game.viewHeight;
     window.__hushfall = { scene: () => 'join', code: () => this.code, playerCount: () => 0 };
 
-    const title = makeText('ENTER ROOM CODE', 52, { color: NIGHT.ink });
-    title.position.set(W / 2, 120);
-    this.stage.addChild(title);
+    this.title = makeText('ENTER ROOM CODE', 52, { color: NIGHT.ink });
+    this.stage.addChild(this.title);
 
-    const slotW = 110;
-    const gap = 22;
-    const total = CODE_LENGTH * slotW + (CODE_LENGTH - 1) * gap;
     for (let i = 0; i < CODE_LENGTH; i++) {
-      const x = (W - total) / 2 + i * (slotW + gap);
       const box = new Graphics()
-        .roundRect(x, 190, slotW, 130, 18)
+        .roundRect(-SLOT_W / 2, -SLOT_H / 2, SLOT_W, SLOT_H, 18)
         .fill({ color: 0xffffff, alpha: 0.06 })
-        .roundRect(x, 190, slotW, 130, 18)
+        .roundRect(-SLOT_W / 2, -SLOT_H / 2, SLOT_W, SLOT_H, 18)
         .stroke({ color: NIGHT.inkSoft, alpha: 0.4, width: 3 });
       this.stage.addChild(box);
       const ch = makeText('', 72, { color: NIGHT.ink });
-      ch.position.set(x + slotW / 2, 190 + 65);
       this.stage.addChild(ch);
-      this.slots.push(ch);
+      this.slotViews.push({ box, ch });
     }
 
     this.status = makeText('', 28, { color: NIGHT.blood, weight: 'bold', wrapWidth: 620 });
-    this.status.position.set(W / 2, 380);
     this.stage.addChild(this.status);
 
-    const perRow = 8;
-    const keyW = 76;
-    const keyH = 84;
-    const keyGap = 10;
-    const rowW = perRow * keyW + (perRow - 1) * keyGap;
-    const startX = (W - rowW) / 2 + keyW / 2;
-    const startY = 470;
     const keys = [...ALPHABET.split(''), '⌫'];
-    keys.forEach((key, i) => {
-      const row = Math.floor(i / perRow);
-      const col = i % perRow;
+    for (const key of keys) {
       const btn = new UIButton(key, {
-        width: keyW,
-        height: keyH,
+        width: KEY_W,
+        height: KEY_H,
         fontSize: 34,
         fill: key === '⌫' ? NIGHT.blood : 0x2a3a4a,
         textColor: NIGHT.ink,
         onTap: () => this.press(key),
       });
-      btn.position.set(startX + col * (keyW + keyGap), startY + row * (keyH + keyGap));
       this.add(btn);
-    });
+      this.keyBtns.push(btn);
+    }
 
-    const back = new UIButton('BACK', {
+    this.back = new UIButton('BACK', {
       width: 240,
       height: 84,
       fontSize: 30,
@@ -90,8 +113,9 @@ export class JoinScene extends Scene {
         this.game.scenes.replace(new MenuScene());
       },
     });
-    back.position.set(W / 2, H - 110);
-    this.add(back);
+    this.add(this.back);
+
+    this.layout(W, H);
 
     if (this.prefill) for (const ch of this.prefill.slice(0, CODE_LENGTH)) this.press(ch, true);
   }
@@ -105,7 +129,7 @@ export class JoinScene extends Scene {
     if (!silent) sting('blip');
     if (key === '⌫') this.code = this.code.slice(0, -1);
     else if (this.code.length < CODE_LENGTH && ALPHABET.includes(key)) this.code += key;
-    this.slots.forEach((slot, i) => (slot.text = this.code[i] ?? ''));
+    this.slotViews.forEach((s, i) => (s.ch.text = this.code[i] ?? ''));
     this.status.text = '';
     if (this.code.length === CODE_LENGTH) void this.tryJoin();
   }
@@ -125,7 +149,7 @@ export class JoinScene extends Scene {
     } catch (err) {
       this.busy = false;
       this.code = '';
-      this.slots.forEach((slot) => (slot.text = ''));
+      this.slotViews.forEach((s) => (s.ch.text = ''));
       this.status.style.fill = NIGHT.blood;
       this.status.text = err instanceof Error ? err.message : String(err);
       sting('lose');

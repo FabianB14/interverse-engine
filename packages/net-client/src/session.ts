@@ -31,6 +31,26 @@ type PlayerHandler = (player: PlayerInfo) => void;
 type LeaveHandler = (id: string) => void;
 type CloseHandler = (reason: string) => void;
 
+function addHandler<T>(list: T[], handler: T): () => void {
+  list.push(handler);
+  return () => {
+    const i = list.indexOf(handler);
+    if (i >= 0) list.splice(i, 1);
+  };
+}
+
+/** Dispatch to a snapshot of the handler list, isolating exceptions — one
+ *  broken (e.g. stale) handler must never starve the handlers after it. */
+function safeEach<A extends unknown[]>(list: ((...args: A) => void)[], ...args: A): void {
+  for (const h of [...list]) {
+    try {
+      h(...args);
+    } catch (err) {
+      console.error('[net] handler error:', err);
+    }
+  }
+}
+
 // Generous: free-tier relays (e.g. Render) sleep when idle and can take
 // ~30s to wake for the first connection.
 const CONNECT_TIMEOUT_MS = 45_000;
@@ -70,20 +90,22 @@ export class Session {
     this.keepalive = null;
   }
 
-  onMessage(handler: MessageHandler): void {
-    this.messageHandlers.push(handler);
+  /** Subscribe; returns an unsubscribe. Scenes MUST unsubscribe on exit —
+   *  handlers registered by dead scenes otherwise pile up forever. */
+  onMessage(handler: MessageHandler): () => void {
+    return addHandler(this.messageHandlers, handler);
   }
 
-  onPlayerJoin(handler: PlayerHandler): void {
-    this.joinHandlers.push(handler);
+  onPlayerJoin(handler: PlayerHandler): () => void {
+    return addHandler(this.joinHandlers, handler);
   }
 
-  onPlayerLeave(handler: LeaveHandler): void {
-    this.leaveHandlers.push(handler);
+  onPlayerLeave(handler: LeaveHandler): () => void {
+    return addHandler(this.leaveHandlers, handler);
   }
 
-  onClose(handler: CloseHandler): void {
-    this.closeHandlers.push(handler);
+  onClose(handler: CloseHandler): () => void {
+    return addHandler(this.closeHandlers, handler);
   }
 
   /** Joiner -> host. (Hosts should use broadcast/sendTo instead.) */
@@ -121,20 +143,20 @@ export class Session {
     switch (msg.t) {
       case 'msg': {
         const from = String(msg.from ?? '');
-        for (const h of this.messageHandlers) h(from, msg.data);
+        safeEach(this.messageHandlers, from, msg.data);
         return;
       }
       case 'player-join': {
         const player = msg.player as PlayerInfo;
         this.players.push(player);
-        for (const h of this.joinHandlers) h(player);
+        safeEach(this.joinHandlers, player);
         return;
       }
       case 'player-leave': {
         const id = String(msg.id ?? '');
         const i = this.players.findIndex((p) => p.id === id);
         if (i >= 0) this.players.splice(i, 1);
-        for (const h of this.leaveHandlers) h(id);
+        safeEach(this.leaveHandlers, id);
         return;
       }
       case 'host-left': {
@@ -150,7 +172,7 @@ export class Session {
   private emitClose(reason: string): void {
     if (this.closed) return;
     this.closed = true;
-    for (const h of this.closeHandlers) h(reason);
+    safeEach(this.closeHandlers, reason);
   }
 }
 

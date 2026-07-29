@@ -160,11 +160,24 @@ const tapNear = await p2.evaluate((h) => {
 await p2.waitForFunction(() => window.__hushfall.amConcealed?.() === true, null, { timeout: 3_000 }).catch(() => {});
 const tapConcealed = await p2.evaluate(() => window.__hushfall.amConcealed?.() ?? false);
 const tapHideOk = tapFar === false && tapNear === true;
+
+// HIDE-BUST: the Seeker catches the Lookout hiding — the first strike smashes
+// the hiding spot (no damage), flushing them out of cover.
+await p2.evaluate((h) => window.__hushfall.warp(h.x, h.y), hp0); // tucked in
+await p1.evaluate((h) => window.__hushfall.warp(h.x + 60, h.y), hp0); // searching
+await sleep(400);
+await p1.evaluate(() => window.__hushfall.attack());
+await sleep(700);
+const bustedCount = await p1.evaluate(() => window.__hushfall.bustedCount?.() ?? 0);
+const hurtByBust = await p2.evaluate(() => window.__hushfall.amHurt?.() ?? false);
+const bustOk = bustedCount >= 1 && hurtByBust === false;
+
 // Back to open ground so the down test isn't muddied by hiding/healing.
 await p2.evaluate(() => {
   const s = window.__hushfall.spawnPos?.();
   if (s) window.__hushfall.warp(s.x, s.y);
 });
+await p1.evaluate(() => window.__hushfall.warp(200, 200));
 await sleep(300);
 
 // ABILITY: the Lookout's Sense reveals the map — other hiders see markers.
@@ -202,6 +215,9 @@ for (let i = 0; i < 6 && !p2Downed; i++) {
 }
 const downCountHost = await p1.evaluate(() => window.__hushfall.downedCount());
 const downOk = p2Downed === true && downCountHost >= 1 && injuredNotDowned;
+// LIVES: that down spent one of the Lookout's three lives.
+const p2Lives = await p2.evaluate(() => window.__hushfall.myLives?.() ?? -1);
+const livesOk = p2Lives === 2;
 await p1.screenshot({ path: `${outDir}/hf-2-down.png` });
 
 // DOWN SIGNAL: a living ally (the Engineer) sees a directional arrow pointing
@@ -237,6 +253,39 @@ const phaseP2 = await p2.evaluate(() => window.__hushfall.phase());
 const escapeOk = gateOnP2 === true && escapedHost >= 1 && phaseHost === 'hiders-win' && phaseP2 === 'hiders-win';
 await p2.screenshot({ path: `${outDir}/hf-3-escape.png` });
 await p1.screenshot({ path: `${outDir}/hf-4-end.png` });
+
+// ROUND 2 (regression): after BACK TO LOBBY a fresh round must still sync to
+// joiners — stale scene handlers once swallowed every message from round 2 on
+// (joiners saw no lanterns light, no gate open, frozen players).
+await p1.evaluate(() => window.__hushfall.backToLobby?.());
+for (const p of [p1, p2, p3]) {
+  await p.waitForFunction(() => window.__hushfall?.scene() === 'lobby', null, { timeout: 12_000 });
+}
+await sleep(600);
+await p2.evaluate(() => window.__hushfall.pick?.('frost')); // Frost: Ice Snap
+await sleep(300);
+await p1.evaluate(() => window.__hushfall.start());
+for (const p of [p1, p2, p3]) {
+  await p.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { timeout: 12_000 });
+}
+await sleep(800);
+// FREEZE: Frost snaps the Seeker frozen for a beat.
+const rootedBefore = await p1.evaluate(() => window.__hushfall.amRooted?.() ?? false);
+await p2.evaluate(() => window.__hushfall.ability());
+await sleep(700);
+const rootedAfter = await p1.evaluate(() => window.__hushfall.amRooted?.() ?? false);
+const freezeOk = rootedBefore === false && rootedAfter === true;
+// Round-2 objective sync: the Engineer lights a lantern; the OTHER joiner —
+// a pure receiver — must see it happen.
+const lp2 = await p3.evaluate(() => window.__hushfall.lanternPos(0));
+let lit2 = false;
+for (let i = 0; i < 24 && !lit2; i++) {
+  await p3.evaluate((p) => window.__hushfall.warp(p.x, p.y), lp2);
+  await sleep(1000);
+  lit2 = (await p2.evaluate(() => window.__hushfall.litCount?.() ?? 0)) >= 1;
+}
+const round2Ok = lit2;
+await p2.screenshot({ path: `${outDir}/hf-8-round2.png` });
 
 // BOTS: a short-handed host fills the hunt with AI bots. They appear in the
 // roster as hiders, enter the match, and their AI steers them (they move).
@@ -325,12 +374,16 @@ const ok =
   reachOk &&
   hideOk &&
   tapHideOk &&
+  bustOk &&
   abilityOk &&
   visionOk &&
   downOk &&
+  livesOk &&
   downSignalOk &&
   rescueOk &&
   escapeOk &&
+  freezeOk &&
+  round2Ok &&
   botOk &&
   levelOk &&
   allDownOk &&
@@ -357,6 +410,9 @@ console.log(
       tapFar,
       tapNear,
       tapConcealed,
+      bustOk,
+      bustedCount,
+      hurtByBust,
       visionOk,
       abilityOk,
       revealBefore,
@@ -366,6 +422,8 @@ console.log(
       p2Downed,
       injuredNotDowned,
       downCountHost,
+      livesOk,
+      p2Lives,
       downSignalOk,
       downSignalP3,
       rescueOk,
@@ -375,6 +433,8 @@ console.log(
       escapedHost,
       phaseHost,
       phaseP2,
+      freezeOk,
+      round2Ok,
       botOk,
       botLobbyOk,
       botLobbyPlayers,

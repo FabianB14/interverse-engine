@@ -26,6 +26,11 @@ export const NIGHT = {
   lanternLit: 0xffe9a8,
   gate: 0x8affc1,
   violet: 0xc77dff,
+  wood: 0x4a3826,
+  woodDark: 0x241a10,
+  leaf: 0x2f5d3a,
+  leafDark: 0x1e3f28,
+  pot: 0x7a4a35,
 } as const;
 
 let ctx: AudioContext | null = null;

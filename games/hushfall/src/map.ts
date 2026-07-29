@@ -177,6 +177,11 @@ export function generateBuilding(level: LevelDef = LEVELS[0]!): string[] {
   };
 
   // Hiding spots — larger and plentiful: 1–2 per room, tucked by a wall.
+  // Keep them at least 3 tiles apart so two props never sit shoulder to
+  // shoulder (looked like a duplicated door).
+  const hidesPlaced: [number, number][] = [];
+  const farFromHides = (x: number, y: number): boolean =>
+    hidesPlaced.every(([hx, hy]) => Math.max(Math.abs(hx - x), Math.abs(hy - y)) >= 3);
   for (const room of rooms) {
     const want = room.w * room.h > 120 ? 2 : 1;
     let placed = 0;
@@ -186,7 +191,10 @@ export function generateBuilding(level: LevelDef = LEVELS[0]!): string[] {
         edge === 0 ? room.x + 1 : edge === 1 ? room.x + room.w - 2 : room.x + 1 + Math.floor(rng() * (room.w - 2));
       const y =
         edge === 2 ? room.y + 1 : edge === 3 ? room.y + room.h - 2 : room.y + 1 + Math.floor(rng() * (room.h - 2));
-      if (stampFree(x, y, 'h')) placed++;
+      if (farFromHides(x, y) && stampFree(x, y, 'h')) {
+        hidesPlaced.push([x, y]);
+        placed++;
+      }
     }
   }
 

@@ -30,6 +30,18 @@ export class MenuScene extends Scene {
   }
 
   private layout(W: number, H: number): void {
+    if (W > H) {
+      // Landscape: title + mascot on the left, the action stack on the right.
+      this.moon.position.set(W * 0.88, H * 0.16);
+      this.titleT.position.set(W * 0.3, H * 0.2);
+      this.sub.position.set(W * 0.3, H * 0.2 + 74);
+      this.mascot.position.set(W * 0.3, H * 0.62);
+      this.hostBtn.position.set(W * 0.72, H * 0.3);
+      this.joinBtn.position.set(W * 0.72, H * 0.3 + 130);
+      this.rejoinBtn?.position.set(W * 0.72, H * 0.3 + 252);
+      this.status?.position.set(W * 0.72, H * 0.88);
+      return;
+    }
     this.moon.position.set(W * 0.78, H * 0.14);
     this.titleT.position.set(W / 2, H * 0.2);
     this.sub.position.set(W / 2, H * 0.2 + 74);

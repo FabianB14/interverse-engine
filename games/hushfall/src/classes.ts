@@ -149,6 +149,25 @@ function wrenchMark(r: number): Container {
   return c;
 }
 
+function snowMark(r: number): Container {
+  // Frost: a six-point snowflake hovering above the head.
+  const c = new Container();
+  const g = new Graphics();
+  const cy = -r * 0.95;
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    const tipX = Math.cos(a) * r * 0.42;
+    const tipY = cy + Math.sin(a) * r * 0.42;
+    g.moveTo(0, cy).lineTo(tipX, tipY).stroke({ color: 0x9fe8ff, width: Math.max(3, r * 0.08) });
+    // little side barbs
+    g.moveTo(tipX * 0.6, cy + (tipY - cy) * 0.6)
+      .lineTo(tipX * 0.6 + Math.cos(a + 1.1) * r * 0.14, cy + (tipY - cy) * 0.6 + Math.sin(a + 1.1) * r * 0.14)
+      .stroke({ color: 0x9fe8ff, width: Math.max(2, r * 0.06) });
+  }
+  g.circle(0, cy, r * 0.08).fill(0xffffff);
+  return (c.addChild(g), c);
+}
+
 function owlMark(r: number): Container {
   const c = new Container();
   c.addChild(
@@ -328,6 +347,23 @@ export const HIDERS: ClassDef[] = [
       blurb: 'Reveal lanterns + Seeker to you.',
     },
     accessory: owlMark,
+  },
+  {
+    id: 'frost',
+    role: 'hider',
+    name: 'Frost',
+    emoji: '❄️',
+    color: 0x9fe8ff,
+    speed: 262,
+    blurb: 'Snaps the Seeker frozen — briefly.',
+    ability: {
+      id: 'freeze',
+      name: 'Ice Snap',
+      emoji: '🧊',
+      cooldown: 22,
+      blurb: 'Freeze the Seeker for a moment.',
+    },
+    accessory: snowMark,
   },
 ];
 

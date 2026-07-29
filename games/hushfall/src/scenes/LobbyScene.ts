@@ -39,6 +39,7 @@ export class LobbyScene extends Scene {
   private roster: RosterState = { order: [], names: {}, roles: {}, classes: {}, accs: {}, ready: {}, level: 0 };
   private live = true;
   private inProgress = false;
+  private unsub: (() => void)[] = [];
 
   private codeLabel!: Text;
   private codeText!: Text;
@@ -99,19 +100,66 @@ export class LobbyScene extends Scene {
 
   private layout(W: number, H: number): void {
     const landscape = W > H;
-    const rowH = landscape ? 78 : 100;
-    const top = landscape ? 348 : 500;
-    this.veriumChip.position.set(landscape ? 80 : 96, landscape ? 30 : 44);
-    this.codeLabel.position.set(W / 2, landscape ? 24 : 56);
-    this.codeText.position.set(W / 2, landscape ? 62 : 118);
-    this.countText.position.set(W / 2, landscape ? 100 : 178);
-    this.rosterRow.position.set(W / 2, landscape ? 150 : 262);
-    this.roleBtn.position.set(W / 2, landscape ? 260 : 360);
-    this.pickLabel.position.set(W / 2, landscape ? 306 : 430);
+    const n = this.classBtns.length;
+
+    if (landscape) {
+      // Two columns: room info + steppers on the LEFT, the class picker on
+      // the RIGHT, actions along the bottom. Nothing shares a Y band.
+      const lx = W * 0.24; // left column centre
+      const rx = W * 0.72; // right column centre
+      this.veriumChip.position.set(80, 34);
+      this.codeLabel.position.set(lx, 44);
+      this.codeText.position.set(lx, 92);
+      this.countText.position.set(lx, 138);
+      this.rosterRow.position.set(lx, 208);
+      this.roleBtn.position.set(lx, 300);
+      this.statusText.position.set(lx, 386);
+      // Steppers: arrows well clear of the label text.
+      this.levelLabel?.position.set(lx, 470);
+      this.levelMinus?.position.set(lx - 240, 470);
+      this.levelPlus?.position.set(lx + 240, 470);
+      this.botLabel?.position.set(lx, 560);
+      this.botMinus?.position.set(lx - 240, 560);
+      this.botPlus?.position.set(lx + 240, 560);
+      // Right column: class grid.
+      this.pickLabel.position.set(rx, 56);
+      const cols = this.classRole === 'seeker' ? 3 : 4;
+      const colW = Math.min(236, (W * 0.52 - 30) / cols);
+      const scale = Math.max(0.5, Math.min(1, (colW - 10) / 220));
+      const top = 130;
+      const rowH = 96;
+      this.classBtns.forEach((btn, i) => {
+        const row = Math.floor(i / cols);
+        const idx = i - row * cols;
+        const inRow = Math.min(cols, n - row * cols);
+        btn.scale.set(scale);
+        btn.position.set(rx + (idx - (inRow - 1) / 2) * colW, top + row * rowH);
+      });
+      const rows = Math.max(1, Math.ceil(n / cols));
+      this.abilityInfo.position.set(rx, top + rows * rowH + 40);
+      this.wardrobeBtn.position.set(rx, top + rows * rowH + 116);
+      // Bottom band.
+      const ay = H - 56;
+      this.startBtn?.position.set(lx, ay);
+      this.randomBtn?.position.set(rx, ay);
+      this.readyBtn?.position.set(rx, ay);
+      this.waitText?.position.set(rx, ay - 76);
+      this.layoutWardrobe(W, H);
+      return;
+    }
+
+    const rowH = 100;
+    const top = 500;
+    this.veriumChip.position.set(96, 44);
+    this.codeLabel.position.set(W / 2, 56);
+    this.codeText.position.set(W / 2, 118);
+    this.countText.position.set(W / 2, 178);
+    this.rosterRow.position.set(W / 2, 262);
+    this.roleBtn.position.set(W / 2, 360);
+    this.pickLabel.position.set(W / 2, 430);
     const cols = this.classRole === 'seeker' ? 3 : 4;
     const colW = Math.min(236, (W - 40) / cols);
-    const scale = Math.max(0.5, Math.min(1, (colW - 10) / 220)) * (landscape ? 0.8 : 1);
-    const n = this.classBtns.length;
+    const scale = Math.max(0.5, Math.min(1, (colW - 10) / 220));
     this.classBtns.forEach((btn, i) => {
       const row = Math.floor(i / cols);
       const idx = i - row * cols;
@@ -119,28 +167,6 @@ export class LobbyScene extends Scene {
       btn.scale.set(scale);
       btn.position.set(W / 2 + (idx - (inRow - 1) / 2) * colW, top + row * rowH);
     });
-
-    if (landscape) {
-      // Wide, short view: a bot stepper row, then a bottom action row spread
-      // across the width.
-      this.abilityInfo.position.set(W / 2, 512);
-      this.botLabel?.position.set(W * 0.3, 566);
-      this.botMinus?.position.set(W * 0.3 - 150, 566);
-      this.botPlus?.position.set(W * 0.3 + 150, 566);
-      this.levelLabel?.position.set(W * 0.7, 566);
-      this.levelMinus?.position.set(W * 0.7 - 150, 566);
-      this.levelPlus?.position.set(W * 0.7 + 150, 566);
-      const ay = H - 60;
-      this.wardrobeBtn.position.set(W * 0.18, ay);
-      this.randomBtn?.position.set(W * 0.5, ay);
-      this.startBtn?.position.set(W * 0.82, ay);
-      this.readyBtn?.position.set(W * 0.7, ay);
-      this.waitText?.position.set(W * 0.5, ay - 54);
-      this.statusText.position.set(W / 2, ay - 54);
-      this.layoutWardrobe(W, H);
-      return;
-    }
-
     const rows = Math.max(1, Math.ceil(n / cols));
     const bottom = top + (rows - 1) * rowH + 90;
     this.abilityInfo.position.set(W / 2, bottom - 40);
@@ -149,11 +175,11 @@ export class LobbyScene extends Scene {
     this.startBtn?.position.set(W / 2, H - 96);
     this.randomBtn?.position.set(W / 2, H - 190);
     this.botLabel?.position.set(W / 2, H - 296);
-    this.botMinus?.position.set(W / 2 - 150, H - 296);
-    this.botPlus?.position.set(W / 2 + 150, H - 296);
+    this.botMinus?.position.set(W / 2 - 240, H - 296);
+    this.botPlus?.position.set(W / 2 + 240, H - 296);
     this.levelLabel?.position.set(W / 2, H - 380);
-    this.levelMinus?.position.set(W / 2 - 150, H - 380);
-    this.levelPlus?.position.set(W / 2 + 150, H - 380);
+    this.levelMinus?.position.set(W / 2 - 240, H - 380);
+    this.levelPlus?.position.set(W / 2 + 240, H - 380);
     this.readyBtn?.position.set(W / 2, H - 96);
     this.waitText?.position.set(W / 2, H - 176);
     this.layoutWardrobe(W, H);
@@ -257,7 +283,7 @@ export class LobbyScene extends Scene {
       this.add(this.botPlus);
       this.updateBotLabel();
       // Level (map) picker.
-      this.levelLabel = makeText('', 26, { color: NIGHT.lantern, weight: '800' });
+      this.levelLabel = makeText('', 23, { color: NIGHT.lantern, weight: '800' });
       this.stage.addChild(this.levelLabel);
       this.levelMinus = new UIButton('◀', {
         width: 76,
@@ -361,13 +387,15 @@ export class LobbyScene extends Scene {
 
   protected override onExit(): void {
     this.live = false;
+    for (const u of this.unsub) u();
+    this.unsub = [];
     delete window.__hushfall;
   }
 
   private wireNet(): void {
     const session = this.session;
     if (session.isHost) {
-      session.onPlayerJoin((p) => {
+      this.unsub.push(session.onPlayerJoin((p) => {
         if (!this.live) return;
         // Insert humans before the bot block so bot ids stay contiguous.
         const bots = this.roster.order.filter((id) => this.isBot(id));
@@ -382,8 +410,8 @@ export class LobbyScene extends Scene {
         this.shareRoster();
         this.refreshRoster();
         sting('blip');
-      });
-      session.onPlayerLeave((id) => {
+      }));
+      this.unsub.push(session.onPlayerLeave((id) => {
         if (!this.live) return;
         this.roster.order = this.roster.order.filter((x) => x !== id);
         delete this.roster.roles[id];
@@ -394,8 +422,8 @@ export class LobbyScene extends Scene {
         this.updateBotLabel();
         this.shareRoster();
         this.refreshRoster();
-      });
-      session.onMessage((from, data) => {
+      }));
+      this.unsub.push(session.onMessage((from, data) => {
         if (!this.live) return;
         const msg = data as LobbyMsg;
         if (msg?.type === 'class') {
@@ -415,9 +443,9 @@ export class LobbyScene extends Scene {
         }
         this.shareRoster();
         this.refreshRoster();
-      });
+      }));
     } else {
-      session.onMessage((_from, data) => {
+      this.unsub.push(session.onMessage((_from, data) => {
         if (!this.live) return;
         const msg = data as LobbyMsg;
         if (msg?.type === 'roster') {
@@ -445,9 +473,9 @@ export class LobbyScene extends Scene {
         } else if (msg?.type === 'inprogress') {
           this.enterLateJoin();
         }
-      });
+      }));
     }
-    session.onClose((reason) => {
+    this.unsub.push(session.onClose((reason) => {
       if (!this.live) return;
       this.statusText.text = `Disconnected: ${reason} — returning to menu…`;
       const back = new Entity();
@@ -458,7 +486,7 @@ export class LobbyScene extends Scene {
         }),
       );
       this.add(back);
-    });
+    }));
 
     if (!session.isHost) session.send({ type: 'hello' });
   }
@@ -566,7 +594,7 @@ export class LobbyScene extends Scene {
 
   private updateLevelLabel(): void {
     const lv = LEVELS[this.roster.level ?? 0] ?? LEVELS[0]!;
-    if (this.levelLabel) this.levelLabel.text = `🏚️ ${lv.name} · ${lv.lanterns} lanterns`;
+    if (this.levelLabel) this.levelLabel.text = `🏚️ ${lv.name} · ${lv.lanterns}🕯️`;
   }
 
   private toggleSeeker(): void {
