@@ -47,13 +47,18 @@ like every classic mobile RPG.
 
 - **👁 Top-down** — the player moves freely in all directions.
 - **👁 2.5D** — things higher on screen are further away: they scale down
-  and sort behind, so walking "up" walks *into* the scene. The board
-  progresses **left-to-right**; the camera follows and you never see the
-  whole map at once. The editor previews depth immediately when you switch.
-- **⛶ Level length** — 1 to 4 screens long. The **camera follows your
-  player** automatically (comfortable deadzone, clamped to the world). In
-  the editor, scroll with the wheel/trackpad to pan along the board; faint
-  guide lines mark each screen.
+  and sort behind, so walking "up" walks *into* the scene. 2.5D boards are
+  always **one landscape screen tall (720)** and progress **left-to-right**
+  — the journey runs long-ways and you never see the whole map at once.
+  There's a **horizon**: players can't walk above it into the sky, only a
+  short way "into" the scene. The editor previews depth immediately when
+  you switch, and switching views snaps the board to the right height.
+- **⛶ Level length** — 1 to 4 screens long (length is the only size knob;
+  top-down boards are one portrait screen tall, 2.5D boards one landscape
+  screen tall). The **camera follows your player** automatically
+  (comfortable deadzone, clamped to the world). In the editor, scroll with
+  the wheel/trackpad to pan along the board; faint guide lines mark each
+  screen.
 - **Gravity** — check it for platformers: ← → run, ↑ / W / joystick-up to
   **jump**. It's level physics, not a view — Hilltop Hop is the example.
 

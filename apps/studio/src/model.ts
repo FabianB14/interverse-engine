@@ -204,7 +204,9 @@ export function parseProject(json: string): ProjectDef {
     s.view = s.view === 'depth' ? 'depth' : 'top';
     s.gravity = !!s.gravity;
     s.worldW = Math.max(720, Math.min(2880, Number(s.worldW) || 720));
-    s.worldH = Math.max(1280, Math.min(2560, Number(s.worldH) || 1280));
+    s.worldH = Math.max(720, Math.min(2560, Number(s.worldH) || 1280));
+    // 2.5D boards are one landscape screen tall — the journey runs long-ways.
+    if (s.view === 'depth') s.worldH = 720;
     if (s.tiles !== undefined) s.tiles = normalizeRows(s.tiles, colsFor(s.worldW), rowsFor(s.worldH));
     s.script ??= '';
     s.entities ||= [];

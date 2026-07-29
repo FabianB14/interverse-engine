@@ -40,8 +40,8 @@ async function main(): Promise<void> {
       sceneSelect.appendChild(o);
     }
     viewSelect.value = editor.scene.view ?? 'top';
-    sizeSelect.value = `${editor.scene.worldW}x${editor.scene.worldH}`;
-    if (![...sizeSelect.options].some((o) => o.value === sizeSelect.value)) sizeSelect.value = '720x1280';
+    sizeSelect.value = String(editor.scene.worldW);
+    if (![...sizeSelect.options].some((o) => o.value === sizeSelect.value)) sizeSelect.value = '720';
     chkGravity.checked = !!editor.scene.gravity;
     playBtn.textContent = editor.playing ? '⏹ Stop' : '▶ Play';
     playBtn.className = editor.playing ? 'btn good' : 'btn primary';
@@ -61,15 +61,23 @@ async function main(): Promise<void> {
   };
   sceneSelect.onchange = () => editor.switchScene(sceneSelect.value);
   viewSelect.onchange = () => {
-    editor.scene.view = viewSelect.value as 'top' | 'depth';
+    const v = viewSelect.value as 'top' | 'depth';
+    editor.scene.view = v;
+    // 2.5D boards are one landscape screen tall; top-down boards a phone tall.
+    if (v === 'depth' && editor.scene.worldH !== 720) {
+      editor.setWorldSize(editor.scene.worldW, 720);
+    } else if (v === 'top' && editor.scene.worldH === 720) {
+      editor.setWorldSize(editor.scene.worldW, 1280);
+    } else if (!editor.playing) {
+      // Re-open so the change is visible immediately (depth previews live).
+      editor.openEditScene();
+    }
     editor.touch();
-    // Re-open the editor scene so the change is visible immediately —
-    // 2.5D depth previews live in the editor, not just in Play mode.
-    if (!editor.playing) editor.openEditScene();
   };
   sizeSelect.onchange = () => {
-    const [w, h] = sizeSelect.value.split('x').map(Number);
-    editor.setWorldSize(w!, h!);
+    // Length is the choice; height comes from the view (2.5D = 720 tall).
+    const w = Number(sizeSelect.value) || 720;
+    editor.setWorldSize(w, editor.scene.view === 'depth' ? 720 : 1280);
   };
   chkGravity.onchange = () => {
     editor.scene.gravity = chkGravity.checked;

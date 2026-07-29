@@ -9,7 +9,7 @@ import { Scene, createGame } from '@interverse/engine';
 import type { Game } from '@interverse/engine';
 import type { EntityDef, EntityKind, ProjectDef, SceneDef } from './model.js';
 import { defaultEntity, defaultProject, defaultScene, freshId, parseProject } from './model.js';
-import { PlayScene, buildView } from './runtime.js';
+import { PlayScene, buildView, depthScale } from './runtime.js';
 import { StudioNet, resolveRelayUrl } from './net.js';
 import { slugify } from './publish.js';
 import {
@@ -92,8 +92,7 @@ class EditScene extends Scene {
     for (const def of this.def.entities) {
       const v = this.views.get(def.id);
       if (!v || v.destroyed) continue;
-      const depth = Math.max(0.45, Math.min(1.25, 0.35 + (def.y - 380) / 700));
-      v.scale.set(def.scale * depth);
+      v.scale.set(def.scale * depthScale(def.y));
       v.zIndex = def.y;
     }
     this.ring.zIndex = 1e9;

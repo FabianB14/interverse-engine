@@ -200,9 +200,10 @@ const tilesOk =
 await page.evaluate(() => window.__studio.stop());
 await sleep(150);
 
-// CAMERA FOLLOW: Sunset Street is 3 screens wide (2.5D travels long-ways);
-// walking east must carry the hero past the first screen while the camera
-// pans the world to keep them in frame.
+// CAMERA FOLLOW: Sunset Street is 3 screens wide but only ONE landscape
+// screen tall (2.5D travels long-ways); walking east must carry the hero
+// past the first screen while the camera pans, and walking up must stop at
+// the horizon (DEPTH_MIN_Y) instead of climbing into the sky.
 await page.evaluate(() => window.__studio.loadTemplate('side25'));
 await sleep(300);
 const worldSize = await page.evaluate(() => window.__studio.worldSize());
@@ -216,7 +217,15 @@ const heroX2 = await page.evaluate(() => {
   return window.__probeX2;
 });
 const camX = await page.evaluate(() => window.__studio.cameraX());
-const cameraOk = worldSize.w === 2160 && heroX2 > 750 && camX > 60;
+await page.keyboard.down('ArrowUp');
+await sleep(2200);
+await page.keyboard.up('ArrowUp');
+const heroY2 = await page.evaluate(() => {
+  window.__studio.applyScriptNow("window.__probeY2 = api.entity('Hero').y");
+  return window.__probeY2;
+});
+const horizonOk = heroY2 > 300 && heroY2 < 340;
+const cameraOk = worldSize.w === 2160 && worldSize.h === 720 && heroX2 > 750 && camX > 60 && horizonOk;
 await page.screenshot({ path: `${outDir}/st-9-camera.png` });
 await page.evaluate(() => window.__studio.stop());
 await sleep(150);
@@ -264,7 +273,7 @@ console.log(
       ok, placeOk, editOk, storyOk, levelsOk, playOk, playCount, stopOk, exportOk, importOk,
       templatesOk, templates, skillsOk, skillNodes, stormEarly, strength, scoreOk, score,
       tilesOk, tileBefore, tilePainted, tilesPersist, playTiles, heroX,
-      cameraOk, worldSize, heroX2, camX,
+      cameraOk, worldSize, heroX2, camX, heroY2, horizonOk,
       netOk, playersA, playersB, remotesB, moveOk, remotePosB, stateB,
       errors: errors.slice(0, 6),
     },

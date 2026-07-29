@@ -45,6 +45,15 @@ function assetTexture(dataUrl: string, onReady: (tex: Texture) => void): void {
   img.src = dataUrl;
 }
 
+/** 2.5D boards are ONE LANDSCAPE SCREEN tall (720): the horizon sits near
+ *  the top, players walk the ground band below it, and the journey runs
+ *  left-to-right. depthScale maps a y in that band to a far/near size. */
+export const DEPTH_WORLD_H = 720;
+export const DEPTH_MIN_Y = 320; // players can't walk above the horizon
+export function depthScale(y: number): number {
+  return Math.max(0.5, Math.min(1.2, 0.5 + ((y - 300) / 420) * 0.7));
+}
+
 /**
  * Every view is root Entity → `pop` wrapper → `body` wrapper → visuals.
  * The root carries the author's transform; pop-in scales POP; wobble scales
@@ -651,6 +660,8 @@ export class PlayScene extends Scene {
         }
       } else if (mx || my) {
         const len = Math.hypot(mx, my) || 1;
+        // 2.5D: the horizon is a wall — you walk the ground band, not the sky.
+        const minY = this.sceneDef.view === 'depth' ? DEPTH_MIN_Y : 20;
         for (const p of this.players) {
           if (p.entity.destroyed) continue;
           const dx = (mx / len) * p.speed * dt;
@@ -659,10 +670,10 @@ export class PlayScene extends Scene {
             // Painted solid tiles (walls, water, trees) block movement.
             const moved = moveWithCollision(this.tileMap, p.entity.x, p.entity.y, 16, 14, dx, dy);
             p.entity.x = Math.max(20, Math.min(W - 20, moved.x));
-            p.entity.y = Math.max(20, Math.min(H - 20, moved.y));
+            p.entity.y = Math.max(minY, Math.min(H - 20, moved.y));
           } else {
             p.entity.x = Math.max(20, Math.min(W - 20, p.entity.x + dx));
-            p.entity.y = Math.max(20, Math.min(H - 20, p.entity.y + dy));
+            p.entity.y = Math.max(minY, Math.min(H - 20, p.entity.y + dy));
           }
         }
       }
@@ -689,12 +700,11 @@ export class PlayScene extends Scene {
 
   /** 2.5D: higher on screen = further away — smaller and drawn behind. */
   private applyDepth(): void {
-    this.stage.sortableChildren = true;
-    const depthOf = (y: number): number => Math.max(0.45, Math.min(1.25, 0.35 + (y - 380) / 700));
+    this.world.sortableChildren = true;
     const apply = (c: Container, fallbackBase = 1): void => {
       if (c.destroyed) return;
       if (!this.baseScales.has(c)) this.baseScales.set(c, c.scale.x || fallbackBase);
-      c.scale.set(this.baseScales.get(c)! * depthOf(c.y));
+      c.scale.set(this.baseScales.get(c)! * depthScale(c.y));
       c.zIndex = c.y;
     };
     for (const e of this.byName.values()) apply(e);

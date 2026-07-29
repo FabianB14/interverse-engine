@@ -91,20 +91,20 @@ function topDown(): ProjectDef {
 function side25(): ProjectDef {
   const s = defaultScene('Street');
   s.background = 0x1a1826;
-  s.view = 'depth'; // built-in 2.5D: higher on screen = further away
-  s.worldW = 2160; // three screens wide — the journey runs LONG-WAYS
+  s.view = 'depth'; // 2.5D: a landscape-height board, journey runs LONG-WAYS
+  s.worldW = 2160; // three screens long
   s.entities.push(
-    E('text', 'Sky', 360, 120, { text: '🌇 SUNSET STREET →', fontSize: 40, color: 0xffb86b }),
-    E('blob', 'Hero', 200, 900, { color: 0x6fc3ff }),
-    E('npc', 'Vendor', 340, 700, { color: 0xffd166, lines: ['Fresh juice!', 'The street runs east — the camera follows you.', 'Walk up to head deeper in; things shrink into the distance.'] }),
-    E('crate', 'Stall', 540, 760, { color: 0x4a3826 }),
-    E('plant', 'Tree A', 820, 560, { color: 0x2f8d4a }),
-    E('plant', 'Tree B', 1120, 780, { color: 0x2f8d4a }),
-    E('lantern', 'Lamp A', 960, 520),
-    E('npc', 'Busker', 1400, 860, { color: 0xc77dff, lines: ['🎶 Halfway down the street!', 'Keep going east.'] }),
-    E('plant', 'Tree C', 1700, 620, { color: 0x2f8d4a }),
-    E('lantern', 'Lamp B', 1860, 540),
-    E('npc', 'Innkeeper', 2000, 760, { color: 0x8affc1, lines: ['You made it to the end of the street!', 'Rooms are free for travelers.'] }),
+    E('text', 'Sky', 360, 90, { text: '🌇 SUNSET STREET →', fontSize: 40, color: 0xffb86b }),
+    E('blob', 'Hero', 200, 560, { color: 0x6fc3ff }),
+    E('npc', 'Vendor', 360, 420, { color: 0xffd166, lines: ['Fresh juice!', 'The street runs east — the camera follows you.', 'Walk up toward the horizon; things shrink into the distance.'] }),
+    E('crate', 'Stall', 540, 470, { color: 0x4a3826 }),
+    E('plant', 'Tree A', 820, 340, { color: 0x2f8d4a }),
+    E('plant', 'Tree B', 1120, 560, { color: 0x2f8d4a }),
+    E('lantern', 'Lamp A', 960, 330),
+    E('npc', 'Busker', 1400, 540, { color: 0xc77dff, lines: ['🎶 Halfway down the street!', 'Keep going east.'] }),
+    E('plant', 'Tree C', 1700, 380, { color: 0x2f8d4a }),
+    E('lantern', 'Lamp B', 1860, 330),
+    E('npc', 'Innkeeper', 2000, 480, { color: 0x8affc1, lines: ['You made it to the end of the street!', 'Rooms are free for travelers.'] }),
   );
   s.script = S([
     '// 2.5D + a 3-screen-wide world: the camera follows the Hero long-ways.',
