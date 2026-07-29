@@ -12,6 +12,7 @@ import { defaultEntity, defaultProject, defaultScene, freshId, parseProject } fr
 import { PlayScene, buildView } from './runtime.js';
 import { StudioNet, resolveRelayUrl } from './net.js';
 import { slugify } from './publish.js';
+import { COLS, ROWS, TILE_SIZE, buildTileLayer, emptyRows, setTileChar, tileCharAt } from './tiles.js';
 
 const SAVE_KEY = 'interverse.studio.project';
 
@@ -21,6 +22,7 @@ class BootScene extends Scene {}
 class EditScene extends Scene {
   views = new Map<string, Container>();
   ring = new Graphics();
+  private tileLayer: Container | null = null;
 
   constructor(
     private readonly editor: StudioEditor,
@@ -34,8 +36,9 @@ class EditScene extends Scene {
       .rect(0, 0, this.game.designWidth, this.game.designHeight)
       .fill(this.def.background);
     bg.eventMode = 'static';
-    bg.on('pointerdown', () => this.editor.select(null));
+    bg.on('pointerdown', (ev) => this.editor.canvasDown(ev.globalX, ev.globalY));
     this.stage.addChildAt(bg, 0);
+    this.refreshTiles();
     // design-space frame so authors see the phone bounds
     const frame = new Graphics()
       .rect(1, 1, this.game.designWidth - 2, this.game.designHeight - 2)
@@ -46,9 +49,37 @@ class EditScene extends Scene {
     this.editor.refreshRing();
   }
 
+  /** Rebuild the painted-tile layer (sits just above the background). */
+  refreshTiles(): void {
+    // Scene transitions are async — before onEnter the stage is empty and
+    // onEnter will call us again, so bail rather than mis-index.
+    if (!this.stage.children.length) return;
+    this.tileLayer?.destroy({ children: true });
+    this.tileLayer = null;
+    if (this.def.tiles) {
+      this.tileLayer = buildTileLayer(this.def.tiles).view;
+      this.tileLayer.eventMode = 'none';
+      this.stage.addChildAt(this.tileLayer, Math.min(1, this.stage.children.length));
+    }
+  }
+
+  /** Live 2.5D preview in the EDITOR: depth-scale + sort while view=depth. */
+  protected override onUpdate(): void {
+    if (this.def.view !== 'depth') return;
+    this.stage.sortableChildren = true;
+    for (const def of this.def.entities) {
+      const v = this.views.get(def.id);
+      if (!v || v.destroyed) continue;
+      const depth = Math.max(0.45, Math.min(1.25, 0.35 + (def.y - 380) / 700));
+      v.scale.set(def.scale * depth);
+      v.zIndex = def.y;
+    }
+    this.ring.zIndex = 1e9;
+  }
+
   addViewFor(def: EntityDef): void {
     const v = buildView(def, this.editor.project.assets);
-    v.eventMode = 'static';
+    v.eventMode = this.editor.tileChar ? 'none' : 'static';
     v.cursor = 'pointer';
     v.on('pointerdown', (ev) => {
       ev.stopPropagation();
@@ -57,6 +88,11 @@ class EditScene extends Scene {
     });
     this.stage.addChild(v);
     this.views.set(def.id, v);
+  }
+
+  /** Tile-paint mode: entities must not swallow canvas pointer events. */
+  setViewsInteractive(on: boolean): void {
+    for (const v of this.views.values()) v.eventMode = on ? 'static' : 'none';
   }
 
   removeViewFor(id: string): void {
@@ -117,9 +153,15 @@ export class StudioEditor {
     });
     this.openEditScene();
 
-    // Drag-to-move plumbing (design coords derived from the world transform).
+    // Drag-to-move + tile painting plumbing (design coords from the world
+    // transform).
     const canvas = this.game.app.canvas;
     canvas.addEventListener('pointermove', (ev) => {
+      if (this.painting && this.tileChar) {
+        const p = this.toDesign(ev.clientX, ev.clientY);
+        this.paintAt(p.x, p.y);
+        return;
+      }
       if (!this.drag) return;
       const p = this.toDesign(ev.clientX, ev.clientY);
       this.drag.def.x = Math.round(p.x - this.drag.dx);
@@ -129,11 +171,71 @@ export class StudioEditor {
       this.refreshRing();
     });
     window.addEventListener('pointerup', () => {
+      if (this.painting) {
+        this.painting = false;
+        this.editScene?.refreshTiles();
+        this.touch();
+      }
       if (this.drag) {
         this.drag = null;
         this.touch();
       }
     });
+  }
+
+  // ------------------------------------------------------------- painting
+
+  /** Active tile character while painting; null = normal select/drag mode. */
+  tileChar: string | null = null;
+  private painting = false;
+  private tileRefreshTimer = 0;
+
+  setTileMode(ch: string | null): void {
+    this.tileChar = ch;
+    this.painting = false;
+    this.editScene?.setViewsInteractive(ch === null);
+    if (ch !== null) this.select(null);
+  }
+
+  /** Pointer-down on the canvas background: paint, or clear the selection. */
+  canvasDown(gx: number, gy: number): void {
+    if (this.playing) return;
+    if (this.tileChar) {
+      this.painting = true;
+      const p = this.toDesignFromGlobal(gx, gy);
+      this.paintAt(p.x, p.y);
+    } else {
+      this.select(null);
+    }
+  }
+
+  paintAt(x: number, y: number): void {
+    const ch = this.tileChar;
+    if (!ch) return;
+    const col = Math.floor(x / TILE_SIZE);
+    const row = Math.floor(y / TILE_SIZE);
+    if (col < 0 || row < 0 || col >= COLS || row >= ROWS) return;
+    this.scene.tiles ??= emptyRows();
+    if (tileCharAt(this.scene.tiles, col, row) === ch) return;
+    setTileChar(this.scene.tiles, col, row, ch);
+    // Throttled rebuild while the stroke is in flight; final on pointerup.
+    if (!this.tileRefreshTimer) {
+      this.tileRefreshTimer = window.setTimeout(() => {
+        this.tileRefreshTimer = 0;
+        this.editScene?.refreshTiles();
+      }, 80);
+    }
+  }
+
+  setTile(col: number, row: number, ch: string): void {
+    this.scene.tiles ??= emptyRows();
+    setTileChar(this.scene.tiles, col, row, ch);
+    this.editScene?.refreshTiles();
+    this.touch();
+  }
+
+  tileAt(col: number, row: number): string {
+    return this.scene.tiles ? tileCharAt(this.scene.tiles, col, row) : '.';
   }
 
   // ---------------------------------------------------------------- scenes

@@ -171,6 +171,35 @@ const scoreOk = score >= 7;
 await page.screenshot({ path: `${outDir}/st-5-rpg.png` });
 await page.evaluate(() => window.__studio.stop());
 
+// TILEMAP PAINTER: the garden template ships painted terrain; painting
+// persists through export, renders in Play, and solid tiles BLOCK players.
+await page.evaluate(() => window.__studio.loadTemplate('topdown'));
+await sleep(300);
+const tileBefore = await page.evaluate(() => window.__studio.tileAt(9, 25)); // template path
+await page.evaluate(() => window.__studio.setTile(5, 5, 'w'));
+const tilePainted = await page.evaluate(() => window.__studio.tileAt(5, 5));
+await page.evaluate(() => {
+  for (let r = 20; r <= 30; r++) window.__studio.setTile(6, r, 'k'); // rock wall left of the hero
+});
+const tProj = JSON.parse(await page.evaluate(() => window.__studio.exportJson()));
+const tilesPersist = Array.isArray(tProj.scenes[0].tiles) && tProj.scenes[0].tiles[5][5] === 'w';
+await page.evaluate(() => window.__studio.play());
+await sleep(900);
+const playTiles = await page.evaluate(() => window.__studio.playHasTiles());
+await page.screenshot({ path: `${outDir}/st-8-tiles.png` });
+// Hold ← : the painted wall (cols 6, x 240..280) must stop the hero (start x 360).
+await page.keyboard.down('ArrowLeft');
+await sleep(1400);
+await page.keyboard.up('ArrowLeft');
+const heroX = await page.evaluate(() => {
+  window.__studio.applyScriptNow("window.__probeX = api.entity('Hero').x");
+  return window.__probeX;
+});
+const tilesOk =
+  tileBefore === 'd' && tilePainted === 'w' && tilesPersist && playTiles === true && heroX > 285 && heroX < 345;
+await page.evaluate(() => window.__studio.stop());
+await sleep(150);
+
 // MULTIPLAYER BLOCKS: two browsers share a room on the co-op template —
 // roster syncs, the remote avatar appears and tracks movement, and shared
 // state (the co-op score) reaches the joiner.
@@ -207,12 +236,13 @@ relay.kill();
 
 const ok =
   placeOk && editOk && storyOk && levelsOk && playOk && stopOk && exportOk && importOk &&
-  templatesOk && skillsOk && scoreOk && netOk && errors.length === 0;
+  templatesOk && skillsOk && scoreOk && tilesOk && netOk && errors.length === 0;
 console.log(
   JSON.stringify(
     {
       ok, placeOk, editOk, storyOk, levelsOk, playOk, playCount, stopOk, exportOk, importOk,
       templatesOk, templates, skillsOk, skillNodes, stormEarly, strength, scoreOk, score,
+      tilesOk, tileBefore, tilePainted, tilesPersist, playTiles, heroX,
       netOk, playersA, playersB, remotesB, moveOk, remotePosB, stateB,
       errors: errors.slice(0, 6),
     },

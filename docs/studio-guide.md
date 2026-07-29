@@ -38,17 +38,30 @@ edit is the real engine, live — press **▶ Play** at any moment.
 
 ## 3 · Views: top-down, side, 2.5D
 
-Every level has a **View** (toolbar selector) that sets how it plays:
+Every level has a **View** (toolbar selector) that sets how it plays — and
+the editor previews it immediately when you switch:
 
 - **👁 Top-down** — the player moves freely in all directions.
 - **👁 Side view** — gravity is built in: ← → run, ↑ / W / joystick-up to
   **jump**. Great for platform-y games (try the Hilltop Hop template).
 - **👁 2.5D depth** — things higher on screen are further away: they scale
-  down and sort behind, so walking "up" walks *into* the scene (Sunset
-  Street). This is the classic RPG look.
+  down and sort behind, so walking "up" walks *into* the scene. Drag an
+  entity up the canvas and watch it shrink into the distance — then press
+  ▶ Play and walk it. Sunset Street is the worked example.
 
 The engine renders with **WebGPU/WebGL** (PixiJS) — hardware-accelerated on
 phones and desktops alike.
+
+## 3½ · Paint the world (Tiles)
+
+Hit **🗺 Tiles** in the toolbar and the palette becomes a paintbox: grass,
+flowers, dirt and stone paths, sand, water, rock walls, trees, brick.
+Click/drag on the canvas to paint terrain (18×32 grid per level), use the
+eraser to clear, and **✓ Done painting** to go back to placing things.
+
+Tiles marked *solid* (water, rock, trees, brick) **block players** in Play
+mode automatically — paint a maze and it just works. The Garden Explorer
+template ships with a painted garden to start from.
 
 ## 4 · Animations, VFX, SFX
 
@@ -177,8 +190,17 @@ the result — the full engine dev loop.
 The in-app **AI Chat** tab is the fallback for people without Claude Code:
 paste an Anthropic API key (stored locally, never shipped) and ask.
 
-## 11 · The Windows app (and iOS later)
+## 11 · Installing Studio (Windows, iOS, Android)
 
-The `Studio Windows app` GitHub Actions workflow builds a desktop installer
-(Tauri shell). Tauri is the same shell that will target iOS when we get
-there. The web Studio is always the source of truth.
+Studio is an installable app straight from the URL:
+
+- **Windows / desktop** (Chrome or Edge): click **⬇ Install** in the
+  toolbar — or the install icon in the address bar. Studio opens in its own
+  window like any app.
+- **iPhone / iPad** (Safari): tap **⬇ Install** for the steps — Share →
+  **Add to Home Screen** → Add.
+- **Android**: Chrome offers the install banner, or ⬇ Install.
+
+There's also a native Windows installer: the `Studio Windows app` GitHub
+Actions workflow builds one (Tauri shell — the same shell that will target
+iOS natively later). The web Studio is always the source of truth.

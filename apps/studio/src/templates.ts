@@ -39,9 +39,27 @@ const S = (lines: string[]): string => lines.join('\n');
 
 // ---------------------------------------------------------------- templates
 
+/** Painted garden terrain: tree border, grass + flowers, a path, a pond. */
+function gardenTiles(): string[] {
+  const rows: string[] = [];
+  for (let r = 0; r < 32; r++) {
+    let line = '';
+    for (let c = 0; c < 18; c++) {
+      let ch = (r * 7 + c * 3) % 5 === 0 ? 'f' : 'g';
+      if (r === 0 || r === 31 || c === 0 || c === 17) ch = 't';
+      if ((c === 8 || c === 9) && r > 1 && r < 30) ch = 'd';
+      if (r >= 3 && r <= 6 && c >= 12 && c <= 15) ch = 'w';
+      line += ch;
+    }
+    rows.push(line);
+  }
+  return rows;
+}
+
 function topDown(): ProjectDef {
   const s = defaultScene('Garden');
   s.background = 0x14261c;
+  s.tiles = gardenTiles();
   s.entities.push(
     E('blob', 'Hero', 360, 1000, { color: 0xffd166 }),
     E('npc', 'Gardener', 160, 300, {

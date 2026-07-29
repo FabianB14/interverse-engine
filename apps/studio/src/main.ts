@@ -4,6 +4,7 @@ import { wireInspector } from './inspector.js';
 import { wireChat } from './chat.js';
 import { PALETTE } from './palette.js';
 import { TEMPLATES } from './templates.js';
+import { TILE_TYPES } from './tiles.js';
 import { pushToGitHub, registerInWorld, slugify, store as pubStore } from './publish.js';
 import type { EntityKind } from './model.js';
 import './debug.js';
@@ -57,6 +58,9 @@ async function main(): Promise<void> {
   viewSelect.onchange = () => {
     editor.scene.view = viewSelect.value as 'top' | 'side' | 'depth';
     editor.touch();
+    // Re-open the editor scene so the change is visible immediately —
+    // 2.5D depth previews live in the editor, not just in Play mode.
+    if (!editor.playing) editor.openEditScene();
   };
   $('btn-add-scene').onclick = () => {
     const name = prompt('Level name?', `Level ${editor.project.scenes.length + 1}`);
@@ -276,8 +280,108 @@ async function main(): Promise<void> {
     fileImport.value = '';
   };
 
+  // ----------------------------------------------------------- installing
+  // Windows/Android/desktop: the browser offers a real install prompt.
+  // iOS Safari never fires beforeinstallprompt — show the Share steps.
+  const installBtn = $<HTMLButtonElement>('btn-install');
+  let deferredInstall: (Event & { prompt: () => void }) | null = null;
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredInstall = e as Event & { prompt: () => void };
+    installBtn.style.display = '';
+  });
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const standalone =
+    window.matchMedia('(display-mode: standalone)').matches ||
+    (navigator as { standalone?: boolean }).standalone === true;
+  if (isIOS && !standalone) installBtn.style.display = '';
+  installBtn.onclick = () => {
+    if (deferredInstall) {
+      deferredInstall.prompt();
+      deferredInstall = null;
+      installBtn.style.display = 'none';
+      return;
+    }
+    openModal((root) => {
+      root.innerHTML = `<h2>⬇ Install Interverse Studio</h2>
+        <p>On iPhone / iPad (Safari):</p>
+        <ol><li>Tap the <b>Share</b> button (square with an arrow)</li>
+        <li>Scroll and tap <b>Add to Home Screen</b></li>
+        <li>Tap <b>Add</b> — Studio installs like an app</li></ol>
+        <p class="muted">On Windows / Android, Chrome and Edge show an install icon in the address bar (or this button offers it directly).</p>`;
+    });
+  };
+
   // ------------------------------------------------------------- palette
   const left = $('left');
+  const palEntities = document.createElement('div');
+  const palTiles = document.createElement('div');
+  palTiles.style.display = 'none';
+  left.append(palEntities, palTiles);
+
+  // Tile paintbox (🗺 Tiles toggles it in place of the entity palette).
+  const tilesBtn = $<HTMLButtonElement>('btn-tiles');
+  let activeSwatch: HTMLElement | null = null;
+  const exitTileMode = (): void => {
+    editor.setTileMode(null);
+    palTiles.style.display = 'none';
+    palEntities.style.display = '';
+    tilesBtn.classList.remove('primary');
+    activeSwatch?.style.removeProperty('border-color');
+    activeSwatch = null;
+  };
+  const buildTilePalette = (): void => {
+    palTiles.innerHTML = '';
+    const head = document.createElement('div');
+    head.className = 'pal-head';
+    head.textContent = 'Paint terrain';
+    palTiles.appendChild(head);
+    const pick = (el: HTMLElement, ch: string): void => {
+      editor.setTileMode(ch);
+      activeSwatch?.style.removeProperty('border-color');
+      activeSwatch = el;
+      el.style.borderColor = 'var(--accent)';
+    };
+    for (const t of TILE_TYPES) {
+      const item = document.createElement('div');
+      item.className = 'pal-item';
+      item.innerHTML = `<span class="em" style="display:inline-block;width:20px;height:20px;border-radius:5px;background:#${t.color
+        .toString(16)
+        .padStart(6, '0')}"></span>${t.name}${t.solid ? ' <span class="muted" style="font-size:11px">solid</span>' : ''}`;
+      item.onclick = () => pick(item, t.ch);
+      palTiles.appendChild(item);
+    }
+    const eraser = document.createElement('div');
+    eraser.className = 'pal-item';
+    eraser.innerHTML = `<span class="em">🧽</span>Eraser`;
+    eraser.onclick = () => pick(eraser, '.');
+    palTiles.appendChild(eraser);
+    const done = document.createElement('button');
+    done.className = 'btn good';
+    done.style.width = '100%';
+    done.style.marginTop = '10px';
+    done.textContent = '✓ Done painting';
+    done.onclick = exitTileMode;
+    palTiles.appendChild(done);
+    const hint = document.createElement('div');
+    hint.className = 'muted';
+    hint.style.cssText = 'font-size:12px;margin-top:10px';
+    hint.textContent =
+      'Click / drag on the canvas to paint. Solid tiles (water, walls, trees) block players in Play mode.';
+    palTiles.appendChild(hint);
+  };
+  buildTilePalette();
+  tilesBtn.onclick = () => {
+    if (palTiles.style.display === 'none') {
+      if (editor.playing) editor.stop();
+      palEntities.style.display = 'none';
+      palTiles.style.display = '';
+      tilesBtn.classList.add('primary');
+    } else {
+      exitTileMode();
+    }
+  };
+
   const fileImage = $<HTMLInputElement>('file-image');
   let pendingImageAt: { x: number; y: number } | null = null;
   const placeImage = (x: number, y: number): void => {
@@ -304,7 +408,7 @@ async function main(): Promise<void> {
     const head = document.createElement('div');
     head.className = 'pal-head';
     head.textContent = group.title;
-    left.appendChild(head);
+    palEntities.appendChild(head);
     for (const item of group.items) {
       const btn = document.createElement('div');
       btn.className = 'pal-item';
@@ -318,7 +422,7 @@ async function main(): Promise<void> {
         if (item.kind === 'image') placeImage(360, 640);
         else editor.addEntity(item.kind, 360, 640);
       });
-      left.appendChild(btn);
+      palEntities.appendChild(btn);
     }
   }
 
@@ -490,6 +594,15 @@ async function main(): Promise<void> {
     },
     netSetState: (k: string, v: unknown) => editor.net?.setState(k, v),
     netGetState: (k: string) => editor.net?.getState(k),
+    setTile: (c: number, r: number, ch: string) => editor.setTile(c, r, ch),
+    tileAt: (c: number, r: number) => editor.tileAt(c, r),
+    setTileMode: (ch: string | null) => editor.setTileMode(ch),
+    playHasTiles: () => editor.getPlayScene()?.hasTiles() ?? false,
+    setView: (v: 'top' | 'side' | 'depth') => {
+      editor.scene.view = v;
+      editor.touch();
+      if (!editor.playing) editor.openEditScene();
+    },
   };
 
   // Player boot: ?load=<url-to-project-json> (+ &play=1 to jump straight in).

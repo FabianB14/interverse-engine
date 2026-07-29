@@ -43,6 +43,11 @@ export interface StudioDebug {
   netRemotePos: () => { x: number; y: number } | null;
   netSetState: (k: string, v: unknown) => void;
   netGetState: (k: string) => unknown;
+  setTile: (c: number, r: number, ch: string) => void;
+  tileAt: (c: number, r: number) => string;
+  setTileMode: (ch: string | null) => void;
+  playHasTiles: () => boolean;
+  setView: (v: 'top' | 'side' | 'depth') => void;
 }
 
 declare global {

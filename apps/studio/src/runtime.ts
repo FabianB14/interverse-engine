@@ -17,9 +17,10 @@ import {
   easings,
   lighten,
   makeTappable,
+  moveWithCollision,
   verium,
 } from '@interverse/engine';
-import type { DialogueData, Game } from '@interverse/engine';
+import type { DialogueData, Game, TileMapData } from '@interverse/engine';
 import { DialogueBox } from '@interverse/ui';
 import { fetchChainBalance } from '@interverse/platform';
 import { defaultEntity } from './model.js';
@@ -27,6 +28,7 @@ import type { EntityDef, ProjectDef, SceneDef, TapSound } from './model.js';
 import { SkillTree } from './skills.js';
 import type { SkillTreeDef } from './skills.js';
 import type { StudioNet } from './net.js';
+import { anyTiles, buildTileLayer } from './tiles.js';
 
 const textureCache = new Map<string, Texture>();
 
@@ -281,6 +283,7 @@ export class PlayScene extends Scene {
   private scoreValue = 0;
   private scoreText: Text | null = null;
   private skillsTree: SkillTree | null = null;
+  private tileMap: TileMapData | null = null;
   private over = false;
   private onKeyDown = (e: KeyboardEvent): void => {
     this.keys.add(e.key.toLowerCase());
@@ -347,6 +350,13 @@ export class PlayScene extends Scene {
       .rect(0, 0, this.game.designWidth, this.game.designHeight)
       .fill(this.sceneDef.background);
     this.stage.addChildAt(bg, 0);
+    // Painted tiles render above the background; solid tiles collide.
+    if (anyTiles(this.sceneDef.tiles)) {
+      const layer = buildTileLayer(this.sceneDef.tiles!);
+      layer.view.eventMode = 'none';
+      this.stage.addChildAt(layer.view, 1);
+      this.tileMap = layer.map;
+    }
     for (const def of this.sceneDef.entities) this.spawnDef(def);
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
@@ -604,8 +614,17 @@ export class PlayScene extends Scene {
         const len = Math.hypot(mx, my) || 1;
         for (const p of this.players) {
           if (p.entity.destroyed) continue;
-          p.entity.x = Math.max(20, Math.min(W - 20, p.entity.x + (mx / len) * p.speed * dt));
-          p.entity.y = Math.max(20, Math.min(H - 20, p.entity.y + (my / len) * p.speed * dt));
+          const dx = (mx / len) * p.speed * dt;
+          const dy = (my / len) * p.speed * dt;
+          if (this.tileMap) {
+            // Painted solid tiles (walls, water, trees) block movement.
+            const moved = moveWithCollision(this.tileMap, p.entity.x, p.entity.y, 16, 14, dx, dy);
+            p.entity.x = Math.max(20, Math.min(W - 20, moved.x));
+            p.entity.y = Math.max(20, Math.min(H - 20, moved.y));
+          } else {
+            p.entity.x = Math.max(20, Math.min(W - 20, p.entity.x + dx));
+            p.entity.y = Math.max(20, Math.min(H - 20, p.entity.y + dy));
+          }
         }
       }
       for (const cb of this.updaters) cb(dt);
@@ -654,6 +673,10 @@ export class PlayScene extends Scene {
 
   remoteCount(): number {
     return this.remoteViews.size;
+  }
+
+  hasTiles(): boolean {
+    return !!this.tileMap;
   }
 
   skillTree(): SkillTree | null {

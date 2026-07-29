@@ -4,6 +4,7 @@
  * games ship the same JSON + runtime. Keep every field concrete (with a
  * default) so the inspector and the AI copilot can edit anything safely.
  */
+import { normalizeRows } from './tiles.js';
 
 export type EntityKind =
   | 'blob' // playable-looking character
@@ -55,6 +56,8 @@ export interface SceneDef {
   name: string;
   background: number;
   view: SceneView;
+  /** Painted tile grid (18x32 chars, see tiles.ts) — optional per level. */
+  tiles?: string[];
   /** Scene script (the Code tab) — runs when the scene starts in Play mode. */
   script: string;
   entities: EntityDef[];
@@ -176,6 +179,7 @@ export function parseProject(json: string): ProjectDef {
     s.name ||= 'Level';
     s.background ??= 0x101018;
     s.view ??= 'top';
+    if (s.tiles !== undefined) s.tiles = normalizeRows(s.tiles);
     s.script ??= '';
     s.entities ||= [];
     for (const e of s.entities) {
