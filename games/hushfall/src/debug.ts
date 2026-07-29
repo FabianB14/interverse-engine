@@ -68,6 +68,9 @@ export interface HushfallDebug {
   forceLightAll?: () => void;
   forceDownAll?: () => void;
   amRooted?: () => boolean;
+  lanternsNeeded?: () => number;
+  dawnLeft?: () => number;
+  forceDawn?: () => void;
   myLives?: () => number;
   livesOf?: (id: string) => number;
   bustedCount?: () => number;

@@ -354,6 +354,15 @@ const lvlMatch = await pe.evaluate(() => window.__hushfall.levelIndex?.() ?? -1)
 const lvlName = await pe.evaluate(() => window.__hushfall.levelName?.() ?? '');
 const lvlLanterns = await pe.evaluate(() => window.__hushfall.lanternCount?.() ?? 0);
 const levelOk = levelCount >= 3 && lvlLobby === 1 && lvlMatch === 1 && lvlLanterns === 6;
+// ANTI-CAMP: the gate needs one lantern FEWER than the map holds, and if the
+// hunt drags past dawn it opens on its own.
+const lanternsNeeded = await pe.evaluate(() => window.__hushfall.lanternsNeeded?.() ?? -1);
+const spareOk = lanternsNeeded === lvlLanterns - 1;
+await pe.evaluate(() => window.__hushfall.forceDawn?.());
+await pe
+  .waitForFunction(() => window.__hushfall.gateOpen?.() === true, null, { timeout: 8_000 })
+  .catch(() => {});
+const dawnOk = await pe.evaluate(() => window.__hushfall.gateOpen?.() ?? false);
 // Down everyone at once → immediate Seeker win.
 await pe.evaluate(() => window.__hushfall.forceDownAll?.());
 await pe
@@ -386,6 +395,8 @@ const ok =
   round2Ok &&
   botOk &&
   levelOk &&
+  spareOk &&
+  dawnOk &&
   allDownOk &&
   errors.length === 0;
 console.log(
@@ -452,6 +463,9 @@ console.log(
       lvlMatch,
       lvlName,
       lvlLanterns,
+      spareOk,
+      lanternsNeeded,
+      dawnOk,
       allDownOk,
       allDownPhase,
       errors: errors.slice(0, 6),

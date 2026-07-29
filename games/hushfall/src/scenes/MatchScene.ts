@@ -62,6 +62,10 @@ const LIVES = 3;
 const BUST_SECONDS = 25;
 // Frost's Ice Snap: the Seeker is frozen solid for a moment.
 const FREEZE_SECONDS = 1.6;
+// Anti-camping: the map holds one MORE lantern than the gate needs, so a
+// Seeker guarding a single lantern guards nothing. And if the hunt drags on
+// past dawn, the gate creaks open on its own.
+const DAWN_BASE_SECONDS = 300; // 5 min on a 5-lantern map, +30s per extra
 const GATE_RADIUS = 90;
 const SNARE_RADIUS = 60;
 const SNARE_SECONDS = 2.6;
@@ -126,6 +130,7 @@ interface Snap {
   hurt: string[];
   downs: Record<string, number>;
   busted: number[];
+  dawn: number;
   decoys: { x: number; y: number }[];
   phase: string;
 }
@@ -210,6 +215,8 @@ export class MatchScene extends Scene {
 
   // host sim state
   private lant: number[] = [];
+  private needed = 1; // lanterns required (one less than the map holds)
+  private dawnAt = DAWN_BASE_SECONDS; // game-time when dawn opens the gate
   private gateOpen = false;
   private down: Record<string, number> = {};
   private reviveProg: Record<string, number> = {};
@@ -235,6 +242,7 @@ export class MatchScene extends Scene {
   private snapHurt = new Set<string>();
   private snapDowns: Record<string, number> = {};
   private snapBusted = new Set<number>();
+  private snapDawn = DAWN_BASE_SECONDS;
 
   // bots (host-simulated)
   private botAtkCd = 0;
@@ -324,6 +332,8 @@ export class MatchScene extends Scene {
     this.lant = this.lanternPts.map(() => 0);
     this.snapLant = this.lanternPts.map(() => 0);
     this.bustedUntil = this.hidePts.map(() => 0);
+    this.needed = Math.max(1, this.lanternPts.length - 1);
+    this.dawnAt = DAWN_BASE_SECONDS + Math.max(0, this.lanternPts.length - 5) * 30;
 
     this.drawObjectives();
 
@@ -709,6 +719,7 @@ export class MatchScene extends Scene {
     this.snapHurt = new Set(s.hurt ?? []);
     this.snapDowns = s.downs ?? {};
     this.snapBusted = new Set(s.busted ?? []);
+    this.snapDawn = s.dawn ?? this.snapDawn;
     this.escaped = new Set(s.esc);
     this.out = new Set(s.out);
     this.phase = s.phase;
@@ -915,8 +926,11 @@ export class MatchScene extends Scene {
         }
       });
     }
-    const litAll = this.lant.every((v) => v >= 1);
-    if (litAll && !this.gateOpen) {
+    // Gate: opens at all-but-one lanterns (a camped lantern guards nothing),
+    // or when dawn finally breaks over a dragged-out hunt.
+    const litEnough = this.lant.filter((v) => v >= 1).length >= this.needed;
+    const dawn = this.t >= this.dawnAt;
+    if ((litEnough || dawn) && !this.gateOpen) {
       this.gateOpen = true;
       this.broadcastFx({ type: 'fx', kind: 'gate', x: this.gatePt.x, y: this.gatePt.y });
     }
@@ -1395,6 +1409,7 @@ export class MatchScene extends Scene {
       hurt,
       downs: this.downsTaken,
       busted,
+      dawn: Math.max(0, this.dawnAt - this.t),
       decoys: this.decoys.map((d) => ({ x: d.x, y: d.y })),
       phase: this.phase,
     };
@@ -1409,14 +1424,20 @@ export class MatchScene extends Scene {
     this.snapHurt = new Set(hurt);
     this.snapDowns = this.downsTaken;
     this.snapBusted = new Set(busted);
+    this.snapDawn = Math.max(0, this.dawnAt - this.t);
     this.syncDecoys(snap.decoys);
     this.redrawObjectives();
   }
 
   private updateHud(): void {
     const lit = this.snapLant.filter((v) => v >= 1).length;
-    const total = this.snapLant.length;
-    let hudLine = this.snapGate ? '🚪 GATE OPEN — escape!' : `🕯️ Lanterns ${lit}/${total}`;
+    const needTo = Math.max(1, this.snapLant.length - 1);
+    const dawnSecs = Math.max(0, Math.ceil(this.snapDawn));
+    const mm = Math.floor(dawnSecs / 60);
+    const ss = `${dawnSecs % 60}`.padStart(2, '0');
+    let hudLine = this.snapGate
+      ? '🚪 GATE OPEN — escape!'
+      : `🕯️ ${lit}/${needTo} · 🌅 ${mm}:${ss}`;
     if (!this.amSeeker && !this.escaped.has(this.session.id)) {
       const left = Math.max(0, LIVES - (this.snapDowns[this.session.id] ?? 0));
       hudLine += `  ${'❤️'.repeat(left)}${'🖤'.repeat(LIVES - left)}`;
@@ -1947,6 +1968,11 @@ export class MatchScene extends Scene {
       levelCount: () => LEVELS.length,
       amRooted: () =>
         this.snapRooted.has(this.session.id) || (this.rootUntil[this.session.id] ?? 0) > this.t,
+      lanternsNeeded: () => this.needed,
+      dawnLeft: () => this.snapDawn,
+      forceDawn: () => {
+        if (this.session.isHost) this.dawnAt = this.t + 0.5;
+      },
       myLives: () => Math.max(0, LIVES - (this.snapDowns[this.session.id] ?? 0)),
       livesOf: (id: string) => Math.max(0, LIVES - (this.snapDowns[id] ?? 0)),
       bustedCount: () => this.snapBusted.size,
