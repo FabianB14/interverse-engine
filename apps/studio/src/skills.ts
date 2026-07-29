@@ -36,6 +36,7 @@ export class SkillTree {
   constructor(
     private readonly scene: Scene,
     private readonly projectName: string,
+    private readonly viewWidth: () => number = () => 720,
   ) {}
 
   private get saveKey(): string {
@@ -148,7 +149,7 @@ export class SkillTree {
       .roundRect(0, 0, W, H, 22)
       .stroke({ color: 0xc77dff, width: 3, alpha: 0.7 });
     this.root.addChild(panel);
-    this.root.position.set((720 - W) / 2, 120);
+    this.root.position.set(Math.max(10, (this.viewWidth() - W) / 2), 80);
 
     const title = new Text({
       text: this.def.title ?? 'SKILLS',

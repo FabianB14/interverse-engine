@@ -363,14 +363,15 @@ export class PlayScene extends Scene {
       this.world.addChildAt(layer.view, 1);
       this.tileMap = layer.map;
     }
-    if (this.sceneDef.worldW > this.game.designWidth || this.sceneDef.worldH > this.game.designHeight) {
-      this.camera = new Camera(this.world, this.game.designWidth, this.game.designHeight, {
-        deadzoneWidth: 120,
-        deadzoneHeight: 160,
-      });
-      this.camera.setBounds(0, 0, this.sceneDef.worldW, this.sceneDef.worldH);
-    }
+    // The camera crops the board to the current view (adaptive: a rotated
+    // device sees a wide ~720-tall window) and follows the player.
+    this.camera = new Camera(this.world, this.game.viewWidth, this.game.viewHeight, {
+      deadzoneWidth: 120,
+      deadzoneHeight: 160,
+    });
+    this.camera.setBounds(0, 0, this.sceneDef.worldW, this.sceneDef.worldH);
     for (const def of this.sceneDef.entities) this.spawnDef(def);
+    this.centerWorld();
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
     // Verium chip when the project is wired into Interverse — shows the local
@@ -406,6 +407,32 @@ export class PlayScene extends Scene {
     this.net?.resetSceneBindings();
   }
 
+  /** Adaptive viewport: re-crop + re-pin the HUD when the device rotates. */
+  protected override onResize(w: number, h: number): void {
+    this.camera?.setViewSize(w, h);
+    this.scoreText?.position.set(w - 16, 12);
+    this.joystick?.position.set(150, h - 170);
+    this.box?.position.set((w - 656) / 2, h - 330);
+    this.centerWorld();
+  }
+
+  /** With no player to follow (or a world smaller than the view), keep the
+   *  board centred in the window instead of pinned to a corner. */
+  private centerWorld(): void {
+    const vw = this.game.viewWidth;
+    const vh = this.game.viewHeight;
+    const noFollow = this.players.length === 0;
+    if (noFollow) {
+      this.world.position.set(
+        Math.round((vw - this.sceneDef.worldW) / 2),
+        Math.round((vh - this.sceneDef.worldH) / 2),
+      );
+    } else {
+      if (vw > this.sceneDef.worldW) this.world.x = Math.round((vw - this.sceneDef.worldW) / 2);
+      if (vh > this.sceneDef.worldH) this.world.y = Math.round((vh - this.sceneDef.worldH) / 2);
+    }
+  }
+
   spawnDef(def: EntityDef): Entity {
     const e = buildView(def, this.project.assets);
     this.add(e, this.world);
@@ -431,10 +458,7 @@ export class PlayScene extends Scene {
   private openStory(data: DialogueData): void {
     if (!this.box) {
       this.box = new DialogueBox();
-      this.box.position.set(
-        (this.game.designWidth - 656) / 2,
-        this.game.designHeight - 330,
-      );
+      this.box.position.set((this.game.viewWidth - 656) / 2, this.game.viewHeight - 330);
       this.add(this.box);
     }
     const runner = new DialogueRunner(data);
@@ -453,12 +477,13 @@ export class PlayScene extends Scene {
       style: { fontFamily: 'system-ui, sans-serif', fontSize: 34, fontWeight: '800', fill: 0xffd166 },
     });
     this.scoreText.anchor.set(1, 0);
-    this.scoreText.position.set(this.game.designWidth - 16, 12);
+    this.scoreText.position.set(this.game.viewWidth - 16, 12);
     this.stage.addChild(this.scoreText);
   }
 
   makeApi(): ScriptApi {
-    if (!this.skillsTree) this.skillsTree = new SkillTree(this, this.project.name);
+    if (!this.skillsTree)
+      this.skillsTree = new SkillTree(this, this.project.name, () => this.game.viewWidth);
     return {
       scene: this,
       game: this.game,
@@ -486,7 +511,7 @@ export class PlayScene extends Scene {
         this.camera?.follow(e);
         if (!this.joystick) {
           this.joystick = new VirtualJoystick({ radius: 90 });
-          this.joystick.position.set(150, this.game.designHeight - 170);
+          this.joystick.position.set(150, this.game.viewHeight - 170);
           this.add(this.joystick);
         }
         return e;
@@ -569,8 +594,8 @@ export class PlayScene extends Scene {
       gameOver: (message = 'GAME OVER') => {
         if (this.over) return;
         this.over = true;
-        const W = this.game.designWidth;
-        const H = this.game.designHeight;
+        const W = this.game.viewWidth;
+        const H = this.game.viewHeight;
         const root = new Entity();
         const bg = new Graphics().rect(0, 0, W, H).fill({ color: 0x0a0812, alpha: 0.85 });
         bg.eventMode = 'static';
@@ -651,6 +676,7 @@ export class PlayScene extends Scene {
     }
     if (this.sceneDef.view === 'depth') this.applyDepth();
     this.camera?.update(dt);
+    this.centerWorld();
   }
 
   cameraX(): number {

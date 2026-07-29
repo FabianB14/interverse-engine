@@ -33,25 +33,27 @@ edit is the real engine, live — press **▶ Play** at any moment.
   in the right-hand **inspector** — position, scale, rotation, color, blob
   look, text, font size.
 - **Import image…** turns any PNG/JPG into an entity.
-- The purple frame is the phone screen (720×1280 design units). Players on
-  any device see this space, letterboxed.
+- The purple frame marks the world bounds. Like real mobile games, players
+  see a WINDOW into it: a portrait phone shows a tall window, a rotated
+  (landscape) phone or tablet shows a wide ~720-tall one — never a skinny
+  letterboxed strip, and never the whole map at once on big levels.
 
 ## 3 · Views, level size, camera & gravity
 
-Every level has a **View** (how it's seen), a **size** (how big the world
-is), and **Gravity** (a physics toggle). Rotating the device is neither —
-a landscape phone/tablet just sees the same game letterboxed.
+Every level has a **View** (how it's seen), a **length** (how far the board
+runs), and **Gravity** (a physics toggle). Rotating the device is neither —
+a landscape phone/tablet simply sees a wide window into the same world,
+like every classic mobile RPG.
 
 - **👁 Top-down** — the player moves freely in all directions.
 - **👁 2.5D** — things higher on screen are further away: they scale down
-  and sort behind, so walking "up" walks *into* the scene. 2.5D worlds are
-  usually **wide** — the journey travels long-ways, and the camera follows.
-  The editor previews depth immediately when you switch.
-- **⛶ Level size** — 1 screen up to 3-wide / 2-tall / 2×2. When the world
-  is bigger than one screen, the **camera follows your player**
-  automatically (with a comfortable deadzone). In the editor, scroll with
-  the wheel/trackpad to pan around big levels; faint guide lines mark each
-  screen.
+  and sort behind, so walking "up" walks *into* the scene. The board
+  progresses **left-to-right**; the camera follows and you never see the
+  whole map at once. The editor previews depth immediately when you switch.
+- **⛶ Level length** — 1 to 4 screens long. The **camera follows your
+  player** automatically (comfortable deadzone, clamped to the world). In
+  the editor, scroll with the wheel/trackpad to pan along the board; faint
+  guide lines mark each screen.
 - **Gravity** — check it for platformers: ← → run, ↑ / W / joystick-up to
   **jump**. It's level physics, not a view — Hilltop Hop is the example.
 

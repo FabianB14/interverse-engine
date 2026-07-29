@@ -166,10 +166,14 @@ export class StudioEditor {
   }
 
   async boot(mount: HTMLElement): Promise<void> {
+    // Adaptive: like real mobile games, the view is a WINDOW into the world —
+    // a rotated (landscape) device sees a wide ~720-tall crop, portrait sees
+    // a tall one. Nobody ever sees the whole board at once on big levels.
     this.game = await createGame({
       width: 720,
       height: 1280,
       background: 0x0b0a12,
+      adaptive: true,
       mount,
       scene: new BootScene(),
     });
@@ -222,8 +226,10 @@ export class StudioEditor {
   panY = 0;
 
   panBy(dx: number, dy: number): void {
-    this.panX = Math.max(0, Math.min(this.scene.worldW - 720, this.panX + dx));
-    this.panY = Math.max(0, Math.min(this.scene.worldH - 1280, this.panY + dy));
+    const maxX = Math.max(0, this.scene.worldW - this.game.viewWidth);
+    const maxY = Math.max(0, this.scene.worldH - this.game.viewHeight);
+    this.panX = Math.max(0, Math.min(maxX, this.panX + dx));
+    this.panY = Math.max(0, Math.min(maxY, this.panY + dy));
     this.editScene?.applyPan();
   }
 
