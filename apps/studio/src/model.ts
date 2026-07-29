@@ -49,11 +49,23 @@ export interface SceneDef {
   entities: EntityDef[];
 }
 
+/** Public Interverse-world wiring — safe to ship (no secrets, spec §8.4). */
+export interface PlatformDef {
+  /** Base URL of an Interverse (IVX) node. */
+  apiUrl: string;
+  /** Registered world game id. */
+  gameId: string;
+  /** Player wallet address to show chain balance for (optional). */
+  wallet: string;
+}
+
 export interface ProjectDef {
   version: 1;
   name: string;
   /** Wire up the Verium wallet + Interverse hooks in Play/exported games. */
   interverse: boolean;
+  /** Optional Interverse-world connection (public fields only). */
+  platform?: PlatformDef;
   startScene: string;
   scenes: SceneDef[];
   /** Imported images as data URLs, keyed by asset id. */

@@ -34,11 +34,16 @@ page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
 page.on('console', (m) => {
   if (m.type() === 'error') errors.push(`console.error: ${m.text()}`);
 });
+// Script errors surface as alert() dialogs — treat them as failures.
+page.on('dialog', (d) => {
+  errors.push(`dialog: ${d.message()}`);
+  void d.dismiss();
+});
 await page.goto(url, { waitUntil: 'networkidle' });
 await page.waitForFunction(() => window.__studio?.ready?.() === true, null, { timeout: 30_000 });
-// Fresh slate: an earlier session's autosave must not leak into the checks.
+// Fresh slate: an earlier session's autosave/skill saves must not leak in.
 await page.evaluate(() => {
-  window.localStorage.removeItem('interverse.studio.project');
+  window.localStorage.clear();
 });
 await page.reload({ waitUntil: 'networkidle' });
 await page.waitForFunction(() => window.__studio?.ready?.() === true, null, { timeout: 30_000 });
@@ -102,12 +107,57 @@ const reCount = await page.evaluate(() => window.__studio.entityCount());
 const importOk = reName === 'Reimported' && reCount === 4;
 await page.screenshot({ path: `${outDir}/st-3-final.png` });
 
+// TEMPLATES: every starter loads and actually PLAYS — entities spawn and the
+// scene script runs for a second without erroring or instantly game-overing.
+const templateIds = ['topdown', 'side25', 'runner', 'slash', 'action', 'cozy', 'rpg'];
+const templates = {};
+for (const id of templateIds) {
+  await page.evaluate((t) => window.__studio.loadTemplate(t), id);
+  await sleep(250);
+  await page.evaluate(() => window.__studio.play());
+  await sleep(1300);
+  templates[id] = {
+    n: await page.evaluate(() => window.__studio.playEntityCount()),
+    over: await page.evaluate(() => window.__studio.gameIsOver()),
+  };
+  if (id === 'slash') await page.screenshot({ path: `${outDir}/st-4-slash.png` });
+  await page.evaluate(() => window.__studio.stop());
+  await sleep(150);
+}
+const templatesOk = templateIds.every((id) => templates[id].n > 0 && templates[id].over === false);
+
+// SKILL TREE: the RPG template defines a 6-node branching tree; points spend
+// on unlock, and gated nodes stay locked until their requirement is met.
+await page.evaluate(() => window.__studio.loadTemplate('rpg'));
+await sleep(250);
+await page.evaluate(() => window.__studio.play());
+await sleep(900);
+const skillNodes = await page.evaluate(() => window.__studio.skillNodeCount());
+await page.evaluate(() => window.__studio.skillAddPoints(4));
+const stormEarly = await page.evaluate(() => window.__studio.skillUnlock('storm')); // gated
+const strength = await page.evaluate(() => window.__studio.skillUnlock('strength'));
+const unlockedIds = await page.evaluate(() => window.__studio.skillUnlocked());
+// SCORE api against the live game.
+await page.evaluate(() => window.__studio.applyScriptNow('api.score.add(7)'));
+const score = await page.evaluate(() => window.__studio.playScore());
+const skillsOk =
+  skillNodes === 6 && stormEarly === false && strength === true && unlockedIds.includes('strength');
+const scoreOk = score >= 7;
+await page.screenshot({ path: `${outDir}/st-5-rpg.png` });
+await page.evaluate(() => window.__studio.stop());
+
 await browser.close();
 
-const ok = placeOk && editOk && storyOk && levelsOk && playOk && stopOk && exportOk && importOk && errors.length === 0;
+const ok =
+  placeOk && editOk && storyOk && levelsOk && playOk && stopOk && exportOk && importOk &&
+  templatesOk && skillsOk && scoreOk && errors.length === 0;
 console.log(
   JSON.stringify(
-    { ok, placeOk, editOk, storyOk, levelsOk, playOk, playCount, stopOk, exportOk, importOk, errors: errors.slice(0, 6) },
+    {
+      ok, placeOk, editOk, storyOk, levelsOk, playOk, playCount, stopOk, exportOk, importOk,
+      templatesOk, templates, skillsOk, skillNodes, stormEarly, strength, scoreOk, score,
+      errors: errors.slice(0, 6),
+    },
     null,
     2,
   ),

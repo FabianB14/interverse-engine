@@ -199,6 +199,15 @@ export class StudioEditor {
     return this.playScene?.entityCount() ?? 0;
   }
 
+  getPlayScene(): PlayScene | null {
+    return this.playScene;
+  }
+
+  /** Replace the whole project with a parsed object (templates, ?load=). */
+  importProject(p: ProjectDef): void {
+    this.importJson(JSON.stringify(p));
+  }
+
   /** Run code against the LIVE play scene right now (Code tab "Apply"). */
   runScriptNow(code: string): void {
     if (!this.playScene) return;

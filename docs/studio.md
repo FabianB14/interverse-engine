@@ -1,4 +1,7 @@
-# Interverse Studio
+# Interverse Studio (internals)
+
+> Author-facing how-to lives in **docs/studio-guide.md** — this file is the
+> engineering map.
 
 `apps/studio` — the visual game-maker built on the engine. The center pane IS
 the engine (`createGame` mounted in a div), so what you edit is exactly what

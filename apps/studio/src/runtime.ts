@@ -8,6 +8,7 @@ import {
   DialogueRunner,
   Entity,
   Scene,
+  VirtualJoystick,
   Wobble,
   audio,
   blobCharacter,
@@ -19,8 +20,11 @@ import {
 } from '@interverse/engine';
 import type { DialogueData, Game } from '@interverse/engine';
 import { DialogueBox } from '@interverse/ui';
+import { fetchChainBalance } from '@interverse/platform';
 import { defaultEntity } from './model.js';
 import type { EntityDef, ProjectDef, SceneDef, TapSound } from './model.js';
+import { SkillTree } from './skills.js';
+import type { SkillTreeDef } from './skills.js';
 
 const textureCache = new Map<string, Texture>();
 
@@ -188,6 +192,26 @@ export interface ScriptApi {
   goto: (sceneName: string) => void;
   spawn: (kind: EntityDef['kind'], x: number, y: number) => Entity;
   say: (speaker: string, ...lines: string[]) => void;
+  /** Make an entity player-controlled (arrow keys / WASD + touch joystick). */
+  player: (name: string, speed?: number) => Entity | undefined;
+  /** Score with an auto HUD (top-right). */
+  score: { add: (n: number) => void; set: (n: number) => void; get: () => number };
+  /** Run cb every `secs` seconds. */
+  every: (secs: number, cb: () => void) => void;
+  /** Run cb once after `secs` seconds. */
+  after: (secs: number, cb: () => void) => void;
+  /** Are two entities (by name or ref) within dist of each other? */
+  overlap: (a: string | Entity, b: string | Entity, dist: number) => boolean;
+  /** (Re)bind a tap handler on an entity (by name or reference). */
+  onTap: (target: string | Entity, cb: () => void) => void;
+  /** Remove an entity from the scene. */
+  remove: (target: string | Entity) => void;
+  /** Random number in [min, max). */
+  random: (min: number, max: number) => number;
+  /** Skill tree: define once, then open()/addPoints()/unlock()/isUnlocked(). */
+  skills: SkillTree;
+  /** End the game with a message (score shown too). */
+  gameOver: (message?: string) => void;
 }
 
 /** Live play-through of a project scene: behaviors, taps, stories, script. */
@@ -195,6 +219,19 @@ export class PlayScene extends Scene {
   private byName = new Map<string, Entity>();
   private updaters: ((dt: number) => void)[] = [];
   private box: DialogueBox | null = null;
+  private keys = new Set<string>();
+  private players: { entity: Entity; speed: number }[] = [];
+  private joystick: VirtualJoystick | null = null;
+  private scoreValue = 0;
+  private scoreText: Text | null = null;
+  private skillsTree: SkillTree | null = null;
+  private over = false;
+  private onKeyDown = (e: KeyboardEvent): void => {
+    this.keys.add(e.key.toLowerCase());
+  };
+  private onKeyUp = (e: KeyboardEvent): void => {
+    this.keys.delete(e.key.toLowerCase());
+  };
 
   constructor(
     private readonly project: ProjectDef,
@@ -211,7 +248,10 @@ export class PlayScene extends Scene {
       .fill(this.sceneDef.background);
     this.stage.addChildAt(bg, 0);
     for (const def of this.sceneDef.entities) this.spawnDef(def);
-    // Verium chip when the project is wired into Interverse.
+    window.addEventListener('keydown', this.onKeyDown);
+    window.addEventListener('keyup', this.onKeyUp);
+    // Verium chip when the project is wired into Interverse — shows the local
+    // wallet, plus the on-chain IVX balance when a platform is configured.
     if (this.project.interverse) {
       const chip = new Text({
         text: `⬡ ${verium.balance()}`,
@@ -219,7 +259,13 @@ export class PlayScene extends Scene {
       });
       chip.position.set(16, 12);
       this.stage.addChild(chip);
-      this.updaters.push(() => (chip.text = `⬡ ${verium.balance()}`));
+      let chain: number | null = null;
+      this.updaters.push(
+        () => (chip.text = `⬡ ${verium.balance()}${chain !== null ? `  ·  IVX ${chain}` : ''}`),
+      );
+      void fetchChainBalance(this.project.platform, this.project.platform?.wallet).then((b) => {
+        chain = b;
+      });
     }
     if (this.sceneDef.script.trim()) {
       try {
@@ -229,6 +275,11 @@ export class PlayScene extends Scene {
         this.onScriptError(err);
       }
     }
+  }
+
+  protected override onExit(): void {
+    window.removeEventListener('keydown', this.onKeyDown);
+    window.removeEventListener('keyup', this.onKeyUp);
   }
 
   spawnDef(def: EntityDef): Entity {
@@ -260,7 +311,23 @@ export class PlayScene extends Scene {
     this.box.open(runner);
   }
 
+  private resolve(target: string | Entity): Entity | undefined {
+    return typeof target === 'string' ? this.byName.get(target) : target;
+  }
+
+  private ensureScoreHud(): void {
+    if (this.scoreText) return;
+    this.scoreText = new Text({
+      text: '0',
+      style: { fontFamily: 'system-ui, sans-serif', fontSize: 34, fontWeight: '800', fill: 0xffd166 },
+    });
+    this.scoreText.anchor.set(1, 0);
+    this.scoreText.position.set(this.game.designWidth - 16, 12);
+    this.stage.addChild(this.scoreText);
+  }
+
   makeApi(): ScriptApi {
+    if (!this.skillsTree) this.skillsTree = new SkillTree(this, this.project.name);
     return {
       scene: this,
       game: this.game,
@@ -281,14 +348,137 @@ export class PlayScene extends Scene {
         });
         this.openStory({ start: 'n0', nodes });
       },
+      player: (name, speed = 300) => {
+        const e = this.byName.get(name);
+        if (!e) return undefined;
+        this.players.push({ entity: e, speed });
+        if (!this.joystick) {
+          this.joystick = new VirtualJoystick({ radius: 90 });
+          this.joystick.position.set(150, this.game.designHeight - 170);
+          this.add(this.joystick);
+        }
+        return e;
+      },
+      score: {
+        add: (n) => {
+          this.scoreValue += n;
+          this.ensureScoreHud();
+        },
+        set: (n) => {
+          this.scoreValue = n;
+          this.ensureScoreHud();
+        },
+        get: () => this.scoreValue,
+      },
+      every: (secs, cb) => {
+        let t = 0;
+        this.updaters.push((dt) => {
+          t += dt;
+          while (t >= secs) {
+            t -= secs;
+            cb();
+          }
+        });
+      },
+      after: (secs, cb) => {
+        let t = 0;
+        let done = false;
+        this.updaters.push((dt) => {
+          if (done) return;
+          t += dt;
+          if (t >= secs) {
+            done = true;
+            cb();
+          }
+        });
+      },
+      overlap: (a, b, dist) => {
+        const ea = this.resolve(a);
+        const eb = this.resolve(b);
+        if (!ea || !eb || ea.destroyed || eb.destroyed) return false;
+        return Math.hypot(ea.x - eb.x, ea.y - eb.y) < dist;
+      },
+      onTap: (target, cb) => {
+        const e = this.resolve(target);
+        if (e) makeTappable(e, cb);
+      },
+      remove: (target) => {
+        const e = this.resolve(target);
+        if (!e) return;
+        for (const [k, v] of this.byName) if (v === e) this.byName.delete(k);
+        this.remove(e);
+      },
+      random: (min, max) => min + Math.random() * (max - min),
+      skills: this.skillsTree,
+      gameOver: (message = 'GAME OVER') => {
+        if (this.over) return;
+        this.over = true;
+        const W = this.game.designWidth;
+        const H = this.game.designHeight;
+        const root = new Entity();
+        const bg = new Graphics().rect(0, 0, W, H).fill({ color: 0x0a0812, alpha: 0.85 });
+        bg.eventMode = 'static';
+        root.addChild(bg);
+        const title = new Text({
+          text: message,
+          style: { fontFamily: 'system-ui, sans-serif', fontSize: 62, fontWeight: '800', fill: 0xffd166, align: 'center' },
+        });
+        title.anchor.set(0.5);
+        title.position.set(W / 2, H * 0.4);
+        root.addChild(title);
+        const sub = new Text({
+          text: `score ${this.scoreValue}`,
+          style: { fontFamily: 'system-ui, sans-serif', fontSize: 32, fontWeight: '700', fill: 0xe6e4f0 },
+        });
+        sub.anchor.set(0.5);
+        sub.position.set(W / 2, H * 0.5);
+        root.addChild(sub);
+        this.add(root);
+      },
     };
   }
 
   protected override onUpdate(dt: number): void {
-    for (const cb of this.updaters) cb(dt);
+    if (this.scoreText) this.scoreText.text = String(this.scoreValue);
+    // Player movement: arrows/WASD + the touch joystick, clamped to design.
+    if (!this.over) {
+      let kx = 0;
+      let ky = 0;
+      if (this.keys.has('arrowleft') || this.keys.has('a')) kx -= 1;
+      if (this.keys.has('arrowright') || this.keys.has('d')) kx += 1;
+      if (this.keys.has('arrowup') || this.keys.has('w')) ky -= 1;
+      if (this.keys.has('arrowdown') || this.keys.has('s')) ky += 1;
+      const jx = this.joystick?.value.x ?? 0;
+      const jy = this.joystick?.value.y ?? 0;
+      const mx = kx || jx;
+      const my = ky || jy;
+      if (mx || my) {
+        const len = Math.hypot(mx, my) || 1;
+        for (const p of this.players) {
+          if (p.entity.destroyed) continue;
+          p.entity.x = Math.max(20, Math.min(this.game.designWidth - 20, p.entity.x + (mx / len) * p.speed * dt));
+          p.entity.y = Math.max(20, Math.min(this.game.designHeight - 20, p.entity.y + (my / len) * p.speed * dt));
+        }
+      }
+      for (const cb of this.updaters) cb(dt);
+    }
   }
 
   entityCount(): number {
     return this.byName.size;
   }
+
+  skillTree(): SkillTree | null {
+    return this.skillsTree;
+  }
+
+  scoreNow(): number {
+    return this.scoreValue;
+  }
+
+  isOver(): boolean {
+    return this.over;
+  }
 }
+
+export type { SkillTreeDef };

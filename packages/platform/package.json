@@ -1,0 +1,13 @@
+{
+  "name": "@interverse/platform",
+  "version": "0.0.0",
+  "description": "@interverse/platform — TypeScript client for the Interverse (IVX) platform API",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

@@ -3,6 +3,8 @@ import { StudioEditor } from './editor.js';
 import { wireInspector } from './inspector.js';
 import { wireChat } from './chat.js';
 import { PALETTE } from './palette.js';
+import { TEMPLATES } from './templates.js';
+import { pushToGitHub, registerInWorld, slugify, store as pubStore } from './publish.js';
 import type { EntityKind } from './model.js';
 import './debug.js';
 
@@ -52,6 +54,149 @@ async function main(): Promise<void> {
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && editor.playing) editor.stop();
   });
+
+  // ---------------------------------------------------------------- modal
+  const modalBack = $('modal-back');
+  const modal = $('modal');
+  const closeModal = (): void => modalBack.classList.remove('open');
+  modalBack.addEventListener('click', (e) => {
+    if (e.target === modalBack) closeModal();
+  });
+  const openModal = (build: (root: HTMLElement) => void): void => {
+    modal.innerHTML = '';
+    build(modal);
+    modalBack.classList.add('open');
+  };
+
+  // ------------------------------------------------- templates ("✚ New")
+  const openTemplates = (): void =>
+    openModal((root) => {
+      root.innerHTML = `<h2>✚ New game from a template</h2><div class="tpl-grid"></div>`;
+      const grid = root.querySelector('.tpl-grid')!;
+      for (const t of TEMPLATES) {
+        const card = document.createElement('div');
+        card.className = 'tpl';
+        card.innerHTML = `<div class="t-view">${t.view}</div><div class="t-name">${t.emoji} ${t.name}</div><p>${t.blurb}</p>`;
+        card.onclick = () => {
+          editor.importProject(t.make());
+          closeModal();
+        };
+        grid.appendChild(card);
+      }
+      const locked = document.createElement('div');
+      locked.className = 'tpl locked';
+      locked.innerHTML = `<div class="t-view">First-person · 3D</div><div class="t-name">🥽 Coming later</div><p>First-person and 3D templates arrive when the engine grows its 3D renderer.</p>`;
+      grid.appendChild(locked);
+    });
+  $('btn-new').onclick = openTemplates;
+
+  // --------------------------------------------------- publish ("🌍")
+  const field = (root: HTMLElement, label: string, input: HTMLElement): void => {
+    const row = document.createElement('div');
+    row.className = 'field';
+    const l = document.createElement('label');
+    l.textContent = label;
+    row.append(l, input);
+    root.appendChild(row);
+  };
+  const textInput = (value: string, type = 'text'): HTMLInputElement => {
+    const i = document.createElement('input');
+    i.type = type;
+    i.value = value;
+    return i;
+  };
+  $('btn-publish').onclick = () =>
+    openModal((root) => {
+      root.innerHTML = `<h2>🌍 Publish "${editor.project.name}"</h2>
+        <p class="muted">Both paths use YOUR credentials, stored only on this device (never inside the game).</p>
+        <h3>1 · Push to your GitHub repo</h3><div id="pub-gh"></div>
+        <h3 style="margin-top:18px">2 · Add it to the Interverse world</h3><div id="pub-world"></div>`;
+      const gh = root.querySelector<HTMLElement>('#pub-gh')!;
+      const world = root.querySelector<HTMLElement>('#pub-world')!;
+
+      const token = textInput(localStorage.getItem(pubStore.ghToken) ?? '', 'password');
+      token.placeholder = 'fine-grained token with Contents: write';
+      const repo = textInput(localStorage.getItem(pubStore.ghRepo) ?? '');
+      repo.placeholder = 'owner/repo';
+      const branch = textInput('main');
+      const path = textInput(`games/${slugify(editor.project.name)}.interverse.json`);
+      field(gh, 'GitHub token', token);
+      field(gh, 'Repository', repo);
+      field(gh, 'Branch', branch);
+      field(gh, 'File path', path);
+      const ghOut = document.createElement('div');
+      const ghBtn = document.createElement('button');
+      ghBtn.className = 'btn primary';
+      ghBtn.textContent = 'Push to GitHub';
+      ghBtn.onclick = () => {
+        const [owner, repoName] = repo.value.trim().split('/');
+        if (!token.value.trim() || !owner || !repoName) {
+          ghOut.className = 'out';
+          ghOut.textContent = 'Fill in the token and owner/repo first.';
+          return;
+        }
+        localStorage.setItem(pubStore.ghToken, token.value.trim());
+        localStorage.setItem(pubStore.ghRepo, repo.value.trim());
+        ghBtn.disabled = true;
+        ghOut.className = 'out';
+        ghOut.textContent = 'Pushing…';
+        pushToGitHub(
+          {
+            token: token.value.trim(),
+            owner,
+            repo: repoName,
+            branch: branch.value.trim() || 'main',
+            path: path.value.trim(),
+          },
+          editor.exportJson(),
+        )
+          .then((r) => {
+            ghOut.innerHTML = `✅ Pushed!<br>File: <a href="${r.htmlUrl}" target="_blank">${r.htmlUrl}</a><br>▶ Anyone can play it at:<br><a href="${r.playUrl}" target="_blank">${r.playUrl}</a>`;
+          })
+          .catch((err) => {
+            ghOut.textContent = `Failed: ${err instanceof Error ? err.message : String(err)}`;
+          })
+          .finally(() => {
+            ghBtn.disabled = false;
+          });
+      };
+      gh.append(ghBtn, ghOut);
+
+      const apiUrl = textInput(localStorage.getItem(pubStore.worldApi) ?? '');
+      apiUrl.placeholder = 'https://your-interverse-node';
+      const dev = textInput(localStorage.getItem(pubStore.devName) ?? '');
+      dev.placeholder = 'developer name';
+      field(world, 'Interverse node URL', apiUrl);
+      field(world, 'Developer', dev);
+      const wOut = document.createElement('div');
+      const wBtn = document.createElement('button');
+      wBtn.className = 'btn good';
+      wBtn.textContent = 'Register in the world';
+      wBtn.onclick = () => {
+        if (!apiUrl.value.trim() || !dev.value.trim()) {
+          wOut.className = 'out';
+          wOut.textContent = 'Fill in the node URL and developer name first.';
+          return;
+        }
+        localStorage.setItem(pubStore.worldApi, apiUrl.value.trim());
+        localStorage.setItem(pubStore.devName, dev.value.trim());
+        wBtn.disabled = true;
+        wOut.className = 'out';
+        wOut.textContent = 'Registering…';
+        registerInWorld(editor.project, apiUrl.value.trim(), dev.value.trim())
+          .then((r) => {
+            editor.touch();
+            wOut.innerHTML = `✅ Registered as <b>${r.gameId}</b> — the game's world id is saved in the project, and your reward api-key stays on this device. Verium/IVX balance will show in Play mode once a wallet address is set in the project platform settings.`;
+          })
+          .catch((err) => {
+            wOut.textContent = `Failed: ${err instanceof Error ? err.message : String(err)} (is the node URL reachable?)`;
+          })
+          .finally(() => {
+            wBtn.disabled = false;
+          });
+      };
+      world.append(wBtn, wOut);
+    });
 
   // ------------------------------------------------------ import / export
   const fileImport = $<HTMLInputElement>('file-import');
@@ -261,7 +406,35 @@ async function main(): Promise<void> {
       editor.updateEntity(def);
       return true;
     },
+    templateCount: () => TEMPLATES.length,
+    loadTemplate: (id: string) => {
+      const t = TEMPLATES.find((x) => x.id === id);
+      if (t) editor.importProject(t.make());
+      return !!t;
+    },
+    playScore: () => editor.getPlayScene()?.scoreNow() ?? 0,
+    gameIsOver: () => editor.getPlayScene()?.isOver() ?? false,
+    skillNodeCount: () => editor.getPlayScene()?.skillTree()?.nodeCount() ?? 0,
+    skillPoints: () => editor.getPlayScene()?.skillTree()?.getPoints() ?? 0,
+    skillAddPoints: (n: number) => editor.getPlayScene()?.skillTree()?.addPoints(n),
+    skillUnlock: (id: string) => editor.getPlayScene()?.skillTree()?.unlock(id) ?? false,
+    skillUnlocked: () => editor.getPlayScene()?.skillTree()?.unlockedIds() ?? [],
   };
+
+  // Player boot: ?load=<url-to-project-json> (+ &play=1 to jump straight in).
+  // This is how repo-published games are playable by anyone, install-free.
+  const boot = new URLSearchParams(window.location.search);
+  const loadUrl = boot.get('load');
+  if (loadUrl) {
+    try {
+      const res = await fetch(loadUrl);
+      const json = await res.text();
+      editor.importJson(json);
+      if (boot.get('play') === '1') editor.play();
+    } catch (err) {
+      alert(`Could not load the game: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
 }
 
 void main();

@@ -23,6 +23,15 @@ export interface StudioDebug {
   importJson: (json: string) => void;
   projectName: () => string;
   setStory: (lines: string[]) => boolean;
+  templateCount: () => number;
+  loadTemplate: (id: string) => boolean;
+  playScore: () => number;
+  gameIsOver: () => boolean;
+  skillNodeCount: () => number;
+  skillPoints: () => number;
+  skillAddPoints: (n: number) => void;
+  skillUnlock: (id: string) => boolean;
+  skillUnlocked: () => string[];
 }
 
 declare global {

@@ -256,6 +256,77 @@
       #center.dropping #drop-hint {
         display: flex;
       }
+      #modal-back {
+        position: fixed;
+        inset: 0;
+        background: rgba(6, 4, 14, 0.7);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 40;
+      }
+      #modal-back.open {
+        display: flex;
+      }
+      #modal {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 20px;
+        width: min(860px, 92vw);
+        max-height: 86vh;
+        overflow-y: auto;
+      }
+      .tpl-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+        gap: 10px;
+      }
+      .tpl {
+        background: var(--panel2);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 12px;
+        cursor: pointer;
+      }
+      .tpl:hover {
+        border-color: var(--accent);
+      }
+      .tpl.locked {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      .tpl .t-name {
+        font-weight: 800;
+        font-size: 15px;
+      }
+      .tpl .t-view {
+        color: var(--accent);
+        font-size: 11.5px;
+        font-weight: 800;
+        letter-spacing: 0.6px;
+        text-transform: uppercase;
+      }
+      .tpl p {
+        color: var(--ink-soft);
+        font-size: 12.5px;
+        margin: 6px 0 0;
+      }
+      #modal h2 {
+        margin: 2px 0 14px;
+      }
+      #modal .field input[type='text'],
+      #modal .field input[type='password'] {
+        width: 320px;
+      }
+      #modal .out {
+        background: var(--panel2);
+        border-radius: 10px;
+        padding: 10px;
+        font-size: 12.5px;
+        margin-top: 10px;
+        word-break: break-all;
+      }
       #play-banner {
         position: absolute;
         top: 10px;
@@ -275,6 +346,7 @@
     <div id="app">
       <div id="top">
         <span class="logo">◆ INTERVERSE STUDIO</span>
+        <button class="btn" id="btn-new" title="Start from a template">✚ New</button>
         <input id="project-name" type="text" title="Project name" />
         <select id="scene-select" title="Scene"></select>
         <button class="btn" id="btn-add-scene" title="Add a scene/level">+ Level</button>
@@ -284,6 +356,7 @@
         >
         <button class="btn" id="btn-import">Import</button>
         <button class="btn" id="btn-export">Export</button>
+        <button class="btn" id="btn-publish">🌍 Publish</button>
         <button class="btn primary" id="btn-play">▶ Play</button>
       </div>
       <div id="left"></div>
@@ -340,6 +413,9 @@
           </div>
         </div>
       </div>
+    </div>
+    <div id="modal-back">
+      <div id="modal"></div>
     </div>
     <input type="file" id="file-import" accept="application/json" style="display: none" />
     <input type="file" id="file-image" accept="image/*" style="display: none" />
