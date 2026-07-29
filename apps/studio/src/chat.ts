@@ -124,7 +124,7 @@ export function wireChat(editor: StudioEditor): void {
   };
   say(
     'tool',
-    'Dev-time copilot: paste your Anthropic API key (kept only on this device) and ask for anything — "add a spooky forest of plants", "make the button switch to Level 2", "write a story for the wizard".',
+    '✦ The BEST way to build with AI: open this repo in Claude Code — the `interverse` MCP server has studio_* tools (studio_open, studio_add_entity, studio_set_script, studio_play, studio_screenshot) that see and edit this project directly. No API key needed there.\n\nThis in-app chat is the fallback: paste an Anthropic API key (kept only on this device) and ask — "add a spooky forest", "make the button switch to Level 2".',
   );
 
   const history: { role: 'user' | 'assistant'; content: unknown }[] = [];

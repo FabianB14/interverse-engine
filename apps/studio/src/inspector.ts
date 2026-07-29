@@ -28,7 +28,11 @@ export function wireInspector(editor: StudioEditor): void {
       row.append(l, input);
       body.appendChild(row);
     };
-    const num = (label: string, key: 'x' | 'y' | 'scale' | 'rotation' | 'radius' | 'fontSize' | 'seed', step = 1): void => {
+    const num = (
+      label: string,
+      key: 'x' | 'y' | 'scale' | 'rotation' | 'radius' | 'fontSize' | 'seed' | 'frameW' | 'frameH' | 'fps',
+      step = 1,
+    ): void => {
       const i = document.createElement('input');
       i.type = 'number';
       i.step = String(step);
@@ -84,6 +88,17 @@ export function wireInspector(editor: StudioEditor): void {
     if (def.kind === 'text' || def.kind === 'button') {
       text('Text', 'text');
       num('Font size', 'fontSize');
+    }
+    if (def.kind === 'image') {
+      const hint = document.createElement('div');
+      hint.className = 'muted';
+      hint.style.margin = '2px 0 8px';
+      hint.textContent =
+        '🎞 Spritesheet animation: set the frame size (px) and speed. Frames read left-to-right, top-to-bottom. 0 = still image.';
+      body.appendChild(hint);
+      num('Frame width', 'frameW');
+      num('Frame height', 'frameH');
+      num('Frames / sec', 'fps');
     }
 
     check('Wobble (idle animation)', 'wobble');

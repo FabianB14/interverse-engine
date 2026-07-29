@@ -126,9 +126,11 @@ const reCount = await page.evaluate(() => window.__studio.entityCount());
 const importOk = reName === 'Reimported' && reCount === 4;
 await page.screenshot({ path: `${outDir}/st-3-final.png` });
 
-// TEMPLATES: every starter loads and actually PLAYS — entities spawn and the
-// scene script runs for a second without erroring or instantly game-overing.
-const templateIds = ['topdown', 'side25', 'runner', 'slash', 'action', 'cozy', 'rpg'];
+// TEMPLATES: every starter loads and actually PLAYS — entities spawn, the
+// scene script runs without erroring or instantly game-overing, and (the
+// vanish-on-play regression) every spawned entity is VISIBLY rendering
+// after the pop-in settles.
+const templateIds = ['topdown', 'side25', 'side', 'runner', 'slash', 'action', 'cozy', 'rpg'];
 const templates = {};
 for (const id of templateIds) {
   await page.evaluate((t) => window.__studio.loadTemplate(t), id);
@@ -137,13 +139,17 @@ for (const id of templateIds) {
   await sleep(1300);
   templates[id] = {
     n: await page.evaluate(() => window.__studio.playEntityCount()),
+    vis: await page.evaluate(() => window.__studio.playVisibleCount()),
     over: await page.evaluate(() => window.__studio.gameIsOver()),
   };
   if (id === 'slash') await page.screenshot({ path: `${outDir}/st-4-slash.png` });
+  if (id === 'topdown') await page.screenshot({ path: `${outDir}/st-7-topdown-play.png` });
   await page.evaluate(() => window.__studio.stop());
   await sleep(150);
 }
-const templatesOk = templateIds.every((id) => templates[id].n > 0 && templates[id].over === false);
+const templatesOk = templateIds.every(
+  (id) => templates[id].n > 0 && templates[id].vis === templates[id].n && templates[id].over === false,
+);
 
 // SKILL TREE: the RPG template defines a 6-node branching tree; points spend
 // on unlock, and gated nodes stay locked until their requirement is met.

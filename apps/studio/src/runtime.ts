@@ -3,19 +3,20 @@
  * The editor uses buildView() for static WYSIWYG; PlayScene runs the real
  * thing: behaviors, tap sounds, NPC dialogue, and the scene script.
  */
-import { Graphics, Sprite, Text, Texture } from 'pixi.js';
+import { AnimatedSprite, Container, Graphics, Rectangle, Sprite, Text, Texture } from 'pixi.js';
 import {
   DialogueRunner,
   Entity,
   Scene,
+  Tween,
   VirtualJoystick,
   Wobble,
   audio,
   blobCharacter,
   darken,
+  easings,
   lighten,
   makeTappable,
-  popIn,
   verium,
 } from '@interverse/engine';
 import type { DialogueData, Game } from '@interverse/engine';
@@ -41,15 +42,31 @@ function assetTexture(dataUrl: string, onReady: (tex: Texture) => void): void {
   img.src = dataUrl;
 }
 
+/**
+ * Every view is root Entity → `pop` wrapper → `body` wrapper → visuals.
+ * The root carries the author's transform; pop-in scales POP; wobble scales
+ * BODY. Each animation owns its own container, so none can sample another's
+ * mid-animation scale as its baseline — that interaction (Wobble capturing
+ * pop-in's 0.01) was the bug that made blobs vanish on Play.
+ */
+export const viewPop = new WeakMap<Entity, Container>();
+export const viewBody = new WeakMap<Entity, Container>();
+
 /** Build the visual for a def. Static — no behaviors, no interactivity. */
 export function buildView(def: EntityDef, assets: Record<string, string>): Entity {
   const e = new Entity();
+  const pop = new Container();
+  e.addChild(pop);
+  const body = new Container();
+  pop.addChild(body);
+  viewPop.set(e, pop);
+  viewBody.set(e, body);
   const g = new Graphics();
   switch (def.kind) {
     case 'blob':
     case 'npc': {
       const char = blobCharacter({ radius: def.radius, color: def.color, seed: def.seed });
-      e.addChild(char.view);
+      body.addChild(char.view);
       if (def.kind === 'npc') {
         // little speech bubble so authors can tell NPCs apart
         g.roundRect(def.radius * 0.5, -def.radius * 1.6, 44, 30, 10)
@@ -69,7 +86,7 @@ export function buildView(def: EntityDef, assets: Record<string, string>): Entit
           .fill(0x444)
           .circle(def.radius * 0.5 + 32, -def.radius * 1.6 + 15, 3)
           .fill(0x444);
-        e.addChild(g);
+        body.addChild(g);
       }
       break;
     }
@@ -82,7 +99,7 @@ export function buildView(def: EntityDef, assets: Record<string, string>): Entit
         .moveTo(s / 2, -s / 2)
         .lineTo(-s / 2, s / 2)
         .stroke({ color: darken(def.color, 0.4), width: 3, alpha: 0.7 });
-      e.addChild(g);
+      body.addChild(g);
       break;
     }
     case 'lantern': {
@@ -90,7 +107,7 @@ export function buildView(def: EntityDef, assets: Record<string, string>): Entit
       g.circle(0, -26, 18).fill(lighten(def.color, 0.25));
       g.circle(0, -26, 18).stroke({ color: def.color, width: 3 });
       g.circle(0, -26, 34).fill({ color: def.color, alpha: 0.18 });
-      e.addChild(g);
+      body.addChild(g);
       break;
     }
     case 'plant': {
@@ -102,7 +119,7 @@ export function buildView(def: EntityDef, assets: Record<string, string>): Entit
         );
       }
       g.ellipse(0, -10, 15, 12).fill(def.color);
-      e.addChild(g);
+      body.addChild(g);
       break;
     }
     case 'text': {
@@ -117,14 +134,14 @@ export function buildView(def: EntityDef, assets: Record<string, string>): Entit
         },
       });
       t.anchor.set(0.5);
-      e.addChild(t);
+      body.addChild(t);
       break;
     }
     case 'button': {
       const w = Math.max(160, def.text.length * def.fontSize * 0.62 + 60);
       const h = Math.max(84, def.fontSize + 44);
       g.roundRect(-w / 2, -h / 2, w, h, h / 2).fill(def.color);
-      e.addChild(g);
+      body.addChild(g);
       const t = new Text({
         text: def.text || ' ',
         style: {
@@ -136,21 +153,39 @@ export function buildView(def: EntityDef, assets: Record<string, string>): Entit
         },
       });
       t.anchor.set(0.5);
-      e.addChild(t);
+      body.addChild(t);
       break;
     }
     case 'image': {
       const url = assets[def.assetId];
       if (url) {
         assetTexture(url, (tex) => {
-          const sp = new Sprite(tex);
-          sp.anchor.set(0.5);
-          e.addChildAt(sp, 0);
+          // Spritesheet: slice into frameW x frameH cells (row-major) and
+          // play them as a frame animation at `fps`. frameW 0 = static image.
+          if (def.frameW > 0 && def.frameH > 0 && tex.width >= def.frameW) {
+            const frames: Texture[] = [];
+            for (let fy = 0; fy + def.frameH <= tex.height; fy += def.frameH) {
+              for (let fx = 0; fx + def.frameW <= tex.width; fx += def.frameW) {
+                frames.push(
+                  new Texture({ source: tex.source, frame: new Rectangle(fx, fy, def.frameW, def.frameH) }),
+                );
+              }
+            }
+            const sp = new AnimatedSprite(frames.length ? frames : [tex]);
+            sp.anchor.set(0.5);
+            sp.animationSpeed = Math.max(0.5, def.fps || 8) / 60;
+            sp.play();
+            body.addChildAt(sp, 0);
+          } else {
+            const sp = new Sprite(tex);
+            sp.anchor.set(0.5);
+            body.addChildAt(sp, 0);
+          }
         });
       } else {
         g.roundRect(-40, -40, 80, 80, 8).fill({ color: 0xffffff, alpha: 0.1 });
         g.roundRect(-40, -40, 80, 80, 8).stroke({ color: 0x9a97b8, width: 2 });
-        e.addChild(g);
+        body.addChild(g);
       }
       break;
     }
@@ -209,6 +244,12 @@ export interface ScriptApi {
   remove: (target: string | Entity) => void;
   /** Random number in [min, max). */
   random: (min: number, max: number) => number;
+  /** Animate x/y/rotation/alpha/scale over secs (property animation). */
+  tween: (
+    target: string | Entity,
+    props: Partial<{ x: number; y: number; rotation: number; alpha: number; scale: number }>,
+    secs: number,
+  ) => void;
   /** Skill tree: define once, then open()/addPoints()/unlock()/isUnlocked(). */
   skills: SkillTree;
   /** End the game with a message (score shown too). */
@@ -234,7 +275,8 @@ export class PlayScene extends Scene {
   private updaters: ((dt: number) => void)[] = [];
   private box: DialogueBox | null = null;
   private keys = new Set<string>();
-  private players: { entity: Entity; speed: number }[] = [];
+  private players: { entity: Entity; speed: number; groundY: number; vy: number }[] = [];
+  private baseScales = new WeakMap<Container, number>();
   private joystick: VirtualJoystick | null = null;
   private scoreValue = 0;
   private scoreText: Text | null = null;
@@ -345,8 +387,15 @@ export class PlayScene extends Scene {
     const e = buildView(def, this.project.assets);
     this.add(e);
     this.byName.set(def.name, e);
-    if (def.wobble) e.addBehavior(new Wobble({ target: e, amount: 0.04, speed: 2.2 }));
-    if (def.popIn) popIn(e, { duration: 0.4 });
+    // Juice: each animation owns its own wrapper (see buildView) — the root
+    // keeps the author's transform, pop-in and wobble can never collide.
+    const pop = viewPop.get(e)!;
+    const body = viewBody.get(e)!;
+    if (def.wobble) e.addBehavior(new Wobble({ target: body, amount: 0.04, speed: 2.2 }));
+    if (def.popIn) {
+      pop.scale.set(0.01);
+      e.addBehavior(new Tween(pop.scale, { x: 1, y: 1 }, 0.4, { ease: easings.outBack }));
+    }
     if (def.tapSound || def.kind === 'npc' || def.kind === 'button') {
       makeTappable(e, () => {
         playSound(def.tapSound);
@@ -410,7 +459,7 @@ export class PlayScene extends Scene {
       player: (name, speed = 300) => {
         const e = this.byName.get(name);
         if (!e) return undefined;
-        this.players.push({ entity: e, speed });
+        this.players.push({ entity: e, speed, groundY: e.y, vy: 0 });
         if (!this.joystick) {
           this.joystick = new VirtualJoystick({ radius: 90 });
           this.joystick.position.set(150, this.game.designHeight - 170);
@@ -468,6 +517,17 @@ export class PlayScene extends Scene {
         this.remove(e);
       },
       random: (min, max) => min + Math.random() * (max - min),
+      tween: (target, props, secs) => {
+        const e = this.resolve(target);
+        if (!e || e.destroyed) return;
+        const { scale, ...rest } = props;
+        if (scale !== undefined) {
+          e.addBehavior(new Tween(e.scale, { x: scale, y: scale }, secs, { ease: easings.outQuad }));
+        }
+        if (Object.keys(rest).length) {
+          e.addBehavior(new Tween(e as unknown as Record<string, number>, rest, secs, { ease: easings.outQuad }));
+        }
+      },
       skills: this.skillsTree,
       net: this.net
         ? {
@@ -518,18 +578,34 @@ export class PlayScene extends Scene {
       let ky = 0;
       if (this.keys.has('arrowleft') || this.keys.has('a')) kx -= 1;
       if (this.keys.has('arrowright') || this.keys.has('d')) kx += 1;
-      if (this.keys.has('arrowup') || this.keys.has('w')) ky -= 1;
+      if (this.keys.has('arrowup') || this.keys.has('w') || this.keys.has(' ')) ky -= 1;
       if (this.keys.has('arrowdown') || this.keys.has('s')) ky += 1;
       const jx = this.joystick?.value.x ?? 0;
       const jy = this.joystick?.value.y ?? 0;
       const mx = kx || jx;
       const my = ky || jy;
-      if (mx || my) {
+      const W = this.game.designWidth;
+      const H = this.game.designHeight;
+      if (this.sceneDef.view === 'side') {
+        // Side view: run left/right; up (or joystick up) jumps with gravity.
+        for (const p of this.players) {
+          if (p.entity.destroyed) continue;
+          if (mx) p.entity.x = Math.max(20, Math.min(W - 20, p.entity.x + mx * p.speed * dt));
+          const grounded = p.entity.y >= p.groundY - 1;
+          if (my < -0.4 && grounded) {
+            p.vy = -880;
+            audio.blip(1.3);
+          }
+          p.vy += 2100 * dt;
+          p.entity.y = Math.min(p.groundY, p.entity.y + p.vy * dt);
+          if (p.entity.y >= p.groundY) p.vy = 0;
+        }
+      } else if (mx || my) {
         const len = Math.hypot(mx, my) || 1;
         for (const p of this.players) {
           if (p.entity.destroyed) continue;
-          p.entity.x = Math.max(20, Math.min(this.game.designWidth - 20, p.entity.x + (mx / len) * p.speed * dt));
-          p.entity.y = Math.max(20, Math.min(this.game.designHeight - 20, p.entity.y + (my / len) * p.speed * dt));
+          p.entity.x = Math.max(20, Math.min(W - 20, p.entity.x + (mx / len) * p.speed * dt));
+          p.entity.y = Math.max(20, Math.min(H - 20, p.entity.y + (my / len) * p.speed * dt));
         }
       }
       for (const cb of this.updaters) cb(dt);
@@ -540,10 +616,40 @@ export class PlayScene extends Scene {
       this.net.tick(dt, me && !me.destroyed ? { x: me.x, y: me.y } : null);
       this.syncRemotes(dt);
     }
+    if (this.sceneDef.view === 'depth') this.applyDepth();
+  }
+
+  /** 2.5D: higher on screen = further away — smaller and drawn behind. */
+  private applyDepth(): void {
+    this.stage.sortableChildren = true;
+    const depthOf = (y: number): number => Math.max(0.45, Math.min(1.25, 0.35 + (y - 380) / 700));
+    const apply = (c: Container, fallbackBase = 1): void => {
+      if (c.destroyed) return;
+      if (!this.baseScales.has(c)) this.baseScales.set(c, c.scale.x || fallbackBase);
+      c.scale.set(this.baseScales.get(c)! * depthOf(c.y));
+      c.zIndex = c.y;
+    };
+    for (const e of this.byName.values()) apply(e);
+    for (const { root } of this.remoteViews.values()) apply(root, 1);
   }
 
   entityCount(): number {
     return this.byName.size;
+  }
+
+  /** Entities that are actually rendering at a sane size — regression probe
+   *  for the vanish-on-play class of bug. */
+  visibleEntityCount(): number {
+    let n = 0;
+    for (const e of this.byName.values()) {
+      if (e.destroyed || !e.visible || e.alpha < 0.05) continue;
+      const pop = viewPop.get(e);
+      const body = viewBody.get(e);
+      const scale =
+        Math.abs(e.scale.x) * Math.abs(pop?.scale.x ?? 1) * Math.abs(body?.scale.x ?? 1);
+      if (scale > 0.05) n++;
+    }
+    return n;
   }
 
   remoteCount(): number {

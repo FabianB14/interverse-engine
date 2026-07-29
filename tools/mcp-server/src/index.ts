@@ -376,6 +376,178 @@ server.tool(
   },
 );
 
+// -------------------------------------------------------------- studio
+// The MCP dev cycle for Interverse Studio: Claude Code drives the RUNNING
+// Studio through these tools (window.__studio hooks) — no API key involved.
+// Start the studio first (pnpm dev:studio), then studio_open.
+
+/** The window.__studio debug surface (apps/studio/src/debug.ts) we drive. */
+interface StudioHooks {
+  ready: () => boolean;
+  projectName: () => string;
+  sceneCount: () => number;
+  exportJson: () => string;
+  addEntity: (kind: never, x: number, y: number) => string;
+  select: (name: string) => boolean;
+  setProp: (key: string, value: unknown) => boolean;
+  getEntity: (name: string) => { name?: string } | null;
+  setScript: (code: string) => void;
+  play: () => void;
+  stop: () => void;
+  playing: () => boolean;
+  playEntityCount: () => number;
+  loadTemplate: (id: string) => boolean;
+}
+// The evaluate() callbacks below run inside the BROWSER page; this ambient
+// declaration lets the node-side compiler check them without the DOM lib.
+declare const window: { __studio?: StudioHooks };
+
+interface StudioPageHolder {
+  browser: import('playwright-core').Browser;
+  page: import('playwright-core').Page;
+}
+let studio: StudioPageHolder | null = null;
+
+async function studioPage(url?: string): Promise<import('playwright-core').Page> {
+  if (studio && !studio.page.isClosed()) return studio.page;
+  const { chromium } = await import('playwright-core');
+  const executablePath = findChromium();
+  const browser = await chromium.launch({
+    ...(executablePath ? { executablePath } : {}),
+    args: [
+      '--use-gl=angle',
+      '--use-angle=swiftshader',
+      '--no-sandbox',
+      '--enable-webgl',
+      '--disable-background-timer-throttling',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding',
+    ],
+  });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  page.on('dialog', (d) => void d.dismiss());
+  await page.goto(url ?? 'http://localhost:5179/', { waitUntil: 'networkidle', timeout: 30_000 });
+  await page.waitForFunction(() => (window as { __studio?: { ready?: () => boolean } }).__studio?.ready?.() === true, null, {
+    timeout: 30_000,
+  });
+  studio = { browser, page };
+  return page;
+}
+
+server.tool(
+  'studio_open',
+  'Attach to a running Interverse Studio (pnpm dev:studio) so the studio_* tools can edit the project. This IS the AI dev cycle for Studio games — no API key needed.',
+  { url: z.string().optional().describe('default http://localhost:5179/') },
+  async ({ url }) => {
+    const page = await studioPage(url);
+    const name = await page.evaluate(() => window.__studio!.projectName());
+    const scenes = await page.evaluate(() => window.__studio!.sceneCount());
+    return text({ ready: true, project: name, scenes, note: 'use studio_project / studio_add_entity / studio_set_script / studio_play / studio_screenshot' });
+  },
+);
+
+server.tool('studio_project', 'Read the full Studio project JSON (scenes, entities, scripts).', {}, async () => {
+  const page = await studioPage();
+  return text(await page.evaluate(() => window.__studio!.exportJson()));
+});
+
+server.tool(
+  'studio_add_entity',
+  'Add an entity to the current Studio scene. kinds: blob, npc, crate, lantern, plant, text, button, image. Design space 720x1280.',
+  {
+    kind: z.string(),
+    x: z.number(),
+    y: z.number(),
+    props: z.record(z.unknown()).optional().describe('EntityDef overrides (name, color, text, lines, frameW/frameH/fps, ...)'),
+  },
+  async ({ kind, x, y, props }) => {
+    const page = await studioPage();
+    const name = await page.evaluate(
+      (a) => {
+        const s = window.__studio!;
+        const n = s.addEntity(a.kind as never, a.x, a.y);
+        if (a.props) {
+          s.select(n);
+          for (const [k, v] of Object.entries(a.props)) s.setProp(k, v);
+        }
+        return s.getEntity(a.props?.name ? String(a.props.name) : n)?.name ?? n;
+      },
+      { kind, x, y, props },
+    );
+    return text({ added: name });
+  },
+);
+
+server.tool(
+  'studio_update_entity',
+  'Update properties of an entity in the current Studio scene by name.',
+  { name: z.string(), props: z.record(z.unknown()) },
+  async ({ name, props }) => {
+    const page = await studioPage();
+    const ok = await page.evaluate(
+      (a) => {
+        const s = window.__studio!;
+        if (!s.select(a.name)) return false;
+        for (const [k, v] of Object.entries(a.props)) s.setProp(k, v);
+        return true;
+      },
+      { name, props },
+    );
+    return text(ok ? { updated: name } : { error: `no entity named "${name}"` });
+  },
+);
+
+server.tool(
+  'studio_set_script',
+  "Set the current scene's script (the Code window). Runs on scene start in Play mode.",
+  { code: z.string() },
+  async ({ code }) => {
+    const page = await studioPage();
+    await page.evaluate((c) => window.__studio!.setScript(c), code);
+    return text({ ok: true });
+  },
+);
+
+server.tool(
+  'studio_play',
+  'Press Play in the Studio (or Stop with stop=true). Check the result with studio_screenshot.',
+  { stop: z.boolean().optional() },
+  async ({ stop }) => {
+    const page = await studioPage();
+    await page.evaluate((s) => (s ? window.__studio!.stop() : window.__studio!.play()), stop ?? false);
+    await page.waitForTimeout(700);
+    return text({
+      playing: await page.evaluate(() => window.__studio!.playing()),
+      entities: await page.evaluate(() => window.__studio!.playEntityCount()),
+    });
+  },
+);
+
+server.tool(
+  'studio_load_template',
+  'Start a fresh project from a Studio template (blank, topdown, side, side25, runner, slash, action, cozy, rpg, party).',
+  { id: z.string() },
+  async ({ id }) => {
+    const page = await studioPage();
+    const ok = await page.evaluate((t) => window.__studio!.loadTemplate(t), id);
+    return text(ok ? { loaded: id } : { error: `unknown template "${id}"` });
+  },
+);
+
+server.tool('studio_screenshot', 'Screenshot the Studio (canvas + panels) to SEE the current state.', {}, async () => {
+  const page = await studioPage();
+  const png = await page.screenshot();
+  await mkdir(SHOT_DIR, { recursive: true });
+  const file = join(SHOT_DIR, `studio-${Date.now()}.png`);
+  await writeFile(file, png);
+  return {
+    content: [
+      { type: 'image' as const, data: png.toString('base64'), mimeType: 'image/png' },
+      { type: 'text' as const, text: `saved to ${file}` },
+    ],
+  };
+});
+
 // ------------------------------------------------------------------ start
 
 await server.connect(new StdioServerTransport());

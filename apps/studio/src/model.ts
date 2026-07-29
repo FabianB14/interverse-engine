@@ -32,6 +32,10 @@ export interface EntityDef {
   fontSize: number;
   /** Key into project.assets for kind 'image'. */
   assetId: string;
+  /** Spritesheet animation (kind 'image'): frame size + speed. 0 = static. */
+  frameW: number;
+  frameH: number;
+  fps: number;
   /** Behaviors / juice. */
   wobble: boolean;
   popIn: boolean;
@@ -40,10 +44,17 @@ export interface EntityDef {
   lines: string[];
 }
 
+/** How the scene is viewed/controlled:
+ *  - top:  free 4-direction movement (top-down worlds)
+ *  - side: gravity + jump — left/right to run, up/W/joystick-up to jump
+ *  - depth: 2.5D — higher on screen = further away (auto scale + z-sort) */
+export type SceneView = 'top' | 'side' | 'depth';
+
 export interface SceneDef {
   id: string;
   name: string;
   background: number;
+  view: SceneView;
   /** Scene script (the Code tab) — runs when the scene starts in Play mode. */
   script: string;
   entities: EntityDef[];
@@ -94,6 +105,9 @@ export function defaultEntity(kind: EntityKind, x: number, y: number): EntityDef
     text: '',
     fontSize: 30,
     assetId: '',
+    frameW: 0,
+    frameH: 0,
+    fps: 8,
     wobble: kind === 'blob' || kind === 'npc',
     popIn: true,
     tapSound: kind === 'button' ? 'blip' : '',
@@ -129,7 +143,7 @@ export function defaultEntity(kind: EntityKind, x: number, y: number): EntityDef
 }
 
 export function defaultScene(name: string): SceneDef {
-  return { id: freshId('s'), name, background: 0x101018, script: '', entities: [] };
+  return { id: freshId('s'), name, background: 0x101018, view: 'top', script: '', entities: [] };
 }
 
 export function defaultProject(): ProjectDef {
@@ -161,6 +175,7 @@ export function parseProject(json: string): ProjectDef {
     s.id ||= freshId('s');
     s.name ||= 'Level';
     s.background ??= 0x101018;
+    s.view ??= 'top';
     s.script ??= '';
     s.entities ||= [];
     for (const e of s.entities) {

@@ -18,6 +18,7 @@ edit is the real engine, live — press **▶ Play** at any moment.
   | Blob Arena | Top-down | Action survival waves |
   | A Quiet Evening | 2D | Cozy room, stories, no fail state |
   | Tiny Quest | Top-down RPG | NPCs, training, branching **skill tree** |
+  | Hilltop Hop | Side view | Run + JUMP with built-in gravity |
   | Firefly Party | Multiplayer co-op | Host a room code, catch fireflies together |
 
   First-person / 3D templates arrive when the engine grows a 3D renderer.
@@ -35,14 +36,34 @@ edit is the real engine, live — press **▶ Play** at any moment.
 - The purple frame is the phone screen (720×1280 design units). Players on
   any device see this space, letterboxed.
 
-## 3 · Animations, VFX, SFX
+## 3 · Views: top-down, side, 2.5D
+
+Every level has a **View** (toolbar selector) that sets how it plays:
+
+- **👁 Top-down** — the player moves freely in all directions.
+- **👁 Side view** — gravity is built in: ← → run, ↑ / W / joystick-up to
+  **jump**. Great for platform-y games (try the Hilltop Hop template).
+- **👁 2.5D depth** — things higher on screen are further away: they scale
+  down and sort behind, so walking "up" walks *into* the scene (Sunset
+  Street). This is the classic RPG look.
+
+The engine renders with **WebGPU/WebGL** (PixiJS) — hardware-accelerated on
+phones and desktops alike.
+
+## 4 · Animations, VFX, SFX
 
 - **Wobble** — idle animation toggle (inspector).
 - **Pop-in** — spawn juice toggle.
 - **Tap sound** — pop / blip / chime / buzz when the entity is tapped.
+- **Spritesheet animations** — Import an image that contains animation
+  frames in a grid, then set **Frame width / Frame height / Frames-per-sec**
+  in the inspector. Frames read left-to-right, top-to-bottom and loop.
+  (Frame size 0 = still image.)
+- **Property animation from code** — `api.tween(thing, { x, y, rotation,
+  alpha, scale }, seconds)` for cutscenes and juice.
 - From code: `api.sfx.pop()`, `.blip()`, `.chime()`, `.buzz()`.
 
-## 4 · Stories (narratives)
+## 5 · Stories (narratives)
 
 Select a character → **Story** tab → one line per row → **Save story**.
 In Play mode, tapping them plays the lines through the dialogue box
@@ -50,13 +71,13 @@ In Play mode, tapping them plays the lines through the dialogue box
 character. From code you can also narrate directly:
 `api.say('Narrator', 'Night falls…', 'Something stirs.')`.
 
-## 5 · Levels
+## 6 · Levels
 
 **+ Level** adds a scene; the toolbar dropdown switches between them. Each
 level has its own background, entities, and script. Move players between
 levels with `api.goto('Level 2')`.
 
-## 6 · The Code window
+## 7 · The Code window
 
 Each scene has a script that runs when the scene starts in Play mode.
 **Apply to game** also hot-runs it against the live game. The whole API:
@@ -101,7 +122,7 @@ api.skills.onUnlock((id) => {});  // react to unlocks
 Node positions are laid out automatically from `requires` chains — linear
 paths and branching trees both work. Unlocks persist per project.
 
-## 7 · Multiplayer blocks
+## 8 · Multiplayer blocks
 
 Tick **Multiplayer** in the toolbar and press ▶ Play — you get a lobby:
 **HOST A ROOM** (share the 4-letter code), **JOIN** a friend's code, or play
@@ -128,7 +149,7 @@ The pattern for shared objects: when a player takes/changes something, set a
 state key; every client (including late joiners, who get a full state sync)
 applies it locally. Firefly Party's script is a worked example.
 
-## 8 · Publish — your repo, and the Interverse world
+## 9 · Publish — your repo, and the Interverse world
 
 **🌍 Publish** opens two paths (your credentials stay on YOUR device):
 
@@ -143,14 +164,20 @@ applies it locally. Firefly Party's script is a worked example.
    Play mode shows the local Verium wallet — and the on-chain IVX balance
    once a wallet address is configured in the project.
 
-## 9 · AI copilot
+## 10 · AI copilot
 
-The **AI Chat** tab is a dev-time copilot: paste your Anthropic API key
-(stored locally, never shipped) and ask — "add a forest of 8 plants",
-"make the button jump to Level 2", "write the wizard's story". Claude edits
-the project through tools while you watch the canvas change.
+The primary AI dev cycle is **Claude Code over MCP — no API key**: open
+this repo in Claude Code and the `interverse` MCP server exposes studio
+tools (`studio_open`, `studio_project`, `studio_add_entity`,
+`studio_update_entity`, `studio_set_script`, `studio_load_template`,
+`studio_play`, `studio_screenshot`). Claude attaches to your running
+Studio (`pnpm dev:studio`), edits the project, presses Play, and LOOKS at
+the result — the full engine dev loop.
 
-## 10 · The Windows app (and iOS later)
+The in-app **AI Chat** tab is the fallback for people without Claude Code:
+paste an Anthropic API key (stored locally, never shipped) and ask.
+
+## 11 · The Windows app (and iOS later)
 
 The `Studio Windows app` GitHub Actions workflow builds a desktop installer
 (Tauri shell). Tauri is the same shell that will target iOS when we get

@@ -47,7 +47,10 @@ scripts/              headless playtests + playtest launcher
 
 MCP tools (server `interverse`): `list_games`, `list_scenes`, `get_engine_docs`,
 `run_dev`/`stop_dev`, `screenshot` (LOOK at your work), `create_room`/
-`join_room_bot`/`disconnect_bots` (fake multiplayer players), `validate_dialogue`.
+`join_room_bot`/`disconnect_bots` (fake multiplayer players), `validate_dialogue`,
+and the Studio dev cycle: `studio_open`/`studio_project`/`studio_add_entity`/
+`studio_update_entity`/`studio_set_script`/`studio_load_template`/`studio_play`/
+`studio_screenshot` (drive a running `pnpm dev:studio`).
 
 ## Engine cheat sheet
 

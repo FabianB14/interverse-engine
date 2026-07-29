@@ -18,6 +18,7 @@ async function main(): Promise<void> {
   // ------------------------------------------------------------- toolbar
   const nameInput = $<HTMLInputElement>('project-name');
   const sceneSelect = $<HTMLSelectElement>('scene-select');
+  const viewSelect = $<HTMLSelectElement>('view-select');
   const chkInterverse = $<HTMLInputElement>('chk-interverse');
   const chkMultiplayer = $<HTMLInputElement>('chk-multiplayer');
   const playBtn = $<HTMLButtonElement>('btn-play');
@@ -35,6 +36,7 @@ async function main(): Promise<void> {
       if (s.id === editor.sceneId) o.selected = true;
       sceneSelect.appendChild(o);
     }
+    viewSelect.value = editor.scene.view ?? 'top';
     playBtn.textContent = editor.playing ? '⏹ Stop' : '▶ Play';
     playBtn.className = editor.playing ? 'btn good' : 'btn primary';
     banner.style.display = editor.playing ? 'block' : 'none';
@@ -52,6 +54,10 @@ async function main(): Promise<void> {
     editor.touch();
   };
   sceneSelect.onchange = () => editor.switchScene(sceneSelect.value);
+  viewSelect.onchange = () => {
+    editor.scene.view = viewSelect.value as 'top' | 'side' | 'depth';
+    editor.touch();
+  };
   $('btn-add-scene').onclick = () => {
     const name = prompt('Level name?', `Level ${editor.project.scenes.length + 1}`);
     if (name !== null) editor.addScene(name);
@@ -461,6 +467,7 @@ async function main(): Promise<void> {
       return !!t;
     },
     playScore: () => editor.getPlayScene()?.scoreNow() ?? 0,
+    playVisibleCount: () => editor.getPlayScene()?.visibleEntityCount() ?? 0,
     gameIsOver: () => editor.getPlayScene()?.isOver() ?? false,
     skillNodeCount: () => editor.getPlayScene()?.skillTree()?.nodeCount() ?? 0,
     skillPoints: () => editor.getPlayScene()?.skillTree()?.getPoints() ?? 0,

@@ -26,6 +26,7 @@ export interface StudioDebug {
   templateCount: () => number;
   loadTemplate: (id: string) => boolean;
   playScore: () => number;
+  playVisibleCount: () => number;
   gameIsOver: () => boolean;
   skillNodeCount: () => number;
   skillPoints: () => number;

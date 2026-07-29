@@ -73,6 +73,7 @@ function topDown(): ProjectDef {
 function side25(): ProjectDef {
   const s = defaultScene('Street');
   s.background = 0x1a1826;
+  s.view = 'depth'; // built-in 2.5D: higher on screen = further away
   s.entities.push(
     E('text', 'Sky', 360, 120, { text: '🌇 SUNSET STREET', fontSize: 40, color: 0xffb86b }),
     E('blob', 'Hero', 360, 900, { color: 0x6fc3ff }),
@@ -83,21 +84,39 @@ function side25(): ProjectDef {
     E('lantern', 'Lamp', 360, 520),
   );
   s.script = S([
-    '// 2.5D: things higher on screen are further away — smaller + behind.',
+    "// The scene's View is set to 2.5D — depth scaling + sorting is built in.",
     "api.player('Hero', 300);",
-    'api.scene.stage.sortableChildren = true;',
+  ]);
+  return project('Sunset Street (2.5D)', [s]);
+}
+
+function sideView(): ProjectDef {
+  const s = defaultScene('Hills');
+  s.background = 0x11202e;
+  s.view = 'side'; // built-in gravity: ← → run, ↑ / W / joystick-up to jump
+  s.entities.push(
+    E('text', 'Hint', 360, 180, { text: '⬅➡ run · ⬆ jump\ncatch every spark!', fontSize: 30, color: 0x9a97b8 }),
+    E('blob', 'Hero', 120, 1020, { color: 0x8affc1 }),
+    E('crate', 'Ground', 360, 1120, { color: 0x2a3a4a, radius: 400, scale: 1 }),
+    ...[1, 2, 3, 4, 5].map((i) =>
+      E('lantern', `Spark ${i}`, 90 + i * 120, i % 2 ? 880 : 700, { scale: 0.6 }),
+    ),
+  );
+  s.script = S([
+    '// Side view: gravity + jumping come from the scene View setting.',
+    "api.player('Hero', 330);",
+    'var left = 5;',
     'api.onUpdate(function () {',
-    '  var all = api.entities();',
-    '  for (var name in all) {',
-    '    var e = all[name];',
-    '    if (e.destroyed) continue;',
-    '    var depth = Math.max(0.45, Math.min(1.25, 0.35 + (e.y - 380) / 700));',
-    '    e.scale.set(depth);',
-    '    e.zIndex = e.y;',
+    '  for (var i = 1; i <= 5; i++) {',
+    "    var sp = api.entity('Spark ' + i);",
+    "    if (sp && !sp.destroyed && api.overlap('Hero', sp, 70)) {",
+    '      api.remove(sp); api.sfx.chime(); api.score.add(1); left--;',
+    "      if (left === 0) api.gameOver('ALL SPARKS CAUGHT! ⚡');",
+    '    }',
     '  }',
     '});',
   ]);
-  return project('Sunset Street (2.5D)', [s]);
+  return project('Hilltop Hop (side view)', [s]);
 }
 
 function runner(): ProjectDef {
@@ -307,6 +326,7 @@ export const TEMPLATES: TemplateDef[] = [
   { id: 'blank', name: 'Blank', emoji: '⬜', view: '2D', blurb: 'An empty canvas with one hero.', make: () => project('My Game', [(() => { const s = defaultScene('Level 1'); s.entities.push(E('blob', 'Hero', 360, 640)); return s; })()]) },
   { id: 'topdown', name: 'Garden Explorer', emoji: '🧭', view: 'Top-down', blurb: 'Walk anywhere, collect the fireflies. Cozy-action starter.', make: topDown },
   { id: 'side25', name: 'Sunset Street', emoji: '🌇', view: 'Side 2.5D', blurb: 'Depth-scaled side view — walk “into” the scene.', make: side25 },
+  { id: 'side', name: 'Hilltop Hop', emoji: '⛰️', view: 'Side view', blurb: 'Run and JUMP — gravity comes free with the side-view scene setting.', make: sideView },
   { id: 'runner', name: 'Blob Dash', emoji: '🏃', view: 'Side 2D', blurb: 'Endless runner: jump the crates, speed ramps up.', make: runner },
   { id: 'slash', name: 'Slash Frenzy', emoji: '🍉', view: '2D', blurb: 'Fruit-ninja style: tap-slash the flying fruit.', make: slash },
   { id: 'action', name: 'Blob Arena', emoji: '⚔️', view: 'Top-down', blurb: 'Survive the waves — dodge and zap.', make: action },
