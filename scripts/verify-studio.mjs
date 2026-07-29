@@ -225,10 +225,26 @@ const heroY2 = await page.evaluate(() => {
   return window.__probeY2;
 });
 const horizonOk = heroY2 > 300 && heroY2 < 340;
-const cameraOk = worldSize.w === 2160 && worldSize.h === 720 && heroX2 > 750 && camX > 60 && horizonOk;
+// Castle Crashers feel: depth scaling is SUBTLE — at the horizon the hero
+// shrinks only a little (~0.82), never into fake-3D dots.
+const heroScale = await page.evaluate(() => {
+  window.__studio.applyScriptNow("window.__probeS = api.entity('Hero').scale.x");
+  return window.__probeS;
+});
+const subtleOk = heroScale > 0.75 && heroScale < 0.92;
+const cameraOk =
+  worldSize.w === 2160 && worldSize.h === 720 && heroX2 > 750 && camX > 60 && horizonOk && subtleOk;
 await page.screenshot({ path: `${outDir}/st-9-camera.png` });
 await page.evaluate(() => window.__studio.stop());
 await sleep(150);
+
+// SCREEN-FIT PREVIEW: the editor overlay that shows how things fit on a
+// rotated (landscape) or portrait phone screen.
+await page.evaluate(() => window.__studio.setFramePreview('landscape'));
+const frameMode = await page.evaluate(() => window.__studio.framePreview());
+await page.screenshot({ path: `${outDir}/st-10-frame.png` });
+await page.evaluate(() => window.__studio.setFramePreview('off'));
+const frameOk = frameMode === 'landscape';
 
 // MULTIPLAYER BLOCKS: two browsers share a room on the co-op template —
 // roster syncs, the remote avatar appears and tracks movement, and shared
@@ -266,14 +282,14 @@ relay.kill();
 
 const ok =
   placeOk && editOk && storyOk && levelsOk && playOk && stopOk && exportOk && importOk &&
-  templatesOk && skillsOk && scoreOk && tilesOk && cameraOk && netOk && errors.length === 0;
+  templatesOk && skillsOk && scoreOk && tilesOk && cameraOk && frameOk && netOk && errors.length === 0;
 console.log(
   JSON.stringify(
     {
       ok, placeOk, editOk, storyOk, levelsOk, playOk, playCount, stopOk, exportOk, importOk,
       templatesOk, templates, skillsOk, skillNodes, stormEarly, strength, scoreOk, score,
       tilesOk, tileBefore, tilePainted, tilesPersist, playTiles, heroX,
-      cameraOk, worldSize, heroX2, camX, heroY2, horizonOk,
+      cameraOk, worldSize, heroX2, camX, heroY2, horizonOk, heroScale, subtleOk, frameOk,
       netOk, playersA, playersB, remotesB, moveOk, remotePosB, stateB,
       errors: errors.slice(0, 6),
     },

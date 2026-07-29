@@ -46,13 +46,15 @@ a landscape phone/tablet simply sees a wide window into the same world,
 like every classic mobile RPG.
 
 - **👁 Top-down** — the player moves freely in all directions.
-- **👁 2.5D** — things higher on screen are further away: they scale down
-  and sort behind, so walking "up" walks *into* the scene. 2.5D boards are
-  always **one landscape screen tall (720)** and progress **left-to-right**
-  — the journey runs long-ways and you never see the whole map at once.
-  There's a **horizon**: players can't walk above it into the sky, only a
-  short way "into" the scene. The editor previews depth immediately when
-  you switch, and switching views snaps the board to the right height.
+- **👁 2.5D** — plays like *Castle Crashers*: the board is **one landscape
+  screen tall (720)** with a backdrop above the **horizon** and a walkable
+  ground band below it, and the journey runs **left-to-right** — you never
+  see the whole map at once. Walking "up" walks a short way *into* the
+  scene (slower than the run, and never past the horizon); characters keep
+  near-constant size — depth reads through draw order and a subtle
+  far/near scale, not fake 3D shrinking. The editor shows the
+  backdrop/ground split and previews depth immediately when you switch,
+  and switching views snaps the board to the right height.
 - **⛶ Level length** — 1 to 4 screens long (length is the only size knob;
   top-down boards are one portrait screen tall, 2.5D boards one landscape
   screen tall). The **camera follows your player** automatically
@@ -61,6 +63,11 @@ like every classic mobile RPG.
   screen.
 - **Gravity** — check it for platformers: ← → run, ↑ / W / joystick-up to
   **jump**. It's level physics, not a view — Hilltop Hop is the example.
+- **📱 Fit** — a rotated device isn't a game style, it's just a wider
+  window into the same world. The Fit button previews exactly that in the
+  editor: it outlines what a **rotated (landscape)** or **portrait** phone
+  screen sees and dims everything outside, so you can check your layout
+  fits before playing. Click it again to cycle rotated → portrait → off.
 
 The engine renders with **WebGPU/WebGL** (PixiJS) — hardware-accelerated on
 phones and desktops alike.

@@ -4,12 +4,12 @@
  * play mode, and persistence. Panels (inspector, code, story, chat) talk to
  * the world through this class.
  */
-import { Container, Graphics } from 'pixi.js';
-import { Scene, createGame } from '@interverse/engine';
+import { Container, Graphics, Text } from 'pixi.js';
+import { Scene, createGame, darken, lighten } from '@interverse/engine';
 import type { Game } from '@interverse/engine';
 import type { EntityDef, EntityKind, ProjectDef, SceneDef } from './model.js';
 import { defaultEntity, defaultProject, defaultScene, freshId, parseProject } from './model.js';
-import { PlayScene, buildView, depthScale } from './runtime.js';
+import { DEPTH_MIN_Y, PlayScene, buildView, depthScale } from './runtime.js';
 import { StudioNet, resolveRelayUrl } from './net.js';
 import { slugify } from './publish.js';
 import {
@@ -33,6 +33,8 @@ class EditScene extends Scene {
   ring = new Graphics();
   world = new Container();
   private tileLayer: Container | null = null;
+  private frameG = new Graphics();
+  private frameLabel: Text | null = null;
 
   constructor(
     private readonly editor: StudioEditor,
@@ -46,6 +48,15 @@ class EditScene extends Scene {
     // can be edited — the wheel/trackpad scrolls around them.
     this.stage.addChildAt(this.world, 0);
     const bg = new Graphics().rect(0, 0, this.def.worldW, this.def.worldH).fill(this.def.background);
+    if (this.def.view === 'depth') {
+      // Same backdrop/ground split the runtime draws: above the horizon is
+      // scenery, the band below is where players walk (Castle Crashers).
+      bg.rect(0, 0, this.def.worldW, DEPTH_MIN_Y).fill(lighten(this.def.background, 0.22));
+      bg.rect(0, DEPTH_MIN_Y - 3, this.def.worldW, 6).fill({
+        color: darken(this.def.background, 0.35),
+        alpha: 0.6,
+      });
+    }
     bg.eventMode = 'static';
     bg.on('pointerdown', (ev) => this.editor.canvasDown(ev.globalX, ev.globalY));
     this.world.addChildAt(bg, 0);
@@ -65,6 +76,45 @@ class EditScene extends Scene {
     this.world.addChild(this.ring);
     this.editor.refreshRing();
     this.applyPan();
+    this.frameG.eventMode = 'none';
+    this.stage.addChild(this.frameG);
+    this.refreshFrame();
+  }
+
+  protected override onResize(): void {
+    this.refreshFrame();
+  }
+
+  /** Screen-fit preview: dim everything a phone wouldn't see and outline the
+   *  device frame — 📱 portrait or the rotated (landscape) screen — so you
+   *  can check how things fit before playing. Pan to move the window. */
+  refreshFrame(): void {
+    this.frameG.clear();
+    this.frameLabel?.destroy();
+    this.frameLabel = null;
+    const mode = this.editor.framePreview;
+    if (mode === 'off') return;
+    const fw = mode === 'landscape' ? 1280 : 720;
+    const fh = mode === 'landscape' ? 720 : 1280;
+    const vw = this.game.viewWidth;
+    const vh = this.game.viewHeight;
+    const x = Math.round((vw - fw) / 2);
+    const y = Math.round((vh - fh) / 2);
+    const dim = (rx: number, ry: number, rw: number, rh: number): void => {
+      if (rw > 0 && rh > 0) this.frameG.rect(rx, ry, rw, rh).fill({ color: 0x000000, alpha: 0.45 });
+    };
+    dim(0, 0, vw, y);
+    dim(0, y + fh, vw, vh - (y + fh));
+    dim(0, Math.max(0, y), x, Math.min(vh, fh));
+    dim(x + fw, Math.max(0, y), vw - (x + fw), Math.min(vh, fh));
+    this.frameG.rect(x, y, fw, fh).stroke({ color: 0x8affc1, width: 3, alpha: 0.9 });
+    this.frameLabel = new Text({
+      text: mode === 'landscape' ? '↔ rotated screen' : '↕ portrait screen',
+      style: { fontFamily: 'system-ui, sans-serif', fontSize: 22, fontWeight: '700', fill: 0x8affc1 },
+    });
+    this.frameLabel.eventMode = 'none';
+    this.frameLabel.position.set(Math.max(10, x) + 12, Math.max(6, y) + 8);
+    this.stage.addChild(this.frameLabel);
   }
 
   applyPan(): void {
@@ -223,6 +273,14 @@ export class StudioEditor {
 
   panX = 0;
   panY = 0;
+
+  /** Editor-only screen-fit preview frame (see EditScene.refreshFrame). */
+  framePreview: 'off' | 'landscape' | 'portrait' = 'off';
+
+  setFramePreview(mode: 'off' | 'landscape' | 'portrait'): void {
+    this.framePreview = mode;
+    this.editScene?.refreshFrame();
+  }
 
   panBy(dx: number, dy: number): void {
     const maxX = Math.max(0, this.scene.worldW - this.game.viewWidth);

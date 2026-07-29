@@ -52,6 +52,8 @@ export interface StudioDebug {
   setWorldSize: (w: number, h: number) => void;
   worldSize: () => { w: number; h: number };
   cameraX: () => number;
+  setFramePreview: (m: 'off' | 'landscape' | 'portrait') => void;
+  framePreview: () => 'off' | 'landscape' | 'portrait';
 }
 
 declare global {

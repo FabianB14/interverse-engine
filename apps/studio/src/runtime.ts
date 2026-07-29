@@ -45,13 +45,17 @@ function assetTexture(dataUrl: string, onReady: (tex: Texture) => void): void {
   img.src = dataUrl;
 }
 
-/** 2.5D boards are ONE LANDSCAPE SCREEN tall (720): the horizon sits near
- *  the top, players walk the ground band below it, and the journey runs
- *  left-to-right. depthScale maps a y in that band to a far/near size. */
+/** 2.5D plays like Castle Crashers: the board is ONE LANDSCAPE SCREEN tall
+ *  (720) with a backdrop above the horizon and a walkable ground band below
+ *  it; the journey runs left-to-right. Characters keep near-constant size —
+ *  depth reads through z-sorting and a SUBTLE far/near scale, not fake 3D. */
 export const DEPTH_WORLD_H = 720;
 export const DEPTH_MIN_Y = 320; // players can't walk above the horizon
+/** In depth view, up/down is a slower lane than the run (brawler feel). */
+export const DEPTH_LANE_SPEED = 0.6;
 export function depthScale(y: number): number {
-  return Math.max(0.5, Math.min(1.2, 0.5 + ((y - 300) / 420) * 0.7));
+  const t = (y - DEPTH_MIN_Y) / (DEPTH_WORLD_H - DEPTH_MIN_Y);
+  return 0.82 + Math.max(0, Math.min(1, t)) * 0.18;
 }
 
 /**
@@ -364,6 +368,14 @@ export class PlayScene extends Scene {
     const bg = new Graphics()
       .rect(0, 0, this.sceneDef.worldW, this.sceneDef.worldH)
       .fill(this.sceneDef.background);
+    if (this.sceneDef.view === 'depth') {
+      // Backdrop above the horizon reads as scenery, the band below as ground.
+      bg.rect(0, 0, this.sceneDef.worldW, DEPTH_MIN_Y).fill(lighten(this.sceneDef.background, 0.22));
+      bg.rect(0, DEPTH_MIN_Y - 3, this.sceneDef.worldW, 6).fill({
+        color: darken(this.sceneDef.background, 0.35),
+        alpha: 0.6,
+      });
+    }
     this.world.addChildAt(bg, 0);
     // Painted tiles render above the background; solid tiles collide.
     if (anyTiles(this.sceneDef.tiles)) {
@@ -660,12 +672,15 @@ export class PlayScene extends Scene {
         }
       } else if (mx || my) {
         const len = Math.hypot(mx, my) || 1;
-        // 2.5D: the horizon is a wall — you walk the ground band, not the sky.
-        const minY = this.sceneDef.view === 'depth' ? DEPTH_MIN_Y : 20;
+        // 2.5D: the horizon is a wall — you walk the ground band, not the sky —
+        // and up/down is a slower lane than the run (Castle Crashers feel).
+        const depth = this.sceneDef.view === 'depth';
+        const minY = depth ? DEPTH_MIN_Y : 20;
+        const laneY = depth ? DEPTH_LANE_SPEED : 1;
         for (const p of this.players) {
           if (p.entity.destroyed) continue;
           const dx = (mx / len) * p.speed * dt;
-          const dy = (my / len) * p.speed * dt;
+          const dy = (my / len) * p.speed * laneY * dt;
           if (this.tileMap) {
             // Painted solid tiles (walls, water, trees) block movement.
             const moved = moveWithCollision(this.tileMap, p.entity.x, p.entity.y, 16, 14, dx, dy);
@@ -698,7 +713,7 @@ export class PlayScene extends Scene {
     return { w: this.sceneDef.worldW, h: this.sceneDef.worldH };
   }
 
-  /** 2.5D: higher on screen = further away — smaller and drawn behind. */
+  /** 2.5D: higher on screen = further away — drawn behind, subtly smaller. */
   private applyDepth(): void {
     this.world.sortableChildren = true;
     const apply = (c: Container, fallbackBase = 1): void => {

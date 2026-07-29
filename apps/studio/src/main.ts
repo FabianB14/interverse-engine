@@ -87,6 +87,14 @@ async function main(): Promise<void> {
     const name = prompt('Level name?', `Level ${editor.project.scenes.length + 1}`);
     if (name !== null) editor.addScene(name);
   };
+  // Screen-fit preview: cycles off -> rotated (landscape) -> portrait.
+  const frameBtn = $<HTMLButtonElement>('btn-frame');
+  const frameCycle = { off: 'landscape', landscape: 'portrait', portrait: 'off' } as const;
+  const frameLabels = { off: '📱 Fit', landscape: '📱 Fit ↔', portrait: '📱 Fit ↕' };
+  frameBtn.onclick = () => {
+    editor.setFramePreview(frameCycle[editor.framePreview]);
+    frameBtn.textContent = frameLabels[editor.framePreview];
+  };
   playBtn.onclick = () => (editor.playing ? editor.stop() : editor.play());
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && editor.playing) editor.stop();
@@ -631,6 +639,8 @@ async function main(): Promise<void> {
       editor.touch();
       if (!editor.playing) editor.openEditScene();
     },
+    setFramePreview: (m: 'off' | 'landscape' | 'portrait') => editor.setFramePreview(m),
+    framePreview: () => editor.framePreview,
   };
 
   // Player boot: ?load=<url-to-project-json> (+ &play=1 to jump straight in).
