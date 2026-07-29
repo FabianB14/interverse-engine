@@ -30,6 +30,22 @@ importers:
         specifier: ^8.21.0
         version: 8.64.0(eslint@9.39.5)(typescript@5.9.3)
 
+  apps/studio:
+    dependencies:
+      '@interverse/engine':
+        specifier: workspace:*
+        version: link:../../packages/engine
+      '@interverse/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui-kit
+      pixi.js:
+        specifier: ^8.6.6
+        version: 8.19.0
+    devDependencies:
+      vite:
+        specifier: ^6.0.7
+        version: 6.4.3(@types/node@22.20.1)
+
   games/_template:
     dependencies:
       '@interverse/engine':

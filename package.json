@@ -28,7 +28,9 @@
     "verify:farm": "node scripts/verify-farm.mjs",
     "verify:visit": "node scripts/verify-visit.mjs",
     "dev:hushfall": "pnpm --filter @interverse/hushfall dev",
-    "verify:hushfall": "node scripts/verify-hushfall.mjs"
+    "verify:hushfall": "node scripts/verify-hushfall.mjs",
+    "dev:studio": "pnpm --filter @interverse/studio dev",
+    "verify:studio": "node scripts/verify-studio.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",

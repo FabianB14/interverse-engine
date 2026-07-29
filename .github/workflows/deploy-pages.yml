@@ -46,6 +46,7 @@ jobs:
           cp -r games/blobvale/dist dist-site/blobvale
           cp -r games/farm/dist dist-site/farm
           cp -r games/hushfall/dist dist-site/hushfall
+          cp -r apps/studio/dist dist-site/studio
 
       - uses: actions/upload-pages-artifact@v3
         with:

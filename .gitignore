@@ -10,6 +10,9 @@ build/
 # Vite
 .vite/
 
+# Tauri (Rust build output)
+apps/*/src-tauri/target/
+
 # Headless playtest screenshots
 verify-shots/
 

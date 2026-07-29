@@ -1,0 +1,41 @@
+# Builds the Interverse Studio Windows app (Tauri shell around apps/studio).
+# Manual for now (workflow_dispatch) — run it from the Actions tab and grab
+# the installer from the run's artifacts. Experimental: the web Studio at
+# /studio/ is the always-runnable source of truth.
+name: Studio Windows app
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: apps/studio/src-tauri
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build Tauri app
+        working-directory: apps/studio
+        run: npx --yes @tauri-apps/cli@^2 build
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: interverse-studio-windows
+          path: |
+            apps/studio/src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error

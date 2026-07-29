@@ -22,6 +22,10 @@ games/hello           Blob Tap (arcade demo)      — dev port 5173
 games/room            Cozy Room (RPG/cozy demo)   — dev port 5174
 games/taps            Tap Party (party demo)      — dev port 5175
 games/_template       template consumed by /new-game — dev port 5180
+apps/studio           Interverse Studio (visual game maker) — dev port 5179;
+                      projects are JSON (model.ts) run by runtime.ts; Tauri
+                      shell in src-tauri (Windows via manual CI workflow).
+                      See docs/studio.md.
 tools/mcp-server      the `interverse` MCP server (screenshot, bots, docs, dev server)
 docs/                 engine topic docs (also served by MCP get_engine_docs)
 .claude/commands      /new-game /new-scene /new-minigame /new-art /playtest
@@ -38,6 +42,7 @@ scripts/              headless playtests + playtest launcher
 | `pnpm relay`                                   | run the relay locally on :8787 (games on localhost auto-use it) |
 | `pnpm typecheck` / `lint` / `format` / `build` | quality gates — all must stay green                             |
 | `pnpm verify` / `verify:room` / `verify:net`   | headless playtests (Blob Tap, Cozy Room, 3-phone multiplayer)   |
+| `pnpm dev:studio` / `verify:studio`            | Interverse Studio (game-maker app) + its headless playtest      |
 | `node scripts/playtest.mjs <game>`             | dev server + LAN URL + QR code for real phones                  |
 
 MCP tools (server `interverse`): `list_games`, `list_scenes`, `get_engine_docs`,

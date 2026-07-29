@@ -1,0 +1,31 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Interverse Studio",
+  "version": "0.1.0",
+  "identifier": "com.interverse.studio",
+  "build": {
+    "beforeDevCommand": "pnpm --filter @interverse/studio dev",
+    "devUrl": "http://localhost:5179",
+    "beforeBuildCommand": "pnpm --filter @interverse/studio build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Interverse Studio",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 1100,
+        "minHeight": 680
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": ["icons/icon.ico", "icons/icon.png"]
+  }
+}
