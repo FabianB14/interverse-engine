@@ -65,6 +65,7 @@ export interface StudioDebug {
   playerZ: () => number;
   shotsFired: () => number;
   mobEnraged: (name: string) => boolean;
+  chatBridged: () => boolean;
 }
 
 declare global {

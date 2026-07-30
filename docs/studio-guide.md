@@ -264,16 +264,28 @@ applies it locally. Firefly Party's script is a worked example.
 
 ## 10 · AI copilot
 
-The primary AI dev cycle is **Claude Code over MCP — no API key**: open
-this repo in Claude Code and the `interverse` MCP server exposes studio
-tools (`studio_open`, `studio_project`, `studio_add_entity`,
-`studio_update_entity`, `studio_set_script`, `studio_load_template`,
-`studio_play`, `studio_screenshot`). Claude attaches to your running
-Studio (`pnpm dev:studio`), edits the project, presses Play, and LOOKS at
-the result — the full engine dev loop.
+No API key needed — the AI dev cycle runs on your **Claude Code login**,
+two ways:
 
-The in-app **AI Chat** tab is the fallback for people without Claude Code:
-paste an Anthropic API key (stored locally, never shipped) and ask.
+1. **The AI Chat tab + the local bridge.** Run `pnpm ai` in the repo,
+   open the Studio, and the chat connects automatically (the key box
+   disappears). Type "add a spooky forest" or "give the boss a second
+   phase" and Claude edits the live project through studio tools. This
+   works from the dev server AND the installed app / hosted page —
+   browsers trust `ws://127.0.0.1`, so the deployed Studio can talk to
+   the bridge on your machine. The bridge signs in with whatever
+   `claude` is logged in as; run `claude` once in a terminal if it asks.
+2. **Claude Code driving the Studio directly over MCP.** Open this repo
+   in Claude Code and the `interverse` MCP server exposes studio tools
+   (`studio_open`, `studio_project`, `studio_add_entity`,
+   `studio_update_entity`, `studio_set_script`, `studio_load_template`,
+   `studio_play`, `studio_screenshot`). Claude attaches to your running
+   Studio (`pnpm dev:studio`), edits the project, presses Play, and
+   LOOKS at the result — the full engine dev loop.
+
+Only if you have neither (e.g. a friend using just the website): the AI
+Chat tab falls back to an Anthropic API key, stored locally on that
+device and never shipped in a game.
 
 ## 11 · Installing Studio (Windows, iOS, Android)
 

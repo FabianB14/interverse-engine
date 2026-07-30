@@ -43,6 +43,7 @@ scripts/              headless playtests + playtest launcher
 | `pnpm typecheck` / `lint` / `format` / `build` | quality gates — all must stay green                             |
 | `pnpm verify` / `verify:room` / `verify:net`   | headless playtests (Blob Tap, Cozy Room, 3-phone multiplayer)   |
 | `pnpm dev:studio` / `verify:studio`            | Interverse Studio (game-maker app) + its headless playtest      |
+| `pnpm ai`                                      | local AI bridge: Studio's AI Chat via Claude Code login (no key) |
 | `node scripts/playtest.mjs <game>`             | dev server + LAN URL + QR code for real phones                  |
 
 MCP tools (server `interverse`): `list_games`, `list_scenes`, `get_engine_docs`,

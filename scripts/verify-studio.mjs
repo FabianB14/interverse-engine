@@ -22,6 +22,12 @@ const relay = spawn('node', ['relay/dist/server.js'], {
   stdio: 'ignore',
 });
 
+// Mock AI bridge for the chat section (full protocol, no Claude login).
+const aiBridge = spawn('node', ['scripts/ai-bridge.mjs'], {
+  env: { ...process.env, AI_BRIDGE_MOCK: '1' },
+  stdio: 'ignore',
+});
+
 function findChromium() {
   if (process.env.CHROMIUM_BIN) return process.env.CHROMIUM_BIN;
   try {
@@ -340,6 +346,20 @@ const patrolOk = gardenerX > 240; // started at 160, walking its loop
 await page.evaluate(() => window.__studio.stop());
 await sleep(150);
 
+// AI CHAT BRIDGE: the chat tab talks to Claude through the local bridge
+// (mock mode here) — no API key. The mock replies, calls add_entity over
+// the wire, and the lantern lands in the editor.
+const bridged = await page.evaluate(() => window.__studio.chatBridged());
+const chatCount0 = await page.evaluate(() => window.__studio.entityCount());
+await page.evaluate(() => {
+  const input = document.getElementById('chat-input');
+  input.value = 'add a lantern';
+  document.getElementById('btn-chat-send').click();
+});
+await sleep(1200);
+const chatCount1 = await page.evaluate(() => window.__studio.entityCount());
+const chatOk = bridged === true && chatCount1 === chatCount0 + 1;
+
 // MULTIPLAYER BLOCKS: two browsers share a room on the co-op template —
 // roster syncs, the remote avatar appears and tracks movement, and shared
 // state (the co-op score) reaches the joiner.
@@ -373,11 +393,12 @@ await pageB.evaluate(() => window.__studio.stop());
 
 await browser.close();
 relay.kill();
+aiBridge.kill();
 
 const ok =
   placeOk && editOk && storyOk && levelsOk && playOk && stopOk && exportOk && importOk &&
   templatesOk && skillsOk && scoreOk && tilesOk && cameraOk && frameOk && combatOk && rangedOk &&
-  patrolOk && netOk && errors.length === 0;
+  patrolOk && chatOk && netOk && errors.length === 0;
 console.log(
   JSON.stringify(
     {
@@ -388,6 +409,7 @@ console.log(
       jumpOk, zMid, zLand, yPlain, ySteer,
       combatOk, mobCount0, abilities, bossBar, chaseOk, gap0, gap1, hp0, hp1, mobsLeft, xp, level, hearts,
       rangedOk, shots, enraged, patrolOk, gardenerX,
+      chatOk, bridged, chatCount0, chatCount1,
       netOk, playersA, playersB, remotesB, moveOk, remotePosB, stateB,
       errors: errors.slice(0, 6),
     },

@@ -526,7 +526,7 @@ async function main(): Promise<void> {
 
   // ------------------------------------------------------------ wire-ups
   wireInspector(editor);
-  wireChat(editor);
+  const chat = wireChat(editor);
   const prevSelection = editor.onSelection;
   editor.onSelection = () => {
     prevSelection();
@@ -652,6 +652,7 @@ async function main(): Promise<void> {
     playerZ: () => editor.getPlayScene()?.playerAirHeight() ?? 0,
     shotsFired: () => editor.getPlayScene()?.shotsFired() ?? 0,
     mobEnraged: (name: string) => editor.getPlayScene()?.mobEnraged(name) ?? false,
+    chatBridged: () => chat.bridged(),
   };
 
   // Player boot: ?load=<url-to-project-json> (+ &play=1 to jump straight in).

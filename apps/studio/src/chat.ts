@@ -1,13 +1,20 @@
 /**
  * AI copilot — chat with Claude, who edits the project through tools.
- * DEV-TIME ONLY (spec §8.4): the API key is typed by the author, kept in
- * localStorage on this device, and never ships inside an exported game.
+ * DEV-TIME ONLY (spec §8.4). Three ways in, best first:
+ *   1. The local AI BRIDGE (`pnpm ai`): uses your Claude Code login over
+ *      ws://127.0.0.1:8790 — no API key. The chat auto-connects, even from
+ *      the installed PWA (browsers trust localhost from https).
+ *   2. Claude Code driving the studio directly via the `interverse` MCP
+ *      server's studio_* tools.
+ *   3. Fallback only: an Anthropic API key typed here — kept in
+ *      localStorage on this device, never shipped in an exported game.
  */
 import type { StudioEditor } from './editor.js';
 import type { EntityDef, EntityKind } from './model.js';
 
 const KEY_STORE = 'interverse.studio.apikey';
 const MODEL = 'claude-sonnet-5';
+const BRIDGE_URL = 'ws://127.0.0.1:8790';
 
 interface ToolSpec {
   name: string;
@@ -24,7 +31,7 @@ const TOOLS: ToolSpec[] = [
   {
     name: 'add_entity',
     description:
-      'Add an entity to the current scene. kinds: blob, npc (story character), crate, lantern, plant, text, button, image. Design space is 720x1280 (portrait phone).',
+      'Add an entity to the current scene. kinds: blob, npc (story character), mob (enemy), boss, crate, lantern, plant, text, button, image. Design space is 720x1280 (portrait phone).',
     input_schema: {
       type: 'object',
       properties: {
@@ -107,7 +114,7 @@ interface ContentBlock {
   input?: Record<string, unknown>;
 }
 
-export function wireChat(editor: StudioEditor): void {
+export function wireChat(editor: StudioEditor): { bridged: () => boolean } {
   const log = document.getElementById('chat-log')!;
   const keyInput = document.getElementById('chat-key') as HTMLInputElement;
   const input = document.getElementById('chat-input') as HTMLInputElement;
@@ -122,18 +129,92 @@ export function wireChat(editor: StudioEditor): void {
     log.appendChild(div);
     log.scrollTop = log.scrollHeight;
   };
+
+  // ---- the local Claude bridge (no API key) -------------------------------
+  let bridge: WebSocket | null = null;
+  let bridgeReady = false;
+  let bridgeDone: (() => void) | null = null;
+
+  const systemContext = (): string =>
+    `You are the Interverse Studio copilot, editing a 2D mobile game project live. ` +
+    `Design space is 720x1280 portrait. Current scene: "${editor.scene.name}" with entities: ` +
+    editor.scene.entities.map((e) => `${e.name} (${e.kind})`).join(', ') +
+    `. Use the studio tools to make changes; keep answers to one or two short sentences.`;
+
+  const connectBridge = (): void => {
+    try {
+      const ws = new WebSocket(BRIDGE_URL);
+      ws.onopen = () => ws.send(JSON.stringify({ type: 'hello' }));
+      ws.onmessage = (ev) => {
+        let msg: { type: string; id?: string; name?: string; input?: Record<string, unknown>; text?: string; message?: string; mode?: string };
+        try {
+          msg = JSON.parse(String(ev.data)) as typeof msg;
+        } catch {
+          return;
+        }
+        if (msg.type === 'ready') {
+          bridge = ws;
+          bridgeReady = true;
+          keyInput.style.display = 'none';
+          say('tool', `✦ Connected to Claude through your local bridge${msg.mode === 'mock' ? ' (mock)' : ''} — no API key needed. Ask away!`);
+        } else if (msg.type === 'text' && msg.text) {
+          say('bot', `Claude: ${msg.text}`);
+        } else if (msg.type === 'tool_use') {
+          const out = runTool(editor, msg.name ?? '', msg.input ?? {});
+          say('tool', `⚙ ${msg.name}: ${out.length > 120 ? `${out.slice(0, 120)}…` : out}`);
+          ws.send(JSON.stringify({ type: 'tool_result', id: msg.id, out }));
+        } else if (msg.type === 'error' && msg.message) {
+          say('tool', `Bridge: ${msg.message}`);
+        } else if (msg.type === 'done') {
+          bridgeDone?.();
+          bridgeDone = null;
+        }
+      };
+      ws.onclose = () => {
+        if (bridgeReady) say('tool', 'Bridge disconnected — restart it with `pnpm ai`.');
+        bridge = null;
+        bridgeReady = false;
+        keyInput.style.display = '';
+        bridgeDone?.();
+        bridgeDone = null;
+      };
+      ws.onerror = () => ws.close();
+    } catch {
+      /* no bridge running — API-key fallback stays available */
+    }
+  };
+  connectBridge();
+
   say(
     'tool',
-    '✦ The BEST way to build with AI: open this repo in Claude Code — the `interverse` MCP server has studio_* tools (studio_open, studio_add_entity, studio_set_script, studio_play, studio_screenshot) that see and edit this project directly. No API key needed there.\n\nThis in-app chat is the fallback: paste an Anthropic API key (kept only on this device) and ask — "add a spooky forest", "make the button switch to Level 2".',
+    '✦ No API key needed: run `pnpm ai` in the repo and this chat connects to Claude through your Claude Code login (works from the installed app too — it retries each time you Send). Claude Code can also drive the studio directly via the `interverse` MCP studio_* tools.\n\nNo Claude Code? Paste an Anthropic API key below as a fallback (kept only on this device) and ask — "add a spooky forest", "make the button switch to Level 2".',
   );
 
   const history: { role: 'user' | 'assistant'; content: unknown }[] = [];
 
   async function turn(): Promise<void> {
-    const key = keyInput.value.trim();
     const ask = input.value.trim();
-    if (!key || !ask) {
-      say('tool', key ? 'Type a request first.' : 'Paste an API key first.');
+    if (!ask) {
+      say('tool', 'Type a request first.');
+      return;
+    }
+    // Bridge first: your Claude Code login, no API key.
+    if (bridgeReady && bridge?.readyState === WebSocket.OPEN) {
+      input.value = '';
+      say('user', `You: ${ask}`);
+      send.disabled = true;
+      const finished = new Promise<void>((resolve) => {
+        bridgeDone = resolve;
+      });
+      bridge.send(JSON.stringify({ type: 'ask', ask, system: systemContext() }));
+      await finished;
+      send.disabled = false;
+      return;
+    }
+    if (!bridge) connectBridge(); // maybe the bridge started after page load
+    const key = keyInput.value.trim();
+    if (!key) {
+      say('tool', 'No bridge found — run `pnpm ai` in the repo (no API key needed), or paste an Anthropic API key.');
       return;
     }
     input.value = '';
@@ -189,4 +270,5 @@ export function wireChat(editor: StudioEditor): void {
   input.onkeydown = (e) => {
     if (e.key === 'Enter') void turn();
   };
+  return { bridged: () => bridgeReady };
 }
