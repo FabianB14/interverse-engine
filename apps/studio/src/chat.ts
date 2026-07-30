@@ -207,7 +207,7 @@ export function wireChat(editor: StudioEditor): { bridged: () => boolean } {
 
   say(
     'tool',
-    '✦ Chat with Claude, no API key. On the computer you use for this game (once): 1) get the interverse-engine repo, 2) `pnpm install`, 3) `pnpm ai` — leave it running. This chat finds it automatically within a few seconds (works from the installed app and the website too — the bridge just has to run on THIS computer). It signs in with your Claude Code login; run `claude` in a terminal once if it asks.\n\nNo Claude Code? Paste an Anthropic API key below as a fallback (kept only on this device) and ask — "add a spooky forest", "make the button switch to Level 2".',
+    '✦ Chat with Claude, no API key. On THIS computer (one-time): install Node.js (nodejs.org) and Claude Code (claude.com/claude-code, run `claude` once to sign in), and get the interverse-engine repo (Download ZIP works). Then just double-click start-ai.cmd (Windows) / start-ai.sh — or run `pnpm ai` — and leave it running. No install step needed; this chat connects by itself within a few seconds, from the website and the installed app too.\n\nNo Claude Code? Paste an Anthropic API key below as a fallback (kept only on this device) and ask — "add a spooky forest", "make the button switch to Level 2".',
   );
   setStatus(
     `⏳ Looking for the local bridge (\`pnpm ai\`) at ${BRIDGE_URL} — retrying every few seconds… ` +

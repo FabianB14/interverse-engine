@@ -300,15 +300,24 @@ No API key needed — the AI dev cycle runs on your **Claude Code login**,
 two ways:
 
 1. **The AI Chat tab + the local bridge.** One-time setup on the
-   computer you build on: clone the `interverse-engine` repo and run
-   `pnpm install`. Then whenever you want the copilot: `pnpm ai` (leave
-   it running) and open the Studio — the chat shows "✦ Connected" within
-   a few seconds and the key box disappears (it retries automatically,
-   so the order doesn't matter). Type "add a spooky forest" or "give the
-   boss a second phase" and Claude edits the live project through studio
-   tools. Works from the dev server AND the installed app / hosted page.
-   The bridge signs in with whatever `claude` is logged in as; run
-   `claude` once in a terminal if it asks.
+   computer you build on — no `pnpm install`, no npm dependencies:
+   - Install **Node.js** (nodejs.org) and **Claude Code**
+     (claude.com/claude-code); run `claude` once in any terminal to
+     sign in.
+   - Get the `interverse-engine` repo — `git clone`, or just GitHub's
+     **Download ZIP**, unzipped anywhere.
+
+   Then whenever you want the copilot: **double-click `start-ai.cmd`**
+   (Windows) or run `./start-ai.sh` / `pnpm ai`, leave the window open,
+   and open the Studio — the chat shows "✦ Connected" within a few
+   seconds and the key box disappears (it retries automatically, so the
+   order doesn't matter). Type "add a spooky forest" or "give the boss
+   a second phase" and Claude edits the live project through studio
+   tools. Works from the dev server AND the installed app / hosted
+   page. The bridge signs in with whatever `claude` is logged in as; if
+   the repo's dependencies happen to be installed it uses the Claude
+   Agent SDK, otherwise it drives the `claude` CLI directly — same
+   result either way.
 
    **If the chat says it can't find the bridge:**
    - The bridge must run on the **same computer as the browser** —
