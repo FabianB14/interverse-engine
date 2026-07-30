@@ -37,6 +37,9 @@ export interface EventAction {
     | 'music' // play a music track (text: adventure|cozy|battle|spooky|fanfare|stop)
     | 'vfx' // particle burst (text: confetti|sparkle|poof|hearts|embers|coins)
     | 'item' // give n of database item (text: item id)
+    | 'var' // add n to a named variable (text: variable name)
+    | 'shop' // open the shop screen (db items with prices)
+    | 'inventory' // open the player's inventory
     | 'spawn' // spawn a kind (text) at x/y (defaults: this entity's spot)
     | 'remove' // remove this entity
     | 'goto' // switch to level (text)
@@ -50,12 +53,24 @@ export interface EventAction {
   y?: number;
 }
 
+/** Every command the runtime knows how to run. Imported projects are
+ *  filtered against this so an unknown/typo'd cmd can't ride along as a
+ *  dead row in the inspector and the Flow map. */
+export const EVENT_CMDS: readonly EventAction['cmd'][] = [
+  'say', 'coins', 'score', 'xp', 'heal', 'sfx', 'music', 'vfx', 'item',
+  'var', 'shop', 'inventory', 'spawn', 'remove', 'goto', 'switchOn',
+  'switchOff', 'win', 'lose',
+];
+
 export interface EventDef {
   trigger: EventTrigger;
   /** Seconds between firings for trigger 'every'. */
   every?: number;
   /** Only run while this switch is ON (empty = always). */
   ifSwitch?: string;
+  /** Only run while variable (ifVar) is at least ifVarAtLeast (default 1). */
+  ifVar?: string;
+  ifVarAtLeast?: number;
   /** Fire at most once per play. */
   once?: boolean;
   actions: EventAction[];
@@ -318,7 +333,8 @@ export function parseProject(json: string): ProjectDef {
       e.clips = (Array.isArray(e.clips) ? e.clips : []).filter(
         (c) => !!c && typeof c === 'object' && typeof c.name === 'string' && Number.isFinite(c.from) && Number.isFinite(c.to),
       );
-      // No-code events: keep only well-formed entries.
+      // No-code events: keep only well-formed entries, and inside them
+      // only actions the runtime can actually run.
       e.events = (Array.isArray(e.events) ? e.events : []).filter(
         (ev): ev is EventDef =>
           !!ev &&
@@ -326,6 +342,9 @@ export function parseProject(json: string): ProjectDef {
           ['tap', 'touch', 'start', 'every'].includes((ev as EventDef).trigger) &&
           Array.isArray((ev as EventDef).actions),
       );
+      for (const ev of e.events) {
+        ev.actions = ev.actions.filter((a) => !!a && typeof a === 'object' && EVENT_CMDS.includes(a.cmd));
+      }
     }
   }
   if (!p.scenes.some((s) => s.id === p.startScene)) p.startScene = p.scenes[0]!.id;

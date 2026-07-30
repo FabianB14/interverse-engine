@@ -20,6 +20,14 @@ edit is the real engine, live — press **▶ Play** at any moment.
   | Tiny Quest | Top-down RPG | NPCs, training, branching **skill tree** |
   | Hilltop Hop | Gravity run · wide | Run + JUMP across 3 screens, camera follows |
   | Firefly Party | Multiplayer co-op | Host a room code, catch fireflies together |
+  | Hero's Errand | Menu → Quest | Title menu, village shop, find 2 chests, boss lair |
+
+  **Hero's Errand** is the capstone — it uses almost everything in this
+  guide at once (a start-button menu level, a shopkeeper NPC selling
+  database items, two chests that count into a `chests` variable, a gate
+  that only opens at 2, a boss with hearts and an ability, and a victory
+  fanfare). Load it and read its ⚡ events and ⛓ Flow map to see how a
+  full small game is put together.
 
   First-person / 3D templates arrive when the engine grows a 3D renderer.
 
@@ -139,7 +147,8 @@ pick a **trigger** — 👆 When tapped · 🚶 When the player touches it ·
 🎬 When the level starts · ⏲ Every N seconds — then stack **actions**
 from a list: 💬 Say message, 🪙 Give coins, ⭐ Add score, ✨ Grant XP,
 ❤ Heal hearts, 🔊 Play sound, 🐣 Spawn a thing, 🗑 Remove this,
-🚪 Go to level, 🔛/⏹ Turn a switch on/off, 🏆 Win, 💀 Lose.
+🚪 Go to level, 🔛/⏹ Turn a switch on/off, 🔢 Add to variable,
+🛒 Open shop, 🎒 Open inventory, 🏆 Win, 💀 Lose.
 
 **🎥 Camera direction** (code): `api.camera.panTo(x, y, secs)` parks the
 camera somewhere (a door opening across the map), `api.camera.follow('Hero')`
@@ -148,14 +157,21 @@ cutscene bars. And **imported models animate themselves**: clips named
 `idle` / `walk` / `jump` auto-switch as players and mobs move — a state
 machine with zero wiring.
 
-Two extras make real quests possible:
+Three extras make real quests possible:
 - **only if switch…** — the event runs only while a named switch is ON.
   A chest can `Turn switch ON: opened`, and a door gated with
   `only if switch: opened` starts working after the chest is found.
+- **needs variable… ≥ n** — the event runs only once a counter has
+  reached a number. Switches answer *did it happen?*; variables answer
+  *how many?* Give two chests a `🔢 Add to variable: chests +1` action
+  and gate the gate on `needs variable: chests` ≥ `2`, and the player
+  must find **both** before it opens. That's a collect-N quest with no
+  code at all.
 - **once** — fire at most one time per play.
 
-Switches are shared with the Code window (`api.switches.on/off/isOn`),
-so no-code events and scripts work on the same world state.
+Switches and variables are shared with the Code window
+(`api.switches.on/off/isOn`, `api.vars.get/set/add`), so no-code events
+and scripts work on the same world state.
 
 ## 4⅝ · The 🗄 Database — items, shops, languages
 
@@ -167,6 +183,12 @@ The **🗄** toolbar button opens the project database:
   `api.items.give('potion')`, `.count`, `.use` (applies the effect),
   `.buy` (spends coins at the table price), and `api.items.open()` — a
   ready-made 🎒 inventory screen where players tap items to use them.
+- **🛒 The shop screen** — every item you give a **price** above 0 is
+  already for sale. Give a shopkeeper NPC a 👆 tap event with the
+  **🛒 Open shop** action and you have a working store: the panel lists
+  the wares with prices, shows the live coin wallet, and tapping a row
+  buys it (a buzz if the player is short). From code it's
+  `api.shop.open()`. No shop scene to build — the database *is* the shop.
 - **🌐 Languages** — a translation table. Any text starting with `@key`
   (labels, buttons, stories, 💬 events) shows the player's language:
   `{"en": {"greet": "Hello"}, "es": {"greet": "Hola"}}`. From code:

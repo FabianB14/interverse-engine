@@ -348,9 +348,98 @@ function party(): ProjectDef {
   return project('Firefly Party (co-op)', [s], true);
 }
 
+/** Capstone: menu screen -> village (shop, chests, gated door) -> boss —
+ *  built almost entirely from ⚡ event blocks, variables and the database. */
+function quest(): ProjectDef {
+  const menu = defaultScene('Menu');
+  menu.background = 0x171226;
+  menu.entities.push(
+    E('text', 'Title', 360, 420, { text: "🏰 HERO'S ERRAND", fontSize: 52, color: 0xffd166 }),
+    E('text', 'Sub', 360, 500, { text: 'a tiny quest built from event blocks', fontSize: 24, color: 0x9a97b8 }),
+    E('button', 'Start', 360, 720, {
+      text: '▶ START',
+      color: 0x8affc1,
+      events: [{ trigger: 'tap', actions: [{ cmd: 'goto', text: 'Village' }] }],
+    }),
+  );
+  const village = defaultScene('Village');
+  village.background = 0x14261c;
+  village.entities.push(
+    E('blob', 'Hero', 360, 1000, { color: 0xffd166, held: 'sword' }),
+    E('npc', 'Shopkeeper', 180, 420, {
+      color: 0x8fd0ff,
+      hat: 'cap',
+      lines: ['Welcome! Tap me to browse my wares.'],
+      events: [{ trigger: 'tap', actions: [{ cmd: 'shop' }] }],
+    }),
+    E('crate', 'Chest A', 560, 380, {
+      events: [
+        {
+          trigger: 'touch',
+          once: true,
+          actions: [
+            { cmd: 'coins', n: 6 },
+            { cmd: 'var', text: 'chests', n: 1 },
+            { cmd: 'vfx', text: 'coins' },
+            { cmd: 'remove' },
+          ],
+        },
+      ],
+    }),
+    E('crate', 'Chest B', 160, 760, {
+      events: [
+        {
+          trigger: 'touch',
+          once: true,
+          actions: [
+            { cmd: 'coins', n: 6 },
+            { cmd: 'var', text: 'chests', n: 1 },
+            { cmd: 'vfx', text: 'coins' },
+            { cmd: 'remove' },
+          ],
+        },
+      ],
+    }),
+    E('lantern', 'Gate', 560, 900, {
+      events: [
+        { trigger: 'touch', ifVar: 'chests', ifVarAtLeast: 2, actions: [{ cmd: 'goto', text: 'Boss Lair' }] },
+        { trigger: 'tap', actions: [{ cmd: 'say', text: 'Open both chests to unlock the lair!' }] },
+      ],
+    }),
+    E('text', 'Hint', 360, 160, { text: 'Open both chests, then touch the gate', fontSize: 26, color: 0x9a97b8 }),
+  );
+  village.script = S(["api.player('Hero', 320);", "api.music.play('adventure');"]);
+  const lair = defaultScene('Boss Lair');
+  lair.background = 0x1c1220;
+  lair.entities.push(
+    E('blob', 'Hero', 360, 1040, { color: 0xffd166, held: 'sword' }),
+    E('boss', 'Gloomfang', 360, 300, { shootEvery: 2.6 }),
+  );
+  lair.script = S([
+    "api.player('Hero', 330);",
+    "api.music.play('battle');",
+    'api.hearts(3);',
+    "api.ability('Slash', { icon: 'sword', cooldown: 0.5, key: 'j' }, function () {",
+    '  api.meleeAttack(150, 1);',
+    '});',
+    'api.onDefeat(function (name) {',
+    "  if (name === 'Gloomfang') { api.music.fanfare(); api.gameOver('QUEST COMPLETE! 🏆'); }",
+    '});',
+  ]);
+  const p = project("Hero's Errand", [menu, village, lair]);
+  p.db = {
+    items: [
+      { id: 'potion', name: 'Potion', emoji: '🧪', desc: 'Heals 2 hearts', price: 5, effect: 'heal', n: 2 },
+      { id: 'charm', name: 'Lucky Charm', emoji: '🍀', desc: '+10 XP', price: 8, effect: 'xp', n: 10 },
+    ],
+  };
+  return p;
+}
+
 export const TEMPLATES: TemplateDef[] = [
   { id: 'blank', name: 'Blank', emoji: '⬜', view: '2D', blurb: 'An empty canvas with one hero.', make: () => project('My Game', [(() => { const s = defaultScene('Level 1'); s.entities.push(E('blob', 'Hero', 360, 640)); return s; })()]) },
   { id: 'topdown', name: 'Garden Explorer', emoji: '🧭', view: 'Top-down', blurb: 'Walk anywhere, collect the fireflies. Cozy-action starter.', make: topDown },
+  { id: 'quest', name: "Hero's Errand", emoji: '🏰', view: 'Menu → Quest', blurb: 'Menu screen, shop, chests, a gated door and a boss — built from event blocks.', make: quest },
   { id: 'side25', name: 'Sunset Street', emoji: '🌇', view: '2.5D · 3 screens wide', blurb: 'A long street to journey down — depth scaling + camera follow built in.', make: side25 },
   { id: 'side', name: 'Hilltop Hop', emoji: '⛰️', view: 'Gravity run · wide', blurb: 'Run and JUMP across a 3-screen world — gravity is a level physics toggle.', make: sideView },
   { id: 'runner', name: 'Blob Dash', emoji: '🏃', view: 'Side 2D', blurb: 'Endless runner: jump the crates, speed ramps up.', make: runner },

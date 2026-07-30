@@ -46,6 +46,12 @@ const actionLabel = (a: EventAction): string => {
       return `⏹${a.text ?? ''}`;
     case 'item':
       return `🎁${a.text ?? ''}`;
+    case 'var':
+      return `🔢${a.text ?? ''}+${a.n ?? 1}`;
+    case 'shop':
+      return '🛒shop';
+    case 'inventory':
+      return '🎒bag';
     case 'win':
       return '🏆win';
     case 'lose':
@@ -201,7 +207,7 @@ export function wireFlow(editor: StudioEditor): { render: () => void; nodeCount:
         el.className = 'flow-node';
         const evLines = ent.events
           .map((ev) => {
-            const gate = ev.ifSwitch ? ` 🔒${ev.ifSwitch}` : '';
+            const gate = `${ev.ifSwitch ? ` 🔒${ev.ifSwitch}` : ''}${ev.ifVar ? ` 🔢${ev.ifVar}≥${ev.ifVarAtLeast ?? 1}` : ''}`;
             const acts = ev.actions.map(actionLabel).join(' · ');
             return `<div class="fn-ev">${TRIG_ICON[ev.trigger]}${gate} → ${acts || '(no actions)'}</div>`;
           })

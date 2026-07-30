@@ -136,7 +136,7 @@ await page.screenshot({ path: `${outDir}/st-3-final.png` });
 // scene script runs without erroring or instantly game-overing, and (the
 // vanish-on-play regression) every spawned entity is VISIBLY rendering
 // after the pop-in settles.
-const templateIds = ['topdown', 'side25', 'side', 'runner', 'slash', 'action', 'cozy', 'rpg'];
+const templateIds = ['topdown', 'quest', 'side25', 'side', 'runner', 'slash', 'action', 'cozy', 'rpg'];
 const templates = {};
 for (const id of templateIds) {
   await page.evaluate((t) => window.__studio.loadTemplate(t), id);
@@ -491,6 +491,36 @@ const dbOk =
 await page.evaluate(() => window.__studio.stop());
 await sleep(150);
 
+// QUEST CAPSTONE: menu button -> village; shop opens; chests bump the
+// variable; the gate stays shut at 1 and opens at 2 into the boss lair.
+await page.evaluate(() => window.__studio.loadTemplate('quest'));
+await sleep(300);
+await page.evaluate(() => window.__studio.play());
+await sleep(700);
+const qScene0 = await page.evaluate(() => window.__studio.sceneName());
+await page.evaluate(() => window.__studio.applyScriptNow("api.goto('Village')"));
+await sleep(700);
+await page.evaluate(() => window.__studio.applyScriptNow('api.shop.open()'));
+const qShop = await page.evaluate(() => window.__studio.shopVisible());
+await page.evaluate(() => window.__studio.applyScriptNow("var h=api.entity('Hero'); h.x=560; h.y=380;"));
+await sleep(400);
+const qVar1 = await page.evaluate(() => window.__studio.varNow('chests'));
+// gate must stay shut with one chest
+await page.evaluate(() => window.__studio.applyScriptNow("var h=api.entity('Hero'); h.x=560; h.y=900;"));
+await sleep(400);
+const qStillVillage = await page.evaluate(() => window.__studio.sceneName());
+await page.evaluate(() => window.__studio.applyScriptNow("var h=api.entity('Hero'); h.x=160; h.y=760;"));
+await sleep(400);
+const qVar2 = await page.evaluate(() => window.__studio.varNow('chests'));
+await page.evaluate(() => window.__studio.applyScriptNow("var h=api.entity('Hero'); h.x=560; h.y=900;"));
+await sleep(700);
+const qScene2 = await page.evaluate(() => window.__studio.sceneName());
+const questOk =
+  qScene0 === 'Menu' && qShop === true && qVar1 === 1 && qStillVillage === 'Village' &&
+  qVar2 === 2 && qScene2 === 'Boss Lair';
+await page.evaluate(() => window.__studio.stop());
+await sleep(150);
+
 // FLOW TAB + PANEL + TITLE SCREEN: the visual scripting map renders nodes
 // for the event-built actors; the bottom panel minimizes and restores; and
 // api.title() pauses on a save-slot screen until a choice is made.
@@ -585,7 +615,8 @@ aiBridge.kill();
 const ok =
   placeOk && editOk && storyOk && levelsOk && playOk && stopOk && exportOk && importOk &&
   templatesOk && skillsOk && scoreOk && tilesOk && cameraOk && frameOk && combatOk && rangedOk &&
-  patrolOk && chatOk && coinsOk && persistOk && libOk && eventsOk && genOk && uiOk && dbOk && netOk &&
+  patrolOk && chatOk && coinsOk && persistOk && libOk && eventsOk && genOk && uiOk && dbOk &&
+  questOk && netOk &&
   errors.length === 0;
 console.log(
   JSON.stringify(
@@ -604,6 +635,7 @@ console.log(
       genOk, mazeHasWalls, mazePlays, islandLive,
       uiOk, flowN, minOn, minOff, titleShown, titleGone,
       dbOk, hierN, linkOk, linkSwitch, itemN1, itemN0, coinsBeforeUse, coinsAfterUse, bought, trEs,
+      questOk, qScene0, qShop, qVar1, qStillVillage, qVar2, qScene2,
       netOk, playersA, playersB, remotesB, moveOk, remotePosB, stateB,
       errors: errors.slice(0, 6),
     },

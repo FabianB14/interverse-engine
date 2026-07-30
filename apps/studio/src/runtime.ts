@@ -414,6 +414,11 @@ export interface ScriptApi {
     list: () => { id: string; name: string; emoji: string; price: number }[];
     open: () => void;
   };
+  /** Numeric variables — the counters behind quest progress, kill
+   *  tallies, anything "needs at least N". Shared with event gates. */
+  vars: { get: (name: string) => number; set: (name: string, v: number) => void; add: (name: string, n?: number) => void };
+  /** 🛒 Ready-made shop screen over the database items with prices. */
+  shop: { open: () => void };
   /** 🎥 Camera direction: pan somewhere (gameplay keeps running), shake,
    *  return to following a player, cinematic letterbox bars. */
   camera: {
@@ -536,6 +541,7 @@ export class PlayScene extends Scene {
   private coinDrops: { e: Entity }[] = [];
   private coinText: Text | null = null;
   private switchesMap = new Map<string, boolean>();
+  private varsMap = new Map<string, number>();
   private onKeyDown = (e: KeyboardEvent): void => {
     this.keys.add(e.key.toLowerCase());
     const a = this.abilityStates.find((x) => x.key && x.key === e.key.toLowerCase());
@@ -1467,6 +1473,7 @@ export class PlayScene extends Scene {
     const run = (ev: EventDef, i: number): void => {
       if (ev.once && state[i]!.fired) return;
       if (ev.ifSwitch && !this.switchesMap.get(ev.ifSwitch)) return;
+      if (ev.ifVar && (this.varsMap.get(ev.ifVar) ?? 0) < (ev.ifVarAtLeast ?? 1)) return;
       if (ev.once) state[i]!.fired = true;
       this.runActions(def, e, ev.actions ?? []);
     };
@@ -1537,6 +1544,15 @@ export class PlayScene extends Scene {
           break;
         case 'item':
           if (a.text) this.giveItem(a.text, a.n ?? 1);
+          break;
+        case 'var':
+          if (a.text) this.varsMap.set(a.text, (this.varsMap.get(a.text) ?? 0) + (a.n ?? 1));
+          break;
+        case 'shop':
+          this.openShop();
+          break;
+        case 'inventory':
+          this.openInventory();
           break;
         case 'spawn':
           this.spawnDef(defaultEntity((a.text ?? 'crate') as EntityKind, a.x ?? def.x, a.y ?? def.y));
@@ -1796,6 +1812,12 @@ export class PlayScene extends Scene {
         list: () => (this.project.db?.items ?? []).map((i) => ({ id: i.id, name: i.name, emoji: i.emoji, price: i.price })),
         open: () => this.openInventory(),
       },
+      vars: {
+        get: (name) => this.varsMap.get(name) ?? 0,
+        set: (name, v) => void this.varsMap.set(name, v),
+        add: (name, n = 1) => void this.varsMap.set(name, (this.varsMap.get(name) ?? 0) + n),
+      },
+      shop: { open: () => this.openShop() },
       camera: {
         panTo: (x, y, secs = 1) => this.cameraPanTo(x, y, secs),
         shake: (power = 14, secs = 0.4) => {
@@ -1874,6 +1896,92 @@ export class PlayScene extends Scene {
   }
 
   private invRoot: Entity | null = null;
+  private shopRoot: Entity | null = null;
+
+  /** 🛒 Shop overlay — buy database items with coins. */
+  openShop(): void {
+    this.shopRoot?.destroy({ children: true });
+    const W = this.game.viewWidth;
+    const H = this.game.viewHeight;
+    const root = new Entity();
+    const bg = new Graphics().roundRect(W / 2 - 260, H * 0.16, 520, H * 0.58, 16).fill({ color: 0x16131f, alpha: 0.97 });
+    bg.eventMode = 'static';
+    root.addChild(bg);
+    const title = new Text({
+      text: '🛒 SHOP',
+      style: { fontFamily: 'system-ui, sans-serif', fontSize: 30, fontWeight: '800', fill: 0xffd166 },
+    });
+    title.anchor.set(0.5, 0);
+    title.position.set(W / 2, H * 0.16 + 16);
+    root.addChild(title);
+    const wallet = new Text({
+      text: `🪙 ${this.coinsGet()}`,
+      style: { fontFamily: 'system-ui, sans-serif', fontSize: 24, fontWeight: '800', fill: 0xffd166 },
+    });
+    wallet.anchor.set(0, 0);
+    wallet.position.set(W / 2 - 240, H * 0.16 + 20);
+    root.addChild(wallet);
+    const wares = (this.project.db?.items ?? []).filter((i) => i.price > 0).slice(0, 7);
+    if (!wares.length) {
+      const empty = new Text({
+        text: '(no items for sale — set prices in 🗄 Database)',
+        style: { fontFamily: 'system-ui, sans-serif', fontSize: 20, fill: 0x9a97b8 },
+      });
+      empty.anchor.set(0.5);
+      empty.position.set(W / 2, H * 0.16 + 120);
+      root.addChild(empty);
+    }
+    wares.forEach((item, i) => {
+      const y = H * 0.16 + 90 + i * 52;
+      const row = new Text({
+        text: `${item.emoji} ${tr(item.name)}   🪙${item.price}`,
+        style: { fontFamily: 'system-ui, sans-serif', fontSize: 26, fontWeight: '700', fill: 0xe6e4f0 },
+      });
+      row.anchor.set(0, 0.5);
+      row.position.set(W / 2 - 230, y);
+      row.eventMode = 'static';
+      row.cursor = 'pointer';
+      const owned = new Text({
+        text: this.itemCount(item.id) ? `×${this.itemCount(item.id)}` : '',
+        style: { fontFamily: 'system-ui, sans-serif', fontSize: 20, fill: 0x8affc1 },
+      });
+      owned.anchor.set(1, 0.5);
+      owned.position.set(W / 2 + 230, y);
+      row.on('pointertap', () => {
+        if (this.buyItem(item.id)) {
+          wallet.text = `🪙 ${this.coinsGet()}`;
+          owned.text = `×${this.itemCount(item.id)}`;
+          this.spawnVfx('coins', W / 2, y);
+        } else {
+          audio.buzz();
+        }
+      });
+      root.addChild(row, owned);
+    });
+    const close = new Text({
+      text: '✕',
+      style: { fontFamily: 'system-ui, sans-serif', fontSize: 30, fontWeight: '800', fill: 0x9a97b8 },
+    });
+    close.anchor.set(0.5);
+    close.position.set(W / 2 + 236, H * 0.16 + 30);
+    close.eventMode = 'static';
+    close.cursor = 'pointer';
+    close.on('pointertap', () => {
+      root.destroy({ children: true });
+      this.shopRoot = null;
+    });
+    root.addChild(close);
+    this.add(root);
+    this.shopRoot = root;
+  }
+
+  shopVisible(): boolean {
+    return !!this.shopRoot;
+  }
+
+  varNow(name: string): number {
+    return this.varsMap.get(name) ?? 0;
+  }
 
   /** 🎒 Inventory overlay — tap an item to use it. */
   openInventory(): void {

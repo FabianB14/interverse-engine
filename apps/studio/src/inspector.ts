@@ -6,7 +6,7 @@ import type { EntityDef, EventAction, EventDef } from './model.js';
 const hex = (n: number): string => `#${n.toString(16).padStart(6, '0')}`;
 
 /** The no-code command palette: label + which params each command needs. */
-const EVENT_CMDS: { cmd: EventAction['cmd']; label: string; params: 'text' | 'n' | 'sound' | 'music' | 'vfx' | 'item' | 'spawn' | 'none' }[] = [
+const EVENT_CMDS: { cmd: EventAction['cmd']; label: string; params: 'text' | 'n' | 'sound' | 'music' | 'vfx' | 'item' | 'varn' | 'spawn' | 'none' }[] = [
   { cmd: 'say', label: '💬 Say message', params: 'text' },
   { cmd: 'coins', label: '🪙 Give coins', params: 'n' },
   { cmd: 'score', label: '⭐ Add score', params: 'n' },
@@ -16,6 +16,9 @@ const EVENT_CMDS: { cmd: EventAction['cmd']; label: string; params: 'text' | 'n'
   { cmd: 'music', label: '🎵 Music', params: 'music' },
   { cmd: 'vfx', label: '✨ Particle burst', params: 'vfx' },
   { cmd: 'item', label: '🎁 Give item', params: 'item' },
+  { cmd: 'var', label: '🔢 Add to variable', params: 'varn' },
+  { cmd: 'shop', label: '🛒 Open shop', params: 'none' },
+  { cmd: 'inventory', label: '🎒 Open inventory', params: 'none' },
   { cmd: 'spawn', label: '🐣 Spawn a thing', params: 'spawn' },
   { cmd: 'remove', label: '🗑 Remove this', params: 'none' },
   { cmd: 'goto', label: '🚪 Go to level…', params: 'text' },
@@ -355,6 +358,29 @@ export function wireInspector(editor: StudioEditor): void {
       onceL.append(once, ' once');
       gates.append(gate, onceL);
       box.appendChild(gates);
+      const vgates = document.createElement('div');
+      vgates.className = 'row';
+      vgates.style.marginTop = '4px';
+      const vGate = document.createElement('input');
+      vGate.type = 'text';
+      vGate.placeholder = 'needs variable… (blank = always)';
+      vGate.style.flex = '1';
+      vGate.value = ev.ifVar ?? '';
+      vGate.oninput = () => {
+        ev.ifVar = vGate.value.trim();
+        editor.touch();
+      };
+      const vMin = document.createElement('input');
+      vMin.type = 'number';
+      vMin.title = 'at least';
+      vMin.style.width = '56px';
+      vMin.value = String(ev.ifVarAtLeast ?? 1);
+      vMin.oninput = () => {
+        ev.ifVarAtLeast = Number(vMin.value) || 1;
+        editor.touch();
+      };
+      vgates.append(vGate, vMin);
+      box.appendChild(vgates);
 
       ev.actions.forEach((a, ai) => {
         const arow = document.createElement('div');
@@ -394,6 +420,25 @@ export function wireInspector(editor: StudioEditor): void {
             editor.touch();
           };
           arow.appendChild(n);
+        } else if (spec.params === 'varn') {
+          const vn = document.createElement('input');
+          vn.type = 'text';
+          vn.placeholder = 'variable';
+          vn.style.width = '90px';
+          vn.value = a.text ?? '';
+          vn.oninput = () => {
+            a.text = vn.value.trim();
+            editor.touch();
+          };
+          const amt = document.createElement('input');
+          amt.type = 'number';
+          amt.style.width = '56px';
+          amt.value = String(a.n ?? 1);
+          amt.oninput = () => {
+            a.n = Number(amt.value) || 0;
+            editor.touch();
+          };
+          arow.append(vn, amt);
         } else if (spec.params === 'item') {
           const it = document.createElement('select');
           const items = editor.project.db?.items ?? [];

@@ -81,6 +81,8 @@ export interface StudioDebug {
   useItem: (id: string) => boolean;
   buyItem: (id: string) => boolean;
   cameraHolding: () => boolean;
+  varNow: (name: string) => number;
+  shopVisible: () => boolean;
   hierarchyCount: () => number;
   flowNodes: () => number;
   titleVisible: () => boolean;

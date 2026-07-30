@@ -970,6 +970,8 @@ async function main(): Promise<void> {
     useItem: (id: string) => editor.getPlayScene()?.useItem(id) ?? false,
     buyItem: (id: string) => editor.getPlayScene()?.buyItem(id) ?? false,
     cameraHolding: () => editor.getPlayScene()?.cameraHolding() ?? false,
+    varNow: (name: string) => editor.getPlayScene()?.varNow(name) ?? 0,
+    shopVisible: () => editor.getPlayScene()?.shopVisible() ?? false,
     hierarchyCount: () => document.querySelectorAll('#left div').length,
     flowNodes: () => {
       flow.render();
