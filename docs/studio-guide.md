@@ -103,6 +103,24 @@ template ships with a painted garden to start from.
   alpha, scale }, seconds)` for cutscenes and juice.
 - From code: `api.sfx.pop()`, `.blip()`, `.chime()`, `.buzz()`.
 
+## 4½ · Events — build logic with no code
+
+Select anything and use **⚡ Events** in the inspector (RPG-Maker style):
+pick a **trigger** — 👆 When tapped · 🚶 When the player touches it ·
+🎬 When the level starts · ⏲ Every N seconds — then stack **actions**
+from a list: 💬 Say message, 🪙 Give coins, ⭐ Add score, ✨ Grant XP,
+❤ Heal hearts, 🔊 Play sound, 🐣 Spawn a thing, 🗑 Remove this,
+🚪 Go to level, 🔛/⏹ Turn a switch on/off, 🏆 Win, 💀 Lose.
+
+Two extras make real quests possible:
+- **only if switch…** — the event runs only while a named switch is ON.
+  A chest can `Turn switch ON: opened`, and a door gated with
+  `only if switch: opened` starts working after the chest is found.
+- **once** — fire at most one time per play.
+
+Switches are shared with the Code window (`api.switches.on/off/isOn`),
+so no-code events and scripts work on the same world state.
+
 ## 5 · Stories (narratives)
 
 Select a character → **Story** tab → one line per row → **Save story**.

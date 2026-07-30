@@ -692,6 +692,14 @@ async function main(): Promise<void> {
     mobEnraged: (name: string) => editor.getPlayScene()?.mobEnraged(name) ?? false,
     chatBridged: () => chat.bridged(),
     coinsNow: () => editor.getPlayScene()?.coinsNow() ?? 0,
+    setEvents: (name: string, events: unknown) => {
+      const d = editor.entityByName(name);
+      if (!d) return false;
+      d.events = events as typeof d.events;
+      editor.touch();
+      return true;
+    },
+    switchIsOn: (name: string) => editor.getPlayScene()?.switchState(name) ?? false,
     librarySave: () => editor.saveToLibrary(),
     libraryList: () => editor.libraryList(),
     libraryOpen: (id: string) => editor.openFromLibrary(id),

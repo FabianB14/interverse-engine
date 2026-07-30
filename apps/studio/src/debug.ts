@@ -67,6 +67,8 @@ export interface StudioDebug {
   mobEnraged: (name: string) => boolean;
   chatBridged: () => boolean;
   coinsNow: () => number;
+  setEvents: (name: string, events: unknown) => boolean;
+  switchIsOn: (name: string) => boolean;
   librarySave: () => string;
   libraryList: () => { id: string; name: string; updated: number }[];
   libraryOpen: (id: string) => boolean;

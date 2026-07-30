@@ -383,6 +383,53 @@ const patrolOk = gardenerX > 240; // started at 160, walking its loop
 await page.evaluate(() => window.__studio.stop());
 await sleep(150);
 
+// NO-CODE EVENTS: an entirely event-built chest: touching it gives score,
+// flips a switch, and removes itself; a second entity is gated on that
+// switch, so touching it only pays out after the chest is opened.
+await page.evaluate(() => window.__studio.loadTemplate('blank'));
+await sleep(300);
+await page.evaluate(() => {
+  window.__studio.addEntity('crate', 560, 640);
+  window.__studio.addEntity('lantern', 160, 640);
+  window.__studio.setEvents('crate', [
+    {
+      trigger: 'touch',
+      actions: [
+        { cmd: 'score', n: 7 },
+        { cmd: 'switchOn', text: 'opened' },
+        { cmd: 'remove' },
+      ],
+    },
+  ]);
+  window.__studio.setEvents('lantern', [
+    { trigger: 'touch', ifSwitch: 'opened', actions: [{ cmd: 'coins', n: 2 }] },
+  ]);
+  window.__studio.setScript("api.player('Hero', 300);");
+  window.__studio.play();
+});
+await sleep(700);
+const evCoins0 = await page.evaluate(() => window.__studio.coinsNow());
+const evCount0 = await page.evaluate(() => window.__studio.playEntityCount());
+// gated lantern first: nothing should happen (switch is off)
+await page.evaluate(() => window.__studio.applyScriptNow("var h=api.entity('Hero'); h.x=160; h.y=640;"));
+await sleep(400);
+const evCoinsGated = await page.evaluate(() => window.__studio.coinsNow());
+// open the chest: +7 score, switch on, chest disappears
+await page.evaluate(() => window.__studio.applyScriptNow("var h=api.entity('Hero'); h.x=560; h.y=640;"));
+await sleep(400);
+const evScore = await page.evaluate(() => window.__studio.playScore());
+const evSwitch = await page.evaluate(() => window.__studio.switchIsOn('opened'));
+const evCount1 = await page.evaluate(() => window.__studio.playEntityCount());
+// back to the lantern: the gate is open now, coins pay out
+await page.evaluate(() => window.__studio.applyScriptNow("var h=api.entity('Hero'); h.x=160; h.y=640;"));
+await sleep(400);
+const evCoins1 = await page.evaluate(() => window.__studio.coinsNow());
+const eventsOk =
+  evCoinsGated === evCoins0 && evScore === 7 && evSwitch === true &&
+  evCount1 === evCount0 - 1 && evCoins1 === evCoins0 + 2;
+await page.evaluate(() => window.__studio.stop());
+await sleep(150);
+
 // AI CHAT BRIDGE: the chat tab talks to Claude through the local bridge
 // (mock mode here) — no API key. The mock replies, calls add_entity over
 // the wire, and the lantern lands in the editor.
@@ -435,7 +482,7 @@ aiBridge.kill();
 const ok =
   placeOk && editOk && storyOk && levelsOk && playOk && stopOk && exportOk && importOk &&
   templatesOk && skillsOk && scoreOk && tilesOk && cameraOk && frameOk && combatOk && rangedOk &&
-  patrolOk && chatOk && coinsOk && persistOk && libOk && netOk && errors.length === 0;
+  patrolOk && chatOk && coinsOk && persistOk && libOk && eventsOk && netOk && errors.length === 0;
 console.log(
   JSON.stringify(
     {
@@ -449,6 +496,7 @@ console.log(
       chatOk, bridged, chatCount0, chatCount1,
       coinsOk, coins, persistOk, savedQuest, xpBefore, xpRestored,
       libOk, libId, savedName, restoredName, libCount,
+      eventsOk, evCoins0, evCoinsGated, evScore, evSwitch, evCount0, evCount1, evCoins1,
       netOk, playersA, playersB, remotesB, moveOk, remotePosB, stateB,
       errors: errors.slice(0, 6),
     },

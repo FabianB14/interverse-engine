@@ -22,6 +22,42 @@ export type EntityKind =
  *  wander randomly, or guard a home spot (chase when close, then return). */
 export type MobBehavior = 'chase' | 'patrol' | 'wander' | 'guard';
 
+/** No-code events (RPG-Maker style): pick a trigger, stack actions.
+ *  Runs in Play mode with zero code — the Code tab stays for power users. */
+export type EventTrigger = 'tap' | 'touch' | 'start' | 'every';
+
+export interface EventAction {
+  cmd:
+    | 'say' // show a message (text)
+    | 'coins' // give n coins
+    | 'score' // add n score
+    | 'xp' // grant n XP (turns leveling on)
+    | 'heal' // restore n hearts
+    | 'sfx' // play a sound (text: pop|blip|chime|buzz)
+    | 'spawn' // spawn a kind (text) at x/y (defaults: this entity's spot)
+    | 'remove' // remove this entity
+    | 'goto' // switch to level (text)
+    | 'switchOn' // turn switch (text) on
+    | 'switchOff' // turn switch (text) off
+    | 'win' // end the game victorious (text = message)
+    | 'lose'; // end the game defeated (text = message)
+  text?: string;
+  n?: number;
+  x?: number;
+  y?: number;
+}
+
+export interface EventDef {
+  trigger: EventTrigger;
+  /** Seconds between firings for trigger 'every'. */
+  every?: number;
+  /** Only run while this switch is ON (empty = always). */
+  ifSwitch?: string;
+  /** Fire at most once per play. */
+  once?: boolean;
+  actions: EventAction[];
+}
+
 export type TapSound = '' | 'pop' | 'blip' | 'chime' | 'buzz';
 
 export interface EntityDef {
@@ -57,6 +93,8 @@ export interface EntityDef {
   tapSound: TapSound;
   /** Story lines (kind 'npc') — said in order when tapped in Play mode. */
   lines: string[];
+  /** No-code events: triggers + action lists (see EventDef). */
+  events: EventDef[];
 }
 
 /** How the scene is VIEWED (a device rotated to landscape just letterboxes —
@@ -142,6 +180,7 @@ export function defaultEntity(kind: EntityKind, x: number, y: number): EntityDef
     popIn: true,
     tapSound: kind === 'button' ? 'blip' : '',
     lines: [],
+    events: [],
   };
   switch (kind) {
     case 'npc':
@@ -247,6 +286,14 @@ export function parseProject(json: string): ProjectDef {
       Object.assign(d, e);
       Object.assign(e, d);
       if (!['chase', 'patrol', 'wander', 'guard'].includes(e.behavior)) e.behavior = 'chase';
+      // No-code events: keep only well-formed entries.
+      e.events = (Array.isArray(e.events) ? e.events : []).filter(
+        (ev): ev is EventDef =>
+          !!ev &&
+          typeof ev === 'object' &&
+          ['tap', 'touch', 'start', 'every'].includes((ev as EventDef).trigger) &&
+          Array.isArray((ev as EventDef).actions),
+      );
     }
   }
   if (!p.scenes.some((s) => s.id === p.startScene)) p.startScene = p.scenes[0]!.id;
