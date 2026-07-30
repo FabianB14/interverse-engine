@@ -1,8 +1,32 @@
 /** Right-hand inspector: edit every property of the selected entity. */
 import type { StudioEditor } from './editor.js';
-import type { EntityDef } from './model.js';
+import type { EntityDef, EventAction, EventDef } from './model.js';
 
 const hex = (n: number): string => `#${n.toString(16).padStart(6, '0')}`;
+
+/** The no-code command palette: label + which params each command needs. */
+const EVENT_CMDS: { cmd: EventAction['cmd']; label: string; params: 'text' | 'n' | 'sound' | 'spawn' | 'none' }[] = [
+  { cmd: 'say', label: '💬 Say message', params: 'text' },
+  { cmd: 'coins', label: '🪙 Give coins', params: 'n' },
+  { cmd: 'score', label: '⭐ Add score', params: 'n' },
+  { cmd: 'xp', label: '✨ Grant XP', params: 'n' },
+  { cmd: 'heal', label: '❤ Heal hearts', params: 'n' },
+  { cmd: 'sfx', label: '🔊 Play sound', params: 'sound' },
+  { cmd: 'spawn', label: '🐣 Spawn a thing', params: 'spawn' },
+  { cmd: 'remove', label: '🗑 Remove this', params: 'none' },
+  { cmd: 'goto', label: '🚪 Go to level…', params: 'text' },
+  { cmd: 'switchOn', label: '🔛 Turn switch ON', params: 'text' },
+  { cmd: 'switchOff', label: '⏹ Turn switch OFF', params: 'text' },
+  { cmd: 'win', label: '🏆 Win the game', params: 'text' },
+  { cmd: 'lose', label: '💀 Lose the game', params: 'text' },
+];
+
+const TRIGGERS: { value: EventDef['trigger']; label: string }[] = [
+  { value: 'tap', label: '👆 When tapped' },
+  { value: 'touch', label: '🚶 When the player touches it' },
+  { value: 'start', label: '🎬 When the level starts' },
+  { value: 'every', label: '⏲ Every N seconds' },
+];
 
 export function wireInspector(editor: StudioEditor): void {
   const title = document.getElementById('insp-title')!;
@@ -170,12 +194,196 @@ export function wireInspector(editor: StudioEditor): void {
       body.appendChild(hint);
     }
 
+    renderEvents(def);
+
     const del = document.createElement('button');
     del.className = 'btn';
     del.style.marginTop = '12px';
     del.textContent = '🗑 Delete';
     del.onclick = () => editor.removeEntity(def.id);
     body.appendChild(del);
+  };
+
+  /** ⚡ No-code events: trigger + stacked actions, all dropdowns. */
+  const renderEvents = (def: EntityDef): void => {
+    const head = document.createElement('div');
+    head.className = 'muted';
+    head.style.margin = '12px 0 4px';
+    head.textContent = '⚡ Events (no code needed)';
+    body.appendChild(head);
+
+    const touchAndRender = (): void => {
+      editor.touch();
+      render();
+    };
+
+    def.events.forEach((ev, ei) => {
+      const box = document.createElement('div');
+      box.style.cssText = 'border:1px solid #35304d;border-radius:8px;padding:6px;margin-bottom:6px';
+
+      const row = document.createElement('div');
+      row.className = 'row';
+      const trig = document.createElement('select');
+      for (const t of TRIGGERS) {
+        const o = document.createElement('option');
+        o.value = t.value;
+        o.textContent = t.label;
+        if (ev.trigger === t.value) o.selected = true;
+        trig.appendChild(o);
+      }
+      trig.onchange = () => {
+        ev.trigger = trig.value as EventDef['trigger'];
+        touchAndRender();
+      };
+      row.appendChild(trig);
+      if (ev.trigger === 'every') {
+        const secs = document.createElement('input');
+        secs.type = 'number';
+        secs.step = '0.5';
+        secs.style.width = '64px';
+        secs.value = String(ev.every ?? 2);
+        secs.oninput = () => {
+          ev.every = Number(secs.value) || 2;
+          editor.touch();
+        };
+        row.appendChild(secs);
+      }
+      const kill = document.createElement('button');
+      kill.className = 'btn';
+      kill.textContent = '✕';
+      kill.title = 'Delete this event';
+      kill.onclick = () => {
+        def.events.splice(ei, 1);
+        touchAndRender();
+      };
+      row.appendChild(kill);
+      box.appendChild(row);
+
+      // optional gates: "only if switch" + "once"
+      const gates = document.createElement('div');
+      gates.className = 'row';
+      gates.style.marginTop = '4px';
+      const gate = document.createElement('input');
+      gate.type = 'text';
+      gate.placeholder = 'only if switch… (blank = always)';
+      gate.style.flex = '1';
+      gate.value = ev.ifSwitch ?? '';
+      gate.oninput = () => {
+        ev.ifSwitch = gate.value.trim();
+        editor.touch();
+      };
+      const onceL = document.createElement('label');
+      onceL.className = 'muted';
+      const once = document.createElement('input');
+      once.type = 'checkbox';
+      once.checked = !!ev.once;
+      once.onchange = () => {
+        ev.once = once.checked;
+        editor.touch();
+      };
+      onceL.append(once, ' once');
+      gates.append(gate, onceL);
+      box.appendChild(gates);
+
+      ev.actions.forEach((a, ai) => {
+        const arow = document.createElement('div');
+        arow.className = 'row';
+        arow.style.marginTop = '4px';
+        const sel = document.createElement('select');
+        for (const c of EVENT_CMDS) {
+          const o = document.createElement('option');
+          o.value = c.cmd;
+          o.textContent = c.label;
+          if (a.cmd === c.cmd) o.selected = true;
+          sel.appendChild(o);
+        }
+        sel.onchange = () => {
+          a.cmd = sel.value as EventAction['cmd'];
+          touchAndRender();
+        };
+        arow.appendChild(sel);
+        const spec = EVENT_CMDS.find((c) => c.cmd === a.cmd)!;
+        if (spec.params === 'text') {
+          const t = document.createElement('input');
+          t.type = 'text';
+          t.style.flex = '1';
+          t.value = a.text ?? '';
+          t.oninput = () => {
+            a.text = t.value;
+            editor.touch();
+          };
+          arow.appendChild(t);
+        } else if (spec.params === 'n') {
+          const n = document.createElement('input');
+          n.type = 'number';
+          n.style.width = '64px';
+          n.value = String(a.n ?? 1);
+          n.oninput = () => {
+            a.n = Number(n.value) || 0;
+            editor.touch();
+          };
+          arow.appendChild(n);
+        } else if (spec.params === 'sound') {
+          const snd = document.createElement('select');
+          for (const s of ['pop', 'blip', 'chime', 'buzz']) {
+            const o = document.createElement('option');
+            o.value = s;
+            o.textContent = s;
+            if ((a.text ?? 'pop') === s) o.selected = true;
+            snd.appendChild(o);
+          }
+          snd.onchange = () => {
+            a.text = snd.value;
+            editor.touch();
+          };
+          arow.appendChild(snd);
+        } else if (spec.params === 'spawn') {
+          const kind = document.createElement('select');
+          for (const k of ['crate', 'lantern', 'plant', 'mob', 'boss', 'blob', 'npc']) {
+            const o = document.createElement('option');
+            o.value = k;
+            o.textContent = k;
+            if ((a.text ?? 'crate') === k) o.selected = true;
+            kind.appendChild(o);
+          }
+          kind.onchange = () => {
+            a.text = kind.value;
+            editor.touch();
+          };
+          arow.appendChild(kind);
+        }
+        const akill = document.createElement('button');
+        akill.className = 'btn';
+        akill.textContent = '✕';
+        akill.title = 'Delete this action';
+        akill.onclick = () => {
+          ev.actions.splice(ai, 1);
+          touchAndRender();
+        };
+        arow.appendChild(akill);
+        box.appendChild(arow);
+      });
+
+      const addAction = document.createElement('button');
+      addAction.className = 'btn';
+      addAction.style.marginTop = '4px';
+      addAction.textContent = '+ action';
+      addAction.onclick = () => {
+        ev.actions.push({ cmd: 'say', text: 'Hello!' });
+        touchAndRender();
+      };
+      box.appendChild(addAction);
+      body.appendChild(box);
+    });
+
+    const addEvent = document.createElement('button');
+    addEvent.className = 'btn';
+    addEvent.textContent = '+ Add event';
+    addEvent.onclick = () => {
+      def.events.push({ trigger: 'tap', actions: [{ cmd: 'sfx', text: 'pop' }] });
+      touchAndRender();
+    };
+    body.appendChild(addEvent);
   };
 
   editor.onSelection = render;

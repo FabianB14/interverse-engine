@@ -27,7 +27,7 @@ import { DialogueBox } from '@interverse/ui';
 import { fetchChainBalance } from '@interverse/platform';
 import { drawIcon } from './icons.js';
 import { defaultEntity } from './model.js';
-import type { EntityDef, ProjectDef, SceneDef, TapSound } from './model.js';
+import type { EntityDef, EntityKind, EventAction, EventDef, ProjectDef, SceneDef, TapSound } from './model.js';
 import { SkillTree } from './skills.js';
 import type { SkillTreeDef } from './skills.js';
 import type { StudioNet } from './net.js';
@@ -331,6 +331,9 @@ export interface ScriptApi {
   /** Coins dropped by defeated mobs (picked up by walking over them);
    *  the balance persists in the game's save file. */
   coins: { get: () => number; add: (n: number) => void; spend: (n: number) => boolean };
+  /** Named on/off switches — shared with the no-code event system
+   *  ("only if switch" gates), so code and event blocks interoperate. */
+  switches: { on: (name: string) => void; off: (name: string) => void; isOn: (name: string) => boolean };
   /** Skill tree: define once, then open()/addPoints()/unlock()/isUnlocked(). */
   skills: SkillTree;
   /** End the game with a message (score shown too). */
@@ -430,6 +433,7 @@ export class PlayScene extends Scene {
   private gameSave: SaveStore | null = null;
   private coinDrops: { e: Entity }[] = [];
   private coinText: Text | null = null;
+  private switchesMap = new Map<string, boolean>();
   private onKeyDown = (e: KeyboardEvent): void => {
     this.keys.add(e.key.toLowerCase());
     const a = this.abilityStates.find((x) => x.key && x.key === e.key.toLowerCase());
@@ -627,6 +631,7 @@ export class PlayScene extends Scene {
       });
     }
     if (def.kind === 'mob' || def.kind === 'boss') this.registerMob(def, e);
+    this.wireEvents(def, e);
     return e;
   }
 
@@ -1256,6 +1261,117 @@ export class PlayScene extends Scene {
     }
   }
 
+  private sayLines(speaker: string, lines: string[]): void {
+    const nodes: DialogueData['nodes'] = {};
+    lines.forEach((text, i) => {
+      nodes[`n${i}`] = { speaker, text, ...(i < lines.length - 1 ? { next: `n${i + 1}` } : {}) };
+    });
+    this.openStory({ start: 'n0', nodes });
+  }
+
+  // ------------------------------------------------------ no-code events
+
+  /** Wire an entity's event blocks (RPG-Maker style: trigger + actions). */
+  private wireEvents(def: EntityDef, e: Entity): void {
+    const evs = def.events ?? [];
+    if (!evs.length) return;
+    const state = evs.map(() => ({ fired: false, inside: false, t: 0 }));
+    const run = (ev: EventDef, i: number): void => {
+      if (ev.once && state[i]!.fired) return;
+      if (ev.ifSwitch && !this.switchesMap.get(ev.ifSwitch)) return;
+      if (ev.once) state[i]!.fired = true;
+      this.runActions(def, e, ev.actions ?? []);
+    };
+    evs.forEach((ev, i) => {
+      if (ev.trigger === 'start') run(ev, i);
+      else if (ev.trigger === 'tap') makeTappable(e, () => run(ev, i));
+      else {
+        this.updaters.push((dt) => {
+          if (e.destroyed) return;
+          if (ev.trigger === 'every') {
+            const secs = Math.max(0.1, ev.every ?? 1);
+            state[i]!.t += dt;
+            while (state[i]!.t >= secs) {
+              state[i]!.t -= secs;
+              run(ev, i);
+            }
+          } else {
+            // 'touch': edge-triggered — fires on entering, re-arms on leaving
+            const me = this.players[0]?.entity;
+            if (!me || me.destroyed) return;
+            const near = Math.hypot(me.x - e.x, me.y - e.y) < def.radius + 45;
+            if (near && !state[i]!.inside) run(ev, i);
+            state[i]!.inside = near;
+          }
+        });
+      }
+    });
+  }
+
+  /** Execute one event's action list against the live scene. */
+  private runActions(def: EntityDef, e: Entity, actions: EventAction[]): void {
+    for (const a of actions) {
+      switch (a.cmd) {
+        case 'say':
+          this.sayLines(def.name, [a.text ?? '…']);
+          break;
+        case 'coins':
+          this.coinsAdd(a.n ?? 1);
+          audio.pop(1.5);
+          break;
+        case 'score':
+          this.scoreValue += a.n ?? 1;
+          this.ensureScoreHud();
+          break;
+        case 'xp':
+          if (!this.levelsOn) this.enableLevels();
+          this.addXp(a.n ?? 5);
+          break;
+        case 'heal':
+          if (this.heartsMax) {
+            this.heartsVal = Math.min(this.heartsMax, this.heartsVal + (a.n ?? 1));
+            this.refreshHearts();
+          } else {
+            this.enableHearts(a.n ?? 3);
+          }
+          audio.chime();
+          break;
+        case 'sfx':
+          playSound((a.text ?? 'pop') as TapSound);
+          break;
+        case 'spawn':
+          this.spawnDef(defaultEntity((a.text ?? 'crate') as EntityKind, a.x ?? def.x, a.y ?? def.y));
+          break;
+        case 'remove':
+          for (const [k, v] of this.byName) if (v === e) this.byName.delete(k);
+          this.mobStates.delete(def.name);
+          if (!e.destroyed) this.remove(e);
+          break;
+        case 'goto': {
+          const next = this.project.scenes.find((s) => s.name === a.text || s.id === a.text);
+          if (next) this.onGoto(next);
+          break;
+        }
+        case 'switchOn':
+          if (a.text) this.switchesMap.set(a.text, true);
+          break;
+        case 'switchOff':
+          if (a.text) this.switchesMap.set(a.text, false);
+          break;
+        case 'win':
+          this.endGame(a.text || 'YOU WIN! 🌟');
+          break;
+        case 'lose':
+          this.endGame(a.text || 'GAME OVER');
+          break;
+      }
+    }
+  }
+
+  switchState(name: string): boolean {
+    return this.switchesMap.get(name) ?? false;
+  }
+
   private openStory(data: DialogueData): void {
     if (!this.box) {
       this.box = new DialogueBox();
@@ -1304,15 +1420,7 @@ export class PlayScene extends Scene {
       },
       spawn: (kind, x, y) => this.spawnDef(defaultEntity(kind, x, y)),
       say: (speaker, ...lines) => {
-        const nodes: DialogueData['nodes'] = {};
-        lines.forEach((text, i) => {
-          nodes[`n${i}`] = {
-            speaker,
-            text,
-            ...(i < lines.length - 1 ? { next: `n${i + 1}` } : {}),
-          };
-        });
-        this.openStory({ start: 'n0', nodes });
+        this.sayLines(speaker, lines);
       },
       player: (name, speed = 300) => {
         const e = this.byName.get(name);
@@ -1462,6 +1570,11 @@ export class PlayScene extends Scene {
           this.coinsAdd(-n);
           return true;
         },
+      },
+      switches: {
+        on: (name) => void this.switchesMap.set(name, true),
+        off: (name) => void this.switchesMap.set(name, false),
+        isOn: (name) => this.switchesMap.get(name) ?? false,
       },
       gameOver: (message = 'GAME OVER') => this.endGame(message),
     };
