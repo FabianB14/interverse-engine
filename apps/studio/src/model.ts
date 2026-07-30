@@ -49,6 +49,8 @@ export interface EntityDef {
   xp: number;
   moveSpeed: number;
   behavior: MobBehavior;
+  /** Ranged: fire a projectile at the player every N secs (0 = never). */
+  shootEvery: number;
   /** Behaviors / juice. */
   wobble: boolean;
   popIn: boolean;
@@ -135,6 +137,7 @@ export function defaultEntity(kind: EntityKind, x: number, y: number): EntityDef
     xp: 5,
     moveSpeed: 120,
     behavior: 'chase',
+    shootEvery: 0,
     wobble: kind === 'blob' || kind === 'npc' || kind === 'mob' || kind === 'boss',
     popIn: true,
     tapSound: kind === 'button' ? 'blip' : '',

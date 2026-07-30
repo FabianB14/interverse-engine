@@ -650,6 +650,8 @@ async function main(): Promise<void> {
     fireAbility: (name: string) => editor.getPlayScene()?.fireAbility(name) ?? false,
     bossBarVisible: () => editor.getPlayScene()?.bossBarVisible() ?? false,
     playerZ: () => editor.getPlayScene()?.playerAirHeight() ?? 0,
+    shotsFired: () => editor.getPlayScene()?.shotsFired() ?? 0,
+    mobEnraged: (name: string) => editor.getPlayScene()?.mobEnraged(name) ?? false,
   };
 
   // Player boot: ?load=<url-to-project-json> (+ &play=1 to jump straight in).

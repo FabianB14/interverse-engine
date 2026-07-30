@@ -63,6 +63,8 @@ export interface StudioDebug {
   fireAbility: (name: string) => boolean;
   bossBarVisible: () => boolean;
   playerZ: () => number;
+  shotsFired: () => number;
+  mobEnraged: (name: string) => boolean;
 }
 
 declare global {

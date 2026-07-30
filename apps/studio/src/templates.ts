@@ -74,6 +74,8 @@ function topDown(): ProjectDef {
   s.script = S([
     "// Top-down collect-a-thon: move with WASD/arrows or the joystick.",
     "api.player('Hero', 320);",
+    '// The gardener strolls a waypoint loop while you hunt fireflies.',
+    "api.patrol('Gardener', [[160, 300], [560, 300], [560, 520], [160, 520]], 80);",
     'var left = 6;',
     'api.onUpdate(function () {',
     '  for (var i = 1; i <= 6; i++) {',
@@ -224,7 +226,7 @@ function action(): ProjectDef {
     E('mob', 'Slime A', 160, 460, {}),
     E('mob', 'Slime B', 560, 520, { behavior: 'patrol', color: 0xff8f5b }),
     E('mob', 'Slime C', 360, 340, { behavior: 'wander', color: 0xffb86b }),
-    E('boss', 'Warden', 360, 250, {}),
+    E('boss', 'Warden', 360, 250, { shootEvery: 2.4 }),
   );
   s.script = S([
     '// Arena brawl: slash the slimes, level up, take down the Warden.',

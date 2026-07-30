@@ -44,7 +44,8 @@ export function wireInspector(editor: StudioEditor): void {
         | 'hp'
         | 'damage'
         | 'xp'
-        | 'moveSpeed',
+        | 'moveSpeed'
+        | 'shootEvery',
       step = 1,
     ): void => {
       const i = document.createElement('input');
@@ -105,6 +106,7 @@ export function wireInspector(editor: StudioEditor): void {
       num('Contact damage', 'damage');
       num('XP reward', 'xp');
       num('Move speed', 'moveSpeed');
+      num('Shoot every (secs, 0=never)', 'shootEvery', 0.1);
       const beh = document.createElement('select');
       for (const opt of ['chase', 'patrol', 'wander', 'guard'] as const) {
         const o = document.createElement('option');

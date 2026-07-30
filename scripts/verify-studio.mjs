@@ -277,6 +277,9 @@ await page.evaluate(() => window.__studio.loadTemplate('action'));
 await sleep(300);
 await page.evaluate(() => window.__studio.play());
 await sleep(800);
+// Plenty of hearts so mob contact + Warden projectiles can't end the run
+// mid-test — the checks below are about mechanics, not survival skill.
+await page.evaluate(() => window.__studio.applyScriptNow('api.hearts(9)'));
 const mobCount0 = await page.evaluate(() => window.__studio.mobCount());
 const abilities = await page.evaluate(() => window.__studio.abilityCount());
 const bossBar = await page.evaluate(() => window.__studio.bossBarVisible());
@@ -311,10 +314,29 @@ const mobsLeft = await page.evaluate(() => window.__studio.mobCount());
 const xp = await page.evaluate(() => window.__studio.xpNow());
 const level = await page.evaluate(() => window.__studio.levelNow());
 const hearts = await page.evaluate(() => window.__studio.heartsNow());
+// Ranged: the Warden (shootEvery 2.4) has been in range this whole fight.
+const shots = await page.evaluate(() => window.__studio.shotsFired());
+// Boss phase two: dropping the Warden to half HP enrages it.
+await page.evaluate(() => window.__studio.applyScriptNow("api.hurt('Warden', 13)"));
+const enraged = await page.evaluate(() => window.__studio.mobEnraged('Warden'));
+const rangedOk = shots >= 1 && enraged === true;
 const combatOk =
   mobCount0 === 4 && abilities === 2 && bossBar === true && chaseOk &&
-  hp1 === hp0 - 1 && mobsLeft === 3 && (xp > 0 || level > 1) && hearts > 0 && hearts <= 3;
+  hp1 === hp0 - 1 && mobsLeft === 3 && (xp > 0 || level > 1) && hearts > 0 && hearts <= 9;
 await page.screenshot({ path: `${outDir}/st-11-combat.png` });
+await page.evaluate(() => window.__studio.stop());
+await sleep(150);
+
+// NPC WAYPOINT PATROL: api.patrol walks the Gardener along its loop.
+await page.evaluate(() => window.__studio.loadTemplate('topdown'));
+await sleep(300);
+await page.evaluate(() => window.__studio.play());
+await sleep(2600);
+const gardenerX = await page.evaluate(() => {
+  window.__studio.applyScriptNow("window.__probeGx = api.entity('Gardener').x");
+  return window.__probeGx;
+});
+const patrolOk = gardenerX > 240; // started at 160, walking its loop
 await page.evaluate(() => window.__studio.stop());
 await sleep(150);
 
@@ -354,8 +376,8 @@ relay.kill();
 
 const ok =
   placeOk && editOk && storyOk && levelsOk && playOk && stopOk && exportOk && importOk &&
-  templatesOk && skillsOk && scoreOk && tilesOk && cameraOk && frameOk && combatOk && netOk &&
-  errors.length === 0;
+  templatesOk && skillsOk && scoreOk && tilesOk && cameraOk && frameOk && combatOk && rangedOk &&
+  patrolOk && netOk && errors.length === 0;
 console.log(
   JSON.stringify(
     {
@@ -365,6 +387,7 @@ console.log(
       cameraOk, worldSize, heroX2, camX, heroY2, horizonOk, heroScale, subtleOk, frameOk,
       jumpOk, zMid, zLand, yPlain, ySteer,
       combatOk, mobCount0, abilities, bossBar, chaseOk, gap0, gap1, hp0, hp1, mobsLeft, xp, level, hearts,
+      rangedOk, shots, enraged, patrolOk, gardenerX,
       netOk, playersA, playersB, remotesB, moveOk, remotePosB, stateB,
       errors: errors.slice(0, 6),
     },

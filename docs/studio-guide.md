@@ -161,6 +161,15 @@ knockback + a moment of invincibility) — at zero hearts the game ends.
 Hearts switch on automatically when a player and mobs share a scene, or
 set them yourself with `api.hearts(5)`.
 
+**Ranged enemies** — set **Shoot every** (secs) in the inspector and the
+mob fires glowing projectiles at the player; they're dodgeable (sidestep,
+or jump over them in 2.5D). **Bosses have phases**: at half HP a boss
+*enrages* — it flushes red, moves 40% faster, and shoots almost twice as
+often, with an announcement toast. **NPC routes**: walk any character
+along a looping waypoint path with
+`api.patrol('Villager', [[160, 300], [560, 300]], 90)` — great for town
+life (the Garden Explorer's gardener strolls one).
+
 **Ability buttons** are how the player fights back — real on-screen
 buttons (bottom-right, like every mobile action game) with a cooldown
 sweep and an optional keyboard hotkey:

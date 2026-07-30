@@ -308,6 +308,9 @@ export interface ScriptApi {
   hpOf: (target: string) => number;
   /** Called whenever any mob or boss is defeated (gets its name). */
   onDefeat: (cb: (name: string) => void) => void;
+  /** Walk an entity along waypoints in a loop (great for town NPCs):
+   *  api.patrol('Villager', [[160, 300], [560, 300]], 90). */
+  patrol: (target: string | Entity, points: [number, number][], speed?: number) => void;
   /** Player hearts HUD; contact with mobs costs hearts, 0 = game over.
    *  (Auto-enabled at 3 when a player + mobs share a scene.) */
   hearts: (n: number) => void;
@@ -345,6 +348,18 @@ interface MobState {
   dirX: number;
   dirY: number;
   wanderT: number;
+  /** Ranged attack countdown (def.shootEvery > 0). */
+  shootT: number;
+  /** Boss phase two: below half HP — faster, angrier, shoots quicker. */
+  enraged: boolean;
+}
+
+interface Projectile {
+  e: Entity;
+  vx: number;
+  vy: number;
+  ttl: number;
+  damage: number;
 }
 
 interface AbilityState {
@@ -616,6 +631,8 @@ export class PlayScene extends Scene {
       dirX: 1,
       dirY: 0,
       wanderT: 0,
+      shootT: Math.max(0, def.shootEvery),
+      enraged: false,
     });
     if (def.kind === 'boss') this.ensureBossBar();
     if (this.players.length && !this.heartsMax) this.enableHearts(3);
@@ -682,7 +699,18 @@ export class PlayScene extends Scene {
       m.e.y += ((m.e.y - from.y) / d) * 26;
     }
     this.refreshMobBar(m);
-    if (m.hp <= 0) this.defeatMob(m);
+    if (m.hp <= 0) {
+      this.defeatMob(m);
+      return;
+    }
+    // Boss phase two: at half HP it enrages — faster, angrier, shoots more.
+    if (m.def.kind === 'boss' && !m.enraged && m.hp <= Math.max(1, m.def.hp) / 2) {
+      m.enraged = true;
+      const body = viewBody.get(m.e);
+      if (body) body.tint = 0xff8f8f;
+      audio.buzz();
+      this.toast(`${m.def.name} is ENRAGED!`);
+    }
   }
 
   private defeatMob(m: MobState): void {
@@ -1041,9 +1069,18 @@ export class PlayScene extends Scene {
         vx = m.dirX;
         vy = m.dirY;
       }
+      const speed = m.def.moveSpeed * (m.enraged ? 1.4 : 1);
       if (vx || vy) {
-        m.e.x = Math.max(20, Math.min(W - 20, m.e.x + vx * m.def.moveSpeed * dt));
-        m.e.y = Math.max(minY, Math.min(H - 20, m.e.y + vy * m.def.moveSpeed * dt));
+        m.e.x = Math.max(20, Math.min(W - 20, m.e.x + vx * speed * dt));
+        m.e.y = Math.max(minY, Math.min(H - 20, m.e.y + vy * speed * dt));
+      }
+      // Ranged: lob a dodgeable projectile at the player on a timer.
+      if (m.def.shootEvery > 0 && me && !me.destroyed && dMe < 900) {
+        m.shootT -= dt;
+        if (m.shootT <= 0) {
+          m.shootT = m.def.shootEvery * (m.enraged ? 0.55 : 1);
+          this.fireProjectile(m, me);
+        }
       }
       // touching the player costs a heart (with i-frames + knockback);
       // an airborne brawler-jump player sails safely over mobs
@@ -1055,6 +1092,70 @@ export class PlayScene extends Scene {
       }
     }
     this.updateBossBar();
+    this.tickProjectiles(dt);
+  }
+
+  // ---------------------------------------------------------- projectiles
+
+  private projectiles: Projectile[] = [];
+  private shotsFiredTotal = 0;
+
+  private fireProjectile(m: MobState, at: Entity): void {
+    const e = new Entity();
+    const g = new Graphics()
+      .circle(0, 0, 16)
+      .fill({ color: m.def.color, alpha: 0.25 })
+      .circle(0, 0, 9)
+      .fill(lighten(m.def.color, 0.35));
+    e.addChild(g);
+    e.position.set(m.e.x, m.e.y - 10);
+    this.add(e, this.world);
+    const d = Math.hypot(at.x - m.e.x, at.y - m.e.y) || 1;
+    this.projectiles.push({
+      e,
+      vx: ((at.x - m.e.x) / d) * 320,
+      vy: ((at.y - m.e.y) / d) * 320,
+      ttl: 2.8,
+      damage: Math.max(1, m.def.damage),
+    });
+    this.shotsFiredTotal++;
+    audio.blip(0.6);
+  }
+
+  private tickProjectiles(dt: number): void {
+    if (!this.projectiles.length) return;
+    const me = this.players[0]?.entity;
+    const airborne = (this.players[0]?.z ?? 0) > 30;
+    for (let i = this.projectiles.length - 1; i >= 0; i--) {
+      const p = this.projectiles[i]!;
+      if (p.e.destroyed) {
+        this.projectiles.splice(i, 1);
+        continue;
+      }
+      p.e.x += p.vx * dt;
+      p.e.y += p.vy * dt;
+      p.e.zIndex = p.e.y; // depth scenes z-sort the world by y
+      p.ttl -= dt;
+      const out =
+        p.ttl <= 0 ||
+        p.e.x < -40 ||
+        p.e.x > this.sceneDef.worldW + 40 ||
+        p.e.y < -40 ||
+        p.e.y > this.sceneDef.worldH + 40;
+      const hit =
+        !out &&
+        !!me &&
+        !me.destroyed &&
+        !airborne &&
+        this.heartsMax > 0 &&
+        this.hurtT <= 0 &&
+        Math.hypot(me.x - p.e.x, me.y - p.e.y) < 32;
+      if (hit) this.hurtPlayer(p.damage, p.e);
+      if (out || hit) {
+        this.remove(p.e);
+        this.projectiles.splice(i, 1);
+      }
+    }
   }
 
   private openStory(data: DialogueData): void {
@@ -1229,6 +1330,22 @@ export class PlayScene extends Scene {
       },
       hpOf: (target) => this.mobStates.get(target)?.hp ?? 0,
       onDefeat: (cb) => this.defeatCbs.push(cb),
+      patrol: (target, points, speed = 140) => {
+        const e = this.resolve(target);
+        if (!e || !points.length) return;
+        let i = 0;
+        this.updaters.push((dt) => {
+          if (e.destroyed) return;
+          const [tx, ty] = points[i % points.length]!;
+          const d = Math.hypot(tx - e.x, ty - e.y);
+          if (d < 8) {
+            i++;
+            return;
+          }
+          e.x += ((tx - e.x) / d) * speed * dt;
+          e.y += ((ty - e.y) / d) * speed * dt;
+        });
+      },
       hearts: (n) => this.enableHearts(n),
       levels: (opts) => this.enableLevels(opts),
       xp: { add: (n) => this.addXp(n), get: () => this.xpValue },
@@ -1440,6 +1557,14 @@ export class PlayScene extends Scene {
 
   bossBarVisible(): boolean {
     return !!this.bossBarRoot?.visible;
+  }
+
+  shotsFired(): number {
+    return this.shotsFiredTotal;
+  }
+
+  mobEnraged(name: string): boolean {
+    return this.mobStates.get(name)?.enraged ?? false;
   }
 }
 
