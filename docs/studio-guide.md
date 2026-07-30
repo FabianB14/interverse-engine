@@ -90,6 +90,14 @@ Tiles marked *solid* (water, rock, trees, brick) **block players** in Play
 mode automatically — paint a maze and it just works. The Garden Explorer
 template ships with a painted garden to start from.
 
+**🎲 Generate a level** (bottom of the paintbox) builds one for you:
+**Maze** (rock walls, fully-connected dirt paths), **Dungeon** (brick
+walls, stone rooms joined by corridors), **Island** (grassy heart, sandy
+shore, water, scattered trees). Generated tiles are ordinary paint —
+touch them up by hand afterwards. From code the same generators power
+endless games: `api.setTiles(api.gen.dungeon())` rebuilds the level
+live, collision included.
+
 ## 4 · Animations, VFX, SFX
 
 - **Wobble** — idle animation toggle (inspector).
@@ -99,6 +107,16 @@ template ships with a painted garden to start from.
   frames in a grid, then set **Frame width / Frame height / Frames-per-sec**
   in the inspector. Frames read left-to-right, top-to-bottom and loop.
   (Frame size 0 = still image.)
+- **✨ VFX particle bursts** — `api.vfx('confetti', x, y)` with presets
+  `confetti · sparkle · poof · hearts · embers · coins`, and a matching
+  ✨ event action. Lots of juice is automatic: defeats poof, coin
+  pickups sparkle, level-ups rain confetti, enraging bosses spray
+  embers.
+- **Imported model animations** — import a spritesheet, set the frame
+  size, then define **🎬 Clips** in the inspector (name + frame range +
+  fps: idle, walk, attack…) and switch them from code with
+  `api.playClip('Hero', 'walk')`. Characters and models also
+  **auto-face** their movement direction.
 - **Property animation from code** — `api.tween(thing, { x, y, rotation,
   alpha, scale }, seconds)` for cutscenes and juice.
 - From code: `api.sfx.pop()`, `.blip()`, `.chime()`, `.buzz()`.
@@ -256,6 +274,32 @@ api.coins.get()                  // current balance
 api.coins.spend(10)              // true if they could afford it
 api.coins.add(5)                 // grant bonus coins from code
 ```
+
+### Dress-up: cosmetics & attachments
+
+Every **character actor** (blob, story character, monster, boss) has a
+**🎩 Hat** and **🗡 Held item** in the inspector — crowns, wizard hats,
+horns, halos; swords, shields, staffs, lanterns, flowers — all drawn in
+the house art style and attached to the body (they wobble and flip with
+it). Restyle live from code, which is exactly how cosmetic shops work:
+
+```js
+if (api.coins.spend(25)) api.outfit('Hero', { hat: 'crown', held: 'sword' });
+```
+
+### What everything is (the actor taxonomy)
+
+Everything you place in a scene is an **actor** — selectable, editable in
+the inspector, scriptable by name, and eligible for ⚡ events. The
+palette groups them by what they're for:
+
+| Group | Kinds | Extra powers |
+| --- | --- | --- |
+| **Characters** | Blob, Story character | outfits, stories, player control |
+| **Enemies** | Monster, Boss | HP/AI/loot, outfits, boss bar |
+| **Props** | Crate, Lantern, Plant | events, tap sounds |
+| **UI** | Text, Button | fonts, tap handlers |
+| **Assets** | Imported images | spritesheet clips, any art you own |
 
 ### Skill trees
 

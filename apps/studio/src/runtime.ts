@@ -14,6 +14,7 @@ import {
   Wobble,
   audio,
   blobCharacter,
+  burst,
   createSave,
   darken,
   easings,
@@ -22,15 +23,17 @@ import {
   moveWithCollision,
   verium,
 } from '@interverse/engine';
-import type { DialogueData, Game, MusicTrackId, SaveStore, TileMapData } from '@interverse/engine';
+import type { DialogueData, Game, MusicTrackId, SaveStore, TileMapData, VfxPreset } from '@interverse/engine';
 import { DialogueBox } from '@interverse/ui';
 import { fetchChainBalance } from '@interverse/platform';
+import { drawOutfit } from './cosmetics.js';
 import { drawIcon } from './icons.js';
 import { defaultEntity } from './model.js';
 import type { EntityDef, EntityKind, EventAction, EventDef, ProjectDef, SceneDef, TapSound } from './model.js';
 import { SkillTree } from './skills.js';
 import type { SkillTreeDef } from './skills.js';
 import type { StudioNet } from './net.js';
+import { generateRows } from './gen.js';
 import { anyTiles, buildTileLayer } from './tiles.js';
 
 const textureCache = new Map<string, Texture>();
@@ -69,6 +72,11 @@ export function depthScale(y: number): number {
  */
 export const viewPop = new WeakMap<Entity, Container>();
 export const viewBody = new WeakMap<Entity, Container>();
+/** Per-actor cosmetics layer — redrawn in place by api.outfit. */
+export const viewOutfit = new WeakMap<Entity, Graphics>();
+/** Spritesheet registries for imported models: all frames + live sprite. */
+export const viewFrames = new WeakMap<Entity, Texture[]>();
+export const viewSprite = new WeakMap<Entity, AnimatedSprite>();
 
 /** Build the visual for a def. Static — no behaviors, no interactivity. */
 export function buildView(def: EntityDef, assets: Record<string, string>): Entity {
@@ -106,6 +114,12 @@ export function buildView(def: EntityDef, assets: Record<string, string>): Entit
           .fill(0x444);
         body.addChild(g);
       }
+      {
+        const outfit = new Graphics();
+        drawOutfit(outfit, def);
+        body.addChild(outfit);
+        viewOutfit.set(e, outfit);
+      }
       break;
     }
     case 'mob':
@@ -128,6 +142,12 @@ export function buildView(def: EntityDef, assets: Record<string, string>): Entit
         );
       }
       body.addChild(g);
+      {
+        const outfit = new Graphics();
+        drawOutfit(outfit, def);
+        body.addChild(outfit);
+        viewOutfit.set(e, outfit);
+      }
       break;
     }
     case 'crate': {
@@ -214,11 +234,14 @@ export function buildView(def: EntityDef, assets: Record<string, string>): Entit
                 );
               }
             }
-            const sp = new AnimatedSprite(frames.length ? frames : [tex]);
+            const all = frames.length ? frames : [tex];
+            const sp = new AnimatedSprite(all);
             sp.anchor.set(0.5);
             sp.animationSpeed = Math.max(0.5, def.fps || 8) / 60;
             sp.play();
             body.addChildAt(sp, 0);
+            viewFrames.set(e, all);
+            viewSprite.set(e, sp);
           } else {
             const sp = new Sprite(tex);
             sp.anchor.set(0.5);
@@ -343,6 +366,20 @@ export interface ScriptApi {
     current: () => MusicTrackId | null;
     setVolume: (bus: 'master' | 'music' | 'sfx', v: number) => void;
   };
+  /** One-shot particle burst: 'confetti'|'sparkle'|'poof'|'hearts'|'embers'|'coins'. */
+  vfx: (preset: VfxPreset, x: number, y: number) => void;
+  /** Restyle a character live: hats ('cap','crown','wizard','bow','horns',
+   *  'halo') and held items ('sword','shield','staff','lantern','flower').
+   *  Pair with api.coins.spend for cosmetic shops. */
+  outfit: (target: string, opts: { hat?: string; held?: string }) => void;
+  /** Play a named animation clip on an imported spritesheet model
+   *  (define clips in the inspector: name + frame range + fps). */
+  playClip: (target: string, clipName: string) => void;
+  /** Procedural generation: tile rows sized to this level, ready for
+   *  api.setTiles — maze (rock/dirt), dungeon (brick/stone), island. */
+  gen: { maze: () => string[]; dungeon: () => string[]; island: () => string[] };
+  /** Replace the level's painted tiles live (collision included). */
+  setTiles: (rows: string[]) => void;
   /** Skill tree: define once, then open()/addPoints()/unlock()/isUnlocked(). */
   skills: SkillTree;
   /** End the game with a message (score shown too). */
@@ -534,6 +571,7 @@ export class PlayScene extends Scene {
       layer.view.eventMode = 'none';
       this.world.addChildAt(layer.view, 1);
       this.tileMap = layer.map;
+      this.tileLayerView = layer.view;
     }
     // The camera crops the board to the current view (adaptive: a rotated
     // device sees a wide ~720-tall window) and follows the player.
@@ -711,6 +749,7 @@ export class PlayScene extends Scene {
         continue;
       }
       if (Math.hypot(me.x - c.e.x, me.y - c.e.y) < 70) {
+        this.spawnVfx('sparkle', c.e.x, c.e.y);
         this.remove(c.e);
         this.coinDrops.splice(i, 1);
         this.coinsAdd(1);
@@ -814,6 +853,7 @@ export class PlayScene extends Scene {
       const body = viewBody.get(m.e);
       if (body) body.tint = 0xff8f8f;
       audio.buzz();
+      this.spawnVfx('embers', m.e.x, m.e.y);
       this.toast(`${m.def.name} is ENRAGED!`);
     }
   }
@@ -833,6 +873,7 @@ export class PlayScene extends Scene {
       t += dt;
       if (t >= 0.24) this.remove(doomed);
     });
+    this.spawnVfx('poof', m.e.x, m.e.y);
     this.dropCoins(m.e.x, m.e.y, m.def.kind === 'boss' ? 5 : 1 + Math.floor(Math.random() * 2));
     if (this.levelsOn) this.addXp(Math.max(0, m.def.xp));
     for (const cb of this.defeatCbs) {
@@ -1030,6 +1071,8 @@ export class PlayScene extends Scene {
       this.skillsTree?.addPoints(1);
       audio.chime();
       this.toast('LEVEL UP!');
+      const me = this.players[0]?.entity;
+      if (me && !me.destroyed) this.spawnVfx('confetti', me.x, me.y - 40);
       need = this.xpNeed();
     }
     const s = this.saveStore();
@@ -1183,6 +1226,7 @@ export class PlayScene extends Scene {
         vy = m.dirY;
       }
       const speed = m.def.moveSpeed * (m.enraged ? 1.4 : 1);
+      if (vx !== 0) this.face(m.e, vx);
       if (vx || vy) {
         m.e.x = Math.max(20, Math.min(W - 20, m.e.x + vx * speed * dt));
         m.e.y = Math.max(minY, Math.min(H - 20, m.e.y + vy * speed * dt));
@@ -1271,6 +1315,72 @@ export class PlayScene extends Scene {
     }
   }
 
+  spawnVfx(preset: VfxPreset, x: number, y: number): void {
+    const fx = burst(preset, x, y);
+    this.add(fx, this.world);
+    this.vfxCount++;
+  }
+
+  /** Total bursts spawned (headless-test probe). */
+  vfxCount = 0;
+
+  /** Live cosmetics: update the def + redraw the actor's outfit layer. */
+  setOutfit(target: string, opts: { hat?: string; held?: string }): void {
+    const e = this.byName.get(target);
+    const def = this.sceneDef.entities.find((d) => d.name === target);
+    if (!e || e.destroyed || !def) return;
+    if (opts.hat !== undefined) def.hat = opts.hat;
+    if (opts.held !== undefined) def.held = opts.held;
+    const layer = viewOutfit.get(e);
+    if (layer) drawOutfit(layer, def);
+  }
+
+  playClip(target: string, clipName: string): boolean {
+    const e = this.byName.get(target);
+    const def = this.sceneDef.entities.find((d) => d.name === target);
+    if (!e || e.destroyed || !def) return false;
+    const frames = viewFrames.get(e);
+    const sp = viewSprite.get(e);
+    const clip = def.clips.find((c) => c.name === clipName);
+    if (!frames || !sp || !clip) return false;
+    const from = Math.max(0, Math.min(frames.length - 1, Math.floor(clip.from)));
+    const to = Math.max(from, Math.min(frames.length - 1, Math.floor(clip.to)));
+    sp.textures = frames.slice(from, to + 1);
+    sp.animationSpeed = Math.max(0.5, clip.fps || 8) / 60;
+    sp.play();
+    this.activeClips.set(target, clipName);
+    return true;
+  }
+
+  activeClips = new Map<string, string>();
+
+  private tileLayerView: Container | null = null;
+
+  /** Swap the painted tile layer live — procgen worlds mid-play. */
+  setTilesLive(rows: string[]): void {
+    this.tileLayerView?.destroy({ children: true });
+    this.tileLayerView = null;
+    const layer = buildTileLayer(rows);
+    layer.view.eventMode = 'none';
+    this.world.addChildAt(layer.view, Math.min(1, this.world.children.length));
+    this.tileMap = layer.map;
+    this.tileLayerView = layer.view;
+  }
+
+  /** Auto-facing: characters and imported models look where they walk.
+   *  Flips the pop wrapper so Wobble's uniform scaling stays untouched. */
+  private face(e: Entity, dirX: number): void {
+    const pop = viewPop.get(e);
+    if (!pop) return;
+    const want = dirX < 0 ? -1 : 1;
+    if (Math.sign(pop.scale.x) !== want) pop.scale.x = Math.abs(pop.scale.x) * want;
+  }
+
+  outfitOf(target: string): { hat: string; held: string } | null {
+    const def = this.sceneDef.entities.find((d) => d.name === target);
+    return def ? { hat: def.hat, held: def.held } : null;
+  }
+
   private sayLines(speaker: string, lines: string[]): void {
     const nodes: DialogueData['nodes'] = {};
     lines.forEach((text, i) => {
@@ -1353,6 +1463,9 @@ export class PlayScene extends Scene {
           if (a.text === 'stop') audio.music.stop();
           else if (a.text === 'fanfare') audio.music.fanfare();
           else audio.music.play((a.text ?? 'adventure') as MusicTrackId);
+          break;
+        case 'vfx':
+          this.spawnVfx((a.text ?? 'sparkle') as VfxPreset, a.x ?? def.x, a.y ?? def.y);
           break;
         case 'spawn':
           this.spawnDef(defaultEntity((a.text ?? 'crate') as EntityKind, a.x ?? def.x, a.y ?? def.y));
@@ -1598,6 +1711,15 @@ export class PlayScene extends Scene {
         current: () => audio.music.current(),
         setVolume: (bus, v) => audio.setVolume(bus, v),
       },
+      vfx: (preset, x, y) => this.spawnVfx(preset, x, y),
+      outfit: (target, opts) => this.setOutfit(target, opts),
+      playClip: (target, clipName) => this.playClip(target, clipName),
+      gen: {
+        maze: () => generateRows('maze', this.sceneDef.worldW / 40, this.sceneDef.worldH / 40),
+        dungeon: () => generateRows('dungeon', this.sceneDef.worldW / 40, this.sceneDef.worldH / 40),
+        island: () => generateRows('island', this.sceneDef.worldW / 40, this.sceneDef.worldH / 40),
+      },
+      setTiles: (rows) => this.setTilesLive(rows),
       gameOver: (message = 'GAME OVER') => this.endGame(message),
     };
   }
@@ -1671,7 +1793,10 @@ export class PlayScene extends Scene {
         // Gravity physics: run left/right; up (or joystick up) jumps.
         for (const p of this.players) {
           if (p.entity.destroyed) continue;
-          if (mx) p.entity.x = Math.max(20, Math.min(W - 20, p.entity.x + mx * p.speed * dt));
+          if (mx) {
+            p.entity.x = Math.max(20, Math.min(W - 20, p.entity.x + mx * p.speed * dt));
+            this.face(p.entity, mx);
+          }
           const grounded = p.entity.y >= p.groundY - 1;
           if (my < -0.4 && grounded) {
             p.vy = -880;
@@ -1692,6 +1817,7 @@ export class PlayScene extends Scene {
             if (p.entity.destroyed) continue;
             const dx = (mx / len) * p.speed * dt;
             const dy = (my / len) * p.speed * laneY * dt;
+            if (mx !== 0) this.face(p.entity, mx);
             if (this.tileMap) {
               // Painted solid tiles (walls, water, trees) block movement.
               const moved = moveWithCollision(this.tileMap, p.entity.x, p.entity.y, 16, 14, dx, dy);

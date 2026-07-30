@@ -70,6 +70,13 @@ export interface StudioDebug {
   setEvents: (name: string, events: unknown) => boolean;
   switchIsOn: (name: string) => boolean;
   musicNow: () => string | null;
+  vfxCount: () => number;
+  setOutfit: (name: string, opts: { hat?: string; held?: string }) => void;
+  outfitOf: (name: string) => { hat: string; held: string } | null;
+  genTiles: (kind: 'maze' | 'dungeon' | 'island') => void;
+  tileRows: () => string[] | null;
+  playClip: (name: string, clip: string) => boolean;
+  activeClip: (name: string) => string | null;
   librarySave: () => string;
   libraryList: () => { id: string; name: string; updated: number }[];
   libraryOpen: (id: string) => boolean;

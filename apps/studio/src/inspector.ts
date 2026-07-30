@@ -1,11 +1,12 @@
 /** Right-hand inspector: edit every property of the selected entity. */
 import type { StudioEditor } from './editor.js';
+import { HATS, HELD_ITEMS } from './cosmetics.js';
 import type { EntityDef, EventAction, EventDef } from './model.js';
 
 const hex = (n: number): string => `#${n.toString(16).padStart(6, '0')}`;
 
 /** The no-code command palette: label + which params each command needs. */
-const EVENT_CMDS: { cmd: EventAction['cmd']; label: string; params: 'text' | 'n' | 'sound' | 'music' | 'spawn' | 'none' }[] = [
+const EVENT_CMDS: { cmd: EventAction['cmd']; label: string; params: 'text' | 'n' | 'sound' | 'music' | 'vfx' | 'spawn' | 'none' }[] = [
   { cmd: 'say', label: '💬 Say message', params: 'text' },
   { cmd: 'coins', label: '🪙 Give coins', params: 'n' },
   { cmd: 'score', label: '⭐ Add score', params: 'n' },
@@ -13,6 +14,7 @@ const EVENT_CMDS: { cmd: EventAction['cmd']; label: string; params: 'text' | 'n'
   { cmd: 'heal', label: '❤ Heal hearts', params: 'n' },
   { cmd: 'sfx', label: '🔊 Play sound', params: 'sound' },
   { cmd: 'music', label: '🎵 Music', params: 'music' },
+  { cmd: 'vfx', label: '✨ Particle burst', params: 'vfx' },
   { cmd: 'spawn', label: '🐣 Spawn a thing', params: 'spawn' },
   { cmd: 'remove', label: '🗑 Remove this', params: 'none' },
   { cmd: 'goto', label: '🚪 Go to level…', params: 'text' },
@@ -153,6 +155,25 @@ export function wireInspector(editor: StudioEditor): void {
       };
       field('Behavior (AI)', beh);
     }
+    if (['blob', 'npc', 'mob', 'boss'].includes(def.kind)) {
+      const mkSel = (label: string, list: readonly string[], key: 'hat' | 'held'): void => {
+        const sel = document.createElement('select');
+        for (const v of list) {
+          const o = document.createElement('option');
+          o.value = v;
+          o.textContent = v === '' ? '(none)' : v;
+          if (def[key] === v) o.selected = true;
+          sel.appendChild(o);
+        }
+        sel.onchange = () => {
+          def[key] = sel.value;
+          editor.updateEntity(def);
+        };
+        field(label, sel);
+      };
+      mkSel('🎩 Hat', HATS, 'hat');
+      mkSel('🗡 Held item', HELD_ITEMS, 'held');
+    }
     if (def.kind === 'crate') num('Size', 'radius');
     if (def.kind === 'text' || def.kind === 'button') {
       text('Text', 'text');
@@ -168,6 +189,54 @@ export function wireInspector(editor: StudioEditor): void {
       num('Frame width', 'frameW');
       num('Frame height', 'frameH');
       num('Frames / sec', 'fps');
+      // Named clips: idle/walk/attack ranges inside the same sheet.
+      const clipHead = document.createElement('div');
+      clipHead.className = 'muted';
+      clipHead.style.margin = '8px 0 4px';
+      clipHead.textContent = '🎬 Clips (frame ranges) — play with api.playClip';
+      body.appendChild(clipHead);
+      def.clips.forEach((clip, ci) => {
+        const row = document.createElement('div');
+        row.className = 'row';
+        const nm = document.createElement('input');
+        nm.type = 'text';
+        nm.style.width = '76px';
+        nm.value = clip.name;
+        nm.oninput = () => {
+          clip.name = nm.value;
+          editor.touch();
+        };
+        const mkN = (val: number, cb: (n: number) => void, w = 48): HTMLInputElement => {
+          const i = document.createElement('input');
+          i.type = 'number';
+          i.style.width = `${w}px`;
+          i.value = String(val);
+          i.oninput = () => {
+            cb(Number(i.value) || 0);
+            editor.touch();
+          };
+          return i;
+        };
+        const kill = document.createElement('button');
+        kill.className = 'btn';
+        kill.textContent = '✕';
+        kill.onclick = () => {
+          def.clips.splice(ci, 1);
+          editor.updateEntity(def);
+          render();
+        };
+        row.append(nm, mkN(clip.from, (n) => (clip.from = n)), mkN(clip.to, (n) => (clip.to = n)), mkN(clip.fps, (n) => (clip.fps = n)), kill);
+        body.appendChild(row);
+      });
+      const addClip = document.createElement('button');
+      addClip.className = 'btn';
+      addClip.textContent = '+ clip (name · from · to · fps)';
+      addClip.onclick = () => {
+        def.clips.push({ name: `clip${def.clips.length + 1}`, from: 0, to: 3, fps: 8 });
+        editor.touch();
+        render();
+      };
+      body.appendChild(addClip);
     }
 
     check('Wobble (idle animation)', 'wobble');
@@ -324,6 +393,20 @@ export function wireInspector(editor: StudioEditor): void {
             editor.touch();
           };
           arow.appendChild(n);
+        } else if (spec.params === 'vfx') {
+          const vf = document.createElement('select');
+          for (const v of ['confetti', 'sparkle', 'poof', 'hearts', 'embers', 'coins']) {
+            const o = document.createElement('option');
+            o.value = v;
+            o.textContent = v;
+            if ((a.text ?? 'sparkle') === v) o.selected = true;
+            vf.appendChild(o);
+          }
+          vf.onchange = () => {
+            a.text = vf.value;
+            editor.touch();
+          };
+          arow.appendChild(vf);
         } else if (spec.params === 'music') {
           const mus = document.createElement('select');
           for (const m of ['adventure', 'cozy', 'battle', 'spooky', 'fanfare', 'stop']) {

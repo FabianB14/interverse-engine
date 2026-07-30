@@ -423,6 +423,18 @@ async function main(): Promise<void> {
     eraser.innerHTML = `<span class="em">🧽</span>Eraser`;
     eraser.onclick = () => pick(eraser, '.');
     palTiles.appendChild(eraser);
+    const genHead = document.createElement('div');
+    genHead.className = 'pal-head';
+    genHead.style.marginTop = '8px';
+    genHead.textContent = '🎲 Generate a level';
+    palTiles.appendChild(genHead);
+    for (const [kind, label] of [['maze', '🌀 Maze'], ['dungeon', '🏰 Dungeon'], ['island', '🏝 Island']] as const) {
+      const b = document.createElement('div');
+      b.className = 'pal-item';
+      b.innerHTML = `<span class="em"></span>${label}`;
+      b.onclick = () => editor.generateTiles(kind);
+      palTiles.appendChild(b);
+    }
     const done = document.createElement('button');
     done.className = 'btn good';
     done.style.width = '100%';
@@ -701,6 +713,14 @@ async function main(): Promise<void> {
     },
     switchIsOn: (name: string) => editor.getPlayScene()?.switchState(name) ?? false,
     musicNow: () => editor.getPlayScene()?.musicNow() ?? null,
+    vfxCount: () => editor.getPlayScene()?.vfxCount ?? 0,
+    setOutfit: (name: string, opts: { hat?: string; held?: string }) =>
+      editor.getPlayScene()?.setOutfit(name, opts),
+    outfitOf: (name: string) => editor.getPlayScene()?.outfitOf(name) ?? null,
+    genTiles: (kind: 'maze' | 'dungeon' | 'island') => editor.generateTiles(kind),
+    tileRows: () => editor.scene.tiles ?? null,
+    playClip: (name: string, clip: string) => editor.getPlayScene()?.playClip(name, clip) ?? false,
+    activeClip: (name: string) => editor.getPlayScene()?.activeClips.get(name) ?? null,
     librarySave: () => editor.saveToLibrary(),
     libraryList: () => editor.libraryList(),
     libraryOpen: (id: string) => editor.openFromLibrary(id),

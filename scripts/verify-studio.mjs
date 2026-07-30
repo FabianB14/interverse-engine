@@ -320,6 +320,12 @@ const mobsLeft = await page.evaluate(() => window.__studio.mobCount());
 const xp = await page.evaluate(() => window.__studio.xpNow());
 const level = await page.evaluate(() => window.__studio.levelNow());
 const hearts = await page.evaluate(() => window.__studio.heartsNow());
+// VFX: the kill poofed + coin pickups sparkle later — bursts were spawned.
+const vfx = await page.evaluate(() => window.__studio.vfxCount());
+// COSMETICS: crown + sword attach live and read back.
+await page.evaluate(() => window.__studio.setOutfit('Hero', { hat: 'crown', held: 'sword' }));
+const outfit = await page.evaluate(() => window.__studio.outfitOf('Hero'));
+const outfitOk = !!outfit && outfit.hat === 'crown' && outfit.held === 'sword';
 // Ranged: the Warden (shootEvery 2.4) has been in range this whole fight.
 const shots = await page.evaluate(() => window.__studio.shotsFired());
 // Boss phase two: dropping the Warden to half HP enrages it.
@@ -330,7 +336,7 @@ const rangedOk = shots >= 1 && enraged === true;
 const music = await page.evaluate(() => window.__studio.musicNow());
 const musicOk = music === 'battle';
 const combatOk =
-  musicOk && mobCount0 === 4 && abilities === 2 && bossBar === true && chaseOk &&
+  musicOk && vfx >= 1 && outfitOk && mobCount0 === 4 && abilities === 2 && bossBar === true && chaseOk &&
   hp1 === hp0 - 1 && mobsLeft === 3 && (xp > 0 || level > 1) && hearts > 0 && hearts <= 9;
 // LOOT: the slain slime scattered coins near where it died — walk the hero
 // over the spot and the pickup banks them in the game's save file.
@@ -433,6 +439,27 @@ const eventsOk =
 await page.evaluate(() => window.__studio.stop());
 await sleep(150);
 
+// PROCGEN: generate a maze into the editor, play it (solid walls), then
+// swap to a generated island LIVE via the script api.
+await page.evaluate(() => window.__studio.loadTemplate('blank'));
+await sleep(300);
+await page.evaluate(() => window.__studio.genTiles('maze'));
+const mazeTiles = await page.evaluate(() => window.__studio.tileRows());
+const mazeHasWalls = !!mazeTiles && mazeTiles.join('').includes('k') && mazeTiles.join('').includes('d');
+await page.evaluate(() => {
+  window.__studio.setScript("api.player('Hero', 300);");
+  window.__studio.play();
+});
+await sleep(700);
+const mazePlays = await page.evaluate(() => window.__studio.playHasTiles());
+await page.evaluate(() => window.__studio.applyScriptNow('api.setTiles(api.gen.island())'));
+await sleep(300);
+const islandLive = await page.evaluate(() => window.__studio.playHasTiles());
+const genOk = mazeHasWalls && mazePlays === true && islandLive === true;
+await page.screenshot({ path: `${outDir}/st-13-procgen.png` });
+await page.evaluate(() => window.__studio.stop());
+await sleep(150);
+
 // AI CHAT BRIDGE: the chat tab talks to Claude through the local bridge
 // (mock mode here) — no API key. The mock replies, calls add_entity over
 // the wire, and the lantern lands in the editor.
@@ -485,7 +512,7 @@ aiBridge.kill();
 const ok =
   placeOk && editOk && storyOk && levelsOk && playOk && stopOk && exportOk && importOk &&
   templatesOk && skillsOk && scoreOk && tilesOk && cameraOk && frameOk && combatOk && rangedOk &&
-  patrolOk && chatOk && coinsOk && persistOk && libOk && eventsOk && netOk && errors.length === 0;
+  patrolOk && chatOk && coinsOk && persistOk && libOk && eventsOk && genOk && netOk && errors.length === 0;
 console.log(
   JSON.stringify(
     {
@@ -494,12 +521,13 @@ console.log(
       tilesOk, tileBefore, tilePainted, tilesPersist, playTiles, heroX,
       cameraOk, worldSize, heroX2, camX, heroY2, horizonOk, heroScale, subtleOk, frameOk,
       jumpOk, zMid, zLand, yPlain, ySteer,
-      combatOk, musicOk, music, mobCount0, abilities, bossBar, chaseOk, gap0, gap1, hp0, hp1, mobsLeft, xp, level, hearts,
+      combatOk, musicOk, music, vfx, outfitOk, outfit, mobCount0, abilities, bossBar, chaseOk, gap0, gap1, hp0, hp1, mobsLeft, xp, level, hearts,
       rangedOk, shots, enraged, patrolOk, gardenerX,
       chatOk, bridged, chatCount0, chatCount1,
       coinsOk, coins, persistOk, savedQuest, xpBefore, xpRestored,
       libOk, libId, savedName, restoredName, libCount,
       eventsOk, evCoins0, evCoinsGated, evScore, evSwitch, evCount0, evCount1, evCoins1,
+      genOk, mazeHasWalls, mazePlays, islandLive,
       netOk, playersA, playersB, remotesB, moveOk, remotePosB, stateB,
       errors: errors.slice(0, 6),
     },

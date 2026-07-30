@@ -11,6 +11,8 @@ import type { EntityDef, EntityKind, ProjectDef, SceneDef } from './model.js';
 import { defaultEntity, defaultProject, defaultScene, freshId, parseProject } from './model.js';
 import { DEPTH_MIN_Y, PlayScene, buildView, depthScale } from './runtime.js';
 import { StudioNet, resolveRelayUrl } from './net.js';
+import { generateRows } from './gen.js';
+import type { GeneratorKind } from './gen.js';
 import { slugify } from './publish.js';
 import {
   TILE_SIZE,
@@ -351,6 +353,13 @@ export class StudioEditor {
         this.editScene?.refreshTiles();
       }, 80);
     }
+  }
+
+  /** 🎲 Procedural generation into this level's paint layer. */
+  generateTiles(kind: GeneratorKind): void {
+    this.scene.tiles = generateRows(kind, colsFor(this.scene.worldW), rowsFor(this.scene.worldH));
+    this.editScene?.refreshTiles();
+    this.touch();
   }
 
   setTile(col: number, row: number, ch: string): void {

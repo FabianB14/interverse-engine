@@ -35,6 +35,7 @@ export interface EventAction {
     | 'heal' // restore n hearts
     | 'sfx' // play a sound (text: pop|blip|chime|buzz)
     | 'music' // play a music track (text: adventure|cozy|battle|spooky|fanfare|stop)
+    | 'vfx' // particle burst (text: confetti|sparkle|poof|hearts|embers|coins)
     | 'spawn' // spawn a kind (text) at x/y (defaults: this entity's spot)
     | 'remove' // remove this entity
     | 'goto' // switch to level (text)
@@ -92,6 +93,11 @@ export interface EntityDef {
   wobble: boolean;
   popIn: boolean;
   tapSound: TapSound;
+  /** Cosmetics (character kinds): hat + held item, drawn code-vector. */
+  hat: string;
+  held: string;
+  /** Named animation clips (kind 'image' spritesheets): frame ranges. */
+  clips: { name: string; from: number; to: number; fps: number }[];
   /** Story lines (kind 'npc') — said in order when tapped in Play mode. */
   lines: string[];
   /** No-code events: triggers + action lists (see EventDef). */
@@ -180,6 +186,9 @@ export function defaultEntity(kind: EntityKind, x: number, y: number): EntityDef
     wobble: kind === 'blob' || kind === 'npc' || kind === 'mob' || kind === 'boss',
     popIn: true,
     tapSound: kind === 'button' ? 'blip' : '',
+    hat: '',
+    held: '',
+    clips: [],
     lines: [],
     events: [],
   };
@@ -287,6 +296,9 @@ export function parseProject(json: string): ProjectDef {
       Object.assign(d, e);
       Object.assign(e, d);
       if (!['chase', 'patrol', 'wander', 'guard'].includes(e.behavior)) e.behavior = 'chase';
+      e.clips = (Array.isArray(e.clips) ? e.clips : []).filter(
+        (c) => !!c && typeof c === 'object' && typeof c.name === 'string' && Number.isFinite(c.from) && Number.isFinite(c.to),
+      );
       // No-code events: keep only well-formed entries.
       e.events = (Array.isArray(e.events) ? e.events : []).filter(
         (ev): ev is EventDef =>

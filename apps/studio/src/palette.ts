@@ -8,10 +8,15 @@ export interface PaletteItem {
 
 export const PALETTE: { title: string; items: PaletteItem[] }[] = [
   {
-    title: 'Actors',
+    title: 'Characters',
     items: [
       { kind: 'blob', label: 'Blob character', emoji: '🙂' },
       { kind: 'npc', label: 'Story character', emoji: '💬' },
+    ],
+  },
+  {
+    title: 'Enemies',
+    items: [
       { kind: 'mob', label: 'Monster', emoji: '👾' },
       { kind: 'boss', label: 'Boss', emoji: '👹' },
     ],

@@ -46,6 +46,8 @@ export {
 } from './art/palettes.js';
 export type { Palette } from './art/palettes.js';
 export { popIn, squash } from './art/juice.js';
+export { burst, stepParticle, VFX_PRESETS } from './art/particles.js';
+export type { VfxPreset } from './art/particles.js';
 
 export { audio, MUSIC_TRACKS } from './audio/audio.js';
 export type { MusicTrackId } from './audio/audio.js';
