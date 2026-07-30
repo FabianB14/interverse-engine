@@ -208,6 +208,108 @@ async function main(): Promise<void> {
     });
   $('btn-new').onclick = openTemplates;
 
+  // 🗄 Database: project-wide item + language tables.
+  $('btn-db').onclick = () =>
+    openModal((root) => {
+      root.innerHTML = `<h2>🗄 Database — "${editor.project.name}"</h2>
+        <h3>🎁 Items</h3>
+        <p class="muted">Referenced by id everywhere: api.items.give/use/buy, the 🎁 event action, shops.</p>
+        <div id="db-items"></div>
+        <h3 style="margin-top:16px">🌐 Languages</h3>
+        <p class="muted">Any text starting with @key (labels, stories, 💬 events) translates per player language. JSON: {"en": {"greet": "Hello"}, "es": {"greet": "Hola"}}</p>
+        <textarea id="db-locales" style="width:100%;height:120px"></textarea>
+        <div class="row" style="margin-top:6px"><button class="btn primary" id="db-locales-save">Save languages</button><span class="muted" id="db-locales-out"></span></div>`;
+      const itemsRoot = root.querySelector<HTMLElement>('#db-items')!;
+      const renderItems = (): void => {
+        itemsRoot.innerHTML = '';
+        const db = (editor.project.db ??= { items: [] });
+        db.items.forEach((item, i) => {
+          const row = document.createElement('div');
+          row.className = 'row';
+          row.style.marginBottom = '6px';
+          const mk = (val: string, w: number, cb: (v: string) => void, ph = ''): HTMLInputElement => {
+            const inp = document.createElement('input');
+            inp.type = 'text';
+            inp.style.width = `${w}px`;
+            inp.value = val;
+            inp.placeholder = ph;
+            inp.oninput = () => {
+              cb(inp.value);
+              editor.touch();
+            };
+            return inp;
+          };
+          row.append(
+            mk(item.emoji, 44, (v) => (item.emoji = v)),
+            mk(item.id, 90, (v) => (item.id = v), 'id'),
+            mk(item.name, 110, (v) => (item.name = v), 'name'),
+          );
+          const price = document.createElement('input');
+          price.type = 'number';
+          price.style.width = '64px';
+          price.title = 'price (coins)';
+          price.value = String(item.price);
+          price.oninput = () => {
+            item.price = Number(price.value) || 0;
+            editor.touch();
+          };
+          const eff = document.createElement('select');
+          for (const o of ['none', 'heal', 'coins', 'xp']) {
+            const op = document.createElement('option');
+            op.value = o;
+            op.textContent = o === 'none' ? 'no effect' : `use: ${o}`;
+            if (item.effect === o) op.selected = true;
+            eff.appendChild(op);
+          }
+          eff.onchange = () => {
+            item.effect = eff.value as typeof item.effect;
+            editor.touch();
+          };
+          const n = document.createElement('input');
+          n.type = 'number';
+          n.style.width = '56px';
+          n.title = 'effect amount';
+          n.value = String(item.n);
+          n.oninput = () => {
+            item.n = Number(n.value) || 0;
+            editor.touch();
+          };
+          const kill = document.createElement('button');
+          kill.className = 'btn';
+          kill.textContent = '✕';
+          kill.onclick = () => {
+            db.items.splice(i, 1);
+            editor.touch();
+            renderItems();
+          };
+          row.append(price, eff, n, kill);
+          itemsRoot.appendChild(row);
+        });
+        const add = document.createElement('button');
+        add.className = 'btn';
+        add.textContent = '+ item';
+        add.onclick = () => {
+          db.items.push({ id: `item${db.items.length + 1}`, name: 'New item', emoji: '🎁', desc: '', price: 0, effect: 'none', n: 1 });
+          editor.touch();
+          renderItems();
+        };
+        itemsRoot.appendChild(add);
+      };
+      renderItems();
+      const locBox = root.querySelector<HTMLTextAreaElement>('#db-locales')!;
+      locBox.value = JSON.stringify(editor.project.locales ?? {}, null, 2);
+      root.querySelector<HTMLButtonElement>('#db-locales-save')!.onclick = () => {
+        const out = root.querySelector<HTMLElement>('#db-locales-out')!;
+        try {
+          editor.project.locales = JSON.parse(locBox.value || '{}') as Record<string, Record<string, string>>;
+          editor.touch();
+          out.textContent = 'Saved ✓';
+        } catch (err) {
+          out.textContent = `Invalid JSON: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      };
+    });
+
   // 💾 quick-save the whole game to My Games (named slot per project name).
   const saveBtn = $<HTMLButtonElement>('btn-save');
   saveBtn.onclick = () => {
@@ -444,10 +546,44 @@ async function main(): Promise<void> {
 
   // ------------------------------------------------------------- palette
   const left = $('left');
+  const hier = document.createElement('div');
   const palEntities = document.createElement('div');
   const palTiles = document.createElement('div');
   palTiles.style.display = 'none';
-  left.append(palEntities, palTiles);
+  left.append(hier, palEntities, palTiles);
+
+  // 🌲 Hierarchy: every level and its actors as a tree — click to select.
+  const KIND_EMOJI: Record<string, string> = {
+    blob: '🙂', npc: '💬', mob: '👾', boss: '👹', crate: '📦', lantern: '🏮',
+    plant: '🪴', text: '🔤', button: '🔘', image: '🖼',
+  };
+  const refreshHierarchy = (): void => {
+    hier.innerHTML = '';
+    const head = document.createElement('div');
+    head.className = 'pal-head';
+    head.textContent = '🌲 Hierarchy';
+    hier.appendChild(head);
+    for (const scene of editor.project.scenes) {
+      const active = scene.id === editor.sceneId;
+      const row = document.createElement('div');
+      row.style.cssText = `cursor:pointer;font-weight:800;padding:2px 4px;border-radius:6px;${active ? 'color:var(--accent)' : 'color:var(--ink-soft)'}`;
+      row.textContent = `${active ? '▾' : '▸'} 🚪 ${scene.name}`;
+      row.onclick = () => editor.switchScene(scene.id);
+      hier.appendChild(row);
+      if (!active) continue;
+      for (const ent of scene.entities) {
+        const er = document.createElement('div');
+        const sel = editor.selectedId === ent.id;
+        er.style.cssText = `cursor:pointer;padding:1px 4px 1px 20px;border-radius:6px;font-size:13px;${sel ? 'background:var(--panel2);color:var(--accent)' : ''}`;
+        er.textContent = `${KIND_EMOJI[ent.kind] ?? '·'} ${ent.name}${ent.events.length ? ' ⚡' : ''}`;
+        er.onclick = () => editor.select(ent.id);
+        hier.appendChild(er);
+      }
+    }
+    const spacer = document.createElement('div');
+    spacer.style.height = '8px';
+    hier.appendChild(spacer);
+  };
 
   // Tile paintbox (🗺 Tiles toggles it in place of the entity palette).
   const tilesBtn = $<HTMLButtonElement>('btn-tiles');
@@ -657,10 +793,12 @@ async function main(): Promise<void> {
   editor.onSelection = () => {
     prevSelection();
     refreshStory();
+    refreshHierarchy();
   };
   editor.onChanged = () => {
     refreshToolbar();
     refreshCode();
+    refreshHierarchy();
   };
   editor.onPlayState = () => {
     refreshToolbar();
@@ -668,6 +806,7 @@ async function main(): Promise<void> {
   };
   refreshToolbar();
   refreshCode();
+  refreshHierarchy();
   refreshStory();
 
   // ------------------------------------------------------------ debug API
@@ -793,6 +932,32 @@ async function main(): Promise<void> {
     setOutfit: (name: string, opts: { hat?: string; held?: string }) =>
       editor.getPlayScene()?.setOutfit(name, opts),
     outfitOf: (name: string) => editor.getPlayScene()?.outfitOf(name) ?? null,
+    flowLink: (fromName: string, toName: string) => {
+      let fromId = '';
+      let toId = '';
+      for (const scene of editor.project.scenes) {
+        if (scene.name === toName) toId = `lvl:${scene.id}`;
+        for (const ent of scene.entities) {
+          if (ent.name === fromName) fromId = `ent:${ent.id}`;
+          if (ent.name === toName) toId = `ent:${ent.id}`;
+        }
+      }
+      return fromId && toId ? flow.link(fromId, toId) : false;
+    },
+    setDbItems: (items: unknown) => {
+      editor.project.db = { items: items as never };
+      editor.touch();
+    },
+    setLocales: (locales: unknown) => {
+      editor.project.locales = locales as never;
+      editor.touch();
+    },
+    itemCountOf: (id: string) => editor.getPlayScene()?.itemCount(id) ?? 0,
+    giveItem: (id: string) => editor.getPlayScene()?.giveItem(id) ?? false,
+    useItem: (id: string) => editor.getPlayScene()?.useItem(id) ?? false,
+    buyItem: (id: string) => editor.getPlayScene()?.buyItem(id) ?? false,
+    cameraHolding: () => editor.getPlayScene()?.cameraHolding() ?? false,
+    hierarchyCount: () => document.querySelectorAll('#left div').length,
     flowNodes: () => {
       flow.render();
       return flow.nodeCount();

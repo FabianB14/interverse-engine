@@ -44,14 +44,18 @@ const actionLabel = (a: EventAction): string => {
       return `🔛${a.text ?? ''}`;
     case 'switchOff':
       return `⏹${a.text ?? ''}`;
+    case 'item':
+      return `🎁${a.text ?? ''}`;
     case 'win':
       return '🏆win';
     case 'lose':
       return '💀lose';
+    default:
+      return a.cmd;
   }
 };
 
-export function wireFlow(editor: StudioEditor): { render: () => void; nodeCount: () => number } {
+export function wireFlow(editor: StudioEditor): { render: () => void; nodeCount: () => number; link: (fromId: string, toId: string) => boolean } {
   const canvas = document.getElementById('flow-canvas')!;
   /** Remembered drag positions (per node id, session-only). */
   const pos = new Map<string, { x: number; y: number }>();
@@ -115,6 +119,43 @@ export function wireFlow(editor: StudioEditor): { render: () => void; nodeCount:
       }
     };
 
+    /** ◉ output port: drag from it onto another node to create a link. */
+    const attachPort = (el: HTMLElement, id: string): void => {
+      const port = document.createElement('div');
+      port.textContent = '◉';
+      port.style.cssText =
+        'position:absolute;right:-9px;top:50%;transform:translateY(-50%);color:var(--good);cursor:crosshair;font-size:13px';
+      port.title = 'Drag onto another node to link (actor→actor: switch gate · actor→level: door)';
+      port.addEventListener('pointerdown', (down) => {
+        down.stopPropagation();
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('stroke', '#8affc1');
+        line.setAttribute('stroke-width', '2');
+        line.setAttribute('stroke-dasharray', '5 4');
+        svg.appendChild(line);
+        const cRect = canvas.getBoundingClientRect();
+        const x1 = el.offsetLeft + el.offsetWidth;
+        const y1 = el.offsetTop + el.offsetHeight / 2;
+        line.setAttribute('x1', String(x1));
+        line.setAttribute('y1', String(y1));
+        const move = (ev: PointerEvent): void => {
+          line.setAttribute('x2', String(ev.clientX - cRect.left + canvas.scrollLeft));
+          line.setAttribute('y2', String(ev.clientY - cRect.top + canvas.scrollTop));
+        };
+        const up = (ev: PointerEvent): void => {
+          window.removeEventListener('pointermove', move);
+          window.removeEventListener('pointerup', up);
+          line.remove();
+          const targetEl = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.flow-node');
+          const target = nodes.find((nd) => nd.el === targetEl);
+          if (target && target.id !== id) link(id, target.id);
+        };
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', up);
+      });
+      el.appendChild(port);
+    };
+
     const draggable = (el: HTMLElement, id: string): void => {
       el.addEventListener('pointerdown', (down) => {
         const start = pos.get(id)!;
@@ -149,6 +190,7 @@ export function wireFlow(editor: StudioEditor): { render: () => void; nodeCount:
       lvl.ondblclick = () => editor.switchScene(scene.id);
       canvas.appendChild(lvl);
       draggable(lvl, `lvl:${scene.id}`);
+      attachPort(lvl, `lvl:${scene.id}`);
       nodes.push({ id: `lvl:${scene.id}`, el: lvl, switchesSet: [], switchGates: [], gotos: [], levelName: scene.name });
       count++;
 
@@ -173,6 +215,7 @@ export function wireFlow(editor: StudioEditor): { render: () => void; nodeCount:
         };
         canvas.appendChild(el);
         draggable(el, `ent:${ent.id}`);
+        attachPort(el, `ent:${ent.id}`);
         nodes.push({
           id: `ent:${ent.id}`,
           el,
@@ -195,5 +238,42 @@ export function wireFlow(editor: StudioEditor): { render: () => void; nodeCount:
     drawWires();
   };
 
-  return { render, nodeCount: () => count };
+  /** Wire-authoring v1: connect two nodes and the logic writes itself.
+   *  actor → level: the actor's first event gains a 🚪 goto action.
+   *  actor → actor: an auto-named switch links them — the source sets it,
+   *  the target's events become gated on it (a chest-opens-door in one drag). */
+  const link = (fromId: string, toId: string): boolean => {
+    if (!fromId.startsWith('ent:')) return false;
+    let fromEnt = null;
+    let toEnt = null;
+    let toScene = null;
+    for (const scene of editor.project.scenes) {
+      for (const ent of scene.entities) {
+        if (`ent:${ent.id}` === fromId) fromEnt = ent;
+        if (`ent:${ent.id}` === toId) toEnt = ent;
+      }
+      if (`lvl:${scene.id}` === toId) toScene = scene;
+    }
+    if (!fromEnt || (!toEnt && !toScene)) return false;
+    if (!fromEnt.events.length) fromEnt.events.push({ trigger: 'touch', actions: [] });
+    const firstEv = fromEnt.events[0]!;
+    if (toScene) {
+      firstEv.actions.push({ cmd: 'goto', text: toScene.name });
+    } else if (toEnt) {
+      let n = 1;
+      const used = new Set(
+        editor.project.scenes.flatMap((s) => s.entities.flatMap((e) => e.events.flatMap((ev) => ev.actions.filter((a) => a.cmd === 'switchOn').map((a) => a.text)))),
+      );
+      while (used.has(`link-${n}`)) n++;
+      const sw = `link-${n}`;
+      firstEv.actions.push({ cmd: 'switchOn', text: sw });
+      if (!toEnt.events.length) toEnt.events.push({ trigger: 'touch', actions: [{ cmd: 'sfx', text: 'chime' }] });
+      for (const ev of toEnt.events) ev.ifSwitch ||= sw;
+    }
+    editor.touch();
+    render();
+    return true;
+  };
+
+  return { render, nodeCount: () => count, link };
 }

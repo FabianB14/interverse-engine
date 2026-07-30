@@ -262,9 +262,17 @@ const ySteer = await page.evaluate(() => {
   return window.__probeYs;
 });
 const jumpOk = zMid > 20 && zLand === 0 && yPlain > 300 && yPlain < 340 && ySteer > 380;
+// CAMERA DIRECTION: panTo parks the camera away from the hero; follow resumes.
+await page.evaluate(() => window.__studio.applyScriptNow("api.camera.panTo(1800, 360, 0.3); api.camera.shake(10, 0.2);"));
+await sleep(600);
+const camPanX = await page.evaluate(() => window.__studio.cameraX());
+const camHeld = await page.evaluate(() => window.__studio.cameraHolding());
+await page.evaluate(() => window.__studio.applyScriptNow("api.camera.follow('Hero')"));
+const camReleased = await page.evaluate(() => window.__studio.cameraHolding());
+const camDirOk = camPanX > 900 && camHeld === true && camReleased === false;
 const cameraOk =
   worldSize.w === 2160 && worldSize.h === 720 && heroX2 > 750 && camX > 60 && horizonOk && subtleOk &&
-  jumpOk;
+  jumpOk && camDirOk;
 await page.screenshot({ path: `${outDir}/st-9-camera.png` });
 await page.evaluate(() => window.__studio.stop());
 await sleep(150);
@@ -439,6 +447,50 @@ const eventsOk =
 await page.evaluate(() => window.__studio.stop());
 await sleep(150);
 
+// DATABASE ITEMS + LOCALES + HIERARCHY + FLOW-LINK: the content database
+// feeds inventory/shop apis; @keys translate per language; the hierarchy
+// lists actors; dragging a flow wire writes the switch gate itself.
+await page.evaluate(() => {
+  window.__studio.setDbItems([
+    { id: 'potion', name: 'Potion', emoji: '🧪', desc: '', price: 4, effect: 'coins', n: 3 },
+  ]);
+  window.__studio.setLocales({ en: { greet: 'Hello' }, es: { greet: 'Hola' } });
+});
+const hierN = await page.evaluate(() => window.__studio.hierarchyCount());
+// two FRESH actors — the wire must invent the switch and gate the target
+await page.evaluate(() => {
+  window.__studio.addEntity('plant', 200, 900);
+  window.__studio.addEntity('crate', 500, 900);
+  window.__studio.setProp('name', 'LinkTarget');
+  window.__studio.select('plant');
+  window.__studio.setProp('name', 'LinkSource');
+});
+const linked = await page.evaluate(() => window.__studio.flowLink('LinkSource', 'LinkTarget'));
+const srcDef = await page.evaluate(() => window.__studio.getEntity('LinkSource'));
+const tgtDef = await page.evaluate(() => window.__studio.getEntity('LinkTarget'));
+const linkSwitch = srcDef?.events?.[0]?.actions?.find((a) => a.cmd === 'switchOn' && a.text?.startsWith('link-'))?.text ?? '';
+const linkOk =
+  linked === true && linkSwitch.startsWith('link-') &&
+  tgtDef?.events?.some((ev) => ev.ifSwitch === linkSwitch) === true;
+await page.evaluate(() => window.__studio.play());
+await sleep(700);
+const gave = await page.evaluate(() => window.__studio.giveItem('potion'));
+const itemN1 = await page.evaluate(() => window.__studio.itemCountOf('potion'));
+const coinsBeforeUse = await page.evaluate(() => window.__studio.coinsNow());
+await page.evaluate(() => window.__studio.useItem('potion'));
+const itemN0 = await page.evaluate(() => window.__studio.itemCountOf('potion'));
+const coinsAfterUse = await page.evaluate(() => window.__studio.coinsNow());
+const bought = await page.evaluate(() => window.__studio.buyItem('potion'));
+const trEs = await page.evaluate(() => {
+  window.__studio.applyScriptNow("api.setLang('es'); window.__probeTr = api.t('greet'); api.setLang('en');");
+  return window.__probeTr;
+});
+const dbOk =
+  gave === true && itemN1 === 1 && itemN0 === 0 && coinsAfterUse === coinsBeforeUse + 3 &&
+  bought === true && trEs === 'Hola' && hierN > 4 && linkOk;
+await page.evaluate(() => window.__studio.stop());
+await sleep(150);
+
 // FLOW TAB + PANEL + TITLE SCREEN: the visual scripting map renders nodes
 // for the event-built actors; the bottom panel minimizes and restores; and
 // api.title() pauses on a save-slot screen until a choice is made.
@@ -533,7 +585,7 @@ aiBridge.kill();
 const ok =
   placeOk && editOk && storyOk && levelsOk && playOk && stopOk && exportOk && importOk &&
   templatesOk && skillsOk && scoreOk && tilesOk && cameraOk && frameOk && combatOk && rangedOk &&
-  patrolOk && chatOk && coinsOk && persistOk && libOk && eventsOk && genOk && uiOk && netOk &&
+  patrolOk && chatOk && coinsOk && persistOk && libOk && eventsOk && genOk && uiOk && dbOk && netOk &&
   errors.length === 0;
 console.log(
   JSON.stringify(
@@ -542,7 +594,7 @@ console.log(
       templatesOk, templates, skillsOk, skillNodes, stormEarly, strength, scoreOk, score,
       tilesOk, tileBefore, tilePainted, tilesPersist, playTiles, heroX,
       cameraOk, worldSize, heroX2, camX, heroY2, horizonOk, heroScale, subtleOk, frameOk,
-      jumpOk, zMid, zLand, yPlain, ySteer,
+      jumpOk, zMid, zLand, yPlain, ySteer, camDirOk, camPanX, camHeld, camReleased,
       combatOk, musicOk, music, vfx, outfitOk, outfit, mobCount0, abilities, bossBar, chaseOk, gap0, gap1, hp0, hp1, mobsLeft, xp, level, hearts,
       rangedOk, shots, enraged, patrolOk, gardenerX,
       chatOk, bridged, chatCount0, chatCount1,
@@ -551,6 +603,7 @@ console.log(
       eventsOk, evCoins0, evCoinsGated, evScore, evSwitch, evCount0, evCount1, evCoins1,
       genOk, mazeHasWalls, mazePlays, islandLive,
       uiOk, flowN, minOn, minOff, titleShown, titleGone,
+      dbOk, hierN, linkOk, linkSwitch, itemN1, itemN0, coinsBeforeUse, coinsAfterUse, bought, trEs,
       netOk, playersA, playersB, remotesB, moveOk, remotePosB, stateB,
       errors: errors.slice(0, 6),
     },

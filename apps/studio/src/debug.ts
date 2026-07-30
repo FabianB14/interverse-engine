@@ -73,6 +73,15 @@ export interface StudioDebug {
   vfxCount: () => number;
   setOutfit: (name: string, opts: { hat?: string; held?: string }) => void;
   outfitOf: (name: string) => { hat: string; held: string } | null;
+  flowLink: (fromName: string, toName: string) => boolean;
+  setDbItems: (items: unknown) => void;
+  setLocales: (locales: unknown) => void;
+  itemCountOf: (id: string) => number;
+  giveItem: (id: string) => boolean;
+  useItem: (id: string) => boolean;
+  buyItem: (id: string) => boolean;
+  cameraHolding: () => boolean;
+  hierarchyCount: () => number;
   flowNodes: () => number;
   titleVisible: () => boolean;
   titlePick: (kind: 'continue' | 'new') => void;

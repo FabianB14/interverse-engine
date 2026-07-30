@@ -36,6 +36,35 @@ import type { StudioNet } from './net.js';
 import { generateRows } from './gen.js';
 import { anyTiles, buildTileLayer } from './tiles.js';
 
+// ---- 🌐 localization: strings starting with @key resolve per-language ----
+let localeTable: Record<string, Record<string, string>> = {};
+let currentLang = 'en';
+try {
+  currentLang = window.localStorage.getItem('interverse.lang') ?? navigator.language.slice(0, 2) ?? 'en';
+} catch {
+  /* headless */
+}
+
+export function setLocaleTable(t: Record<string, Record<string, string>> | undefined): void {
+  localeTable = t ?? {};
+}
+
+export function setLang(lang: string): void {
+  currentLang = lang;
+  try {
+    window.localStorage.setItem('interverse.lang', lang);
+  } catch {
+    /* private mode */
+  }
+}
+
+/** Resolve '@key' through the project's language table (falls back en → key). */
+export function tr(text: string): string {
+  if (!text.startsWith('@')) return text;
+  const key = text.slice(1);
+  return localeTable[currentLang]?.[key] ?? localeTable.en?.[key] ?? key;
+}
+
 const textureCache = new Map<string, Texture>();
 
 function assetTexture(dataUrl: string, onReady: (tex: Texture) => void): void {
@@ -184,7 +213,7 @@ export function buildView(def: EntityDef, assets: Record<string, string>): Entit
     }
     case 'text': {
       const t = new Text({
-        text: def.text || ' ',
+        text: tr(def.text) || ' ',
         style: {
           fontFamily: 'system-ui, "Segoe UI", sans-serif',
           fontSize: def.fontSize,
@@ -198,12 +227,12 @@ export function buildView(def: EntityDef, assets: Record<string, string>): Entit
       break;
     }
     case 'button': {
-      const w = Math.max(160, def.text.length * def.fontSize * 0.62 + 60);
+      const w = Math.max(160, tr(def.text).length * def.fontSize * 0.62 + 60);
       const h = Math.max(84, def.fontSize + 44);
       g.roundRect(-w / 2, -h / 2, w, h, h / 2).fill(def.color);
       body.addChild(g);
       const t = new Text({
-        text: def.text || ' ',
+        text: tr(def.text) || ' ',
         style: {
           fontFamily: 'system-ui, "Segoe UI", sans-serif',
           fontSize: def.fontSize,
@@ -271,7 +300,7 @@ function playSound(s: TapSound): void {
 
 function dialogueFor(def: EntityDef): DialogueData {
   const nodes: DialogueData['nodes'] = {};
-  const lines = def.lines.length ? def.lines : ['…'];
+  const lines = (def.lines.length ? def.lines : ['…']).map(tr);
   lines.forEach((text, i) => {
     nodes[`n${i}`] = {
       speaker: def.name,
@@ -375,6 +404,28 @@ export interface ScriptApi {
   /** Play a named animation clip on an imported spritesheet model
    *  (define clips in the inspector: name + frame range + fps). */
   playClip: (target: string, clipName: string) => void;
+  /** 🗄 Database items: give/count/use/buy against project.db.items;
+   *  open() shows the player's inventory (tap an item to use it). */
+  items: {
+    give: (id: string, count?: number) => boolean;
+    count: (id: string) => number;
+    use: (id: string) => boolean;
+    buy: (id: string) => boolean;
+    list: () => { id: string; name: string; emoji: string; price: number }[];
+    open: () => void;
+  };
+  /** 🎥 Camera direction: pan somewhere (gameplay keeps running), shake,
+   *  return to following a player, cinematic letterbox bars. */
+  camera: {
+    panTo: (x: number, y: number, secs?: number) => void;
+    shake: (power?: number, secs?: number) => void;
+    follow: (name: string) => void;
+    letterbox: (on: boolean) => void;
+  };
+  /** 🌐 Localization: api.t('greet') reads the project language table;
+   *  setLang persists the player's language on this device. */
+  t: (key: string) => string;
+  setLang: (lang: string) => void;
   /** Title / save-slot screen: game name, ▶ CONTINUE (when a save file
    *  exists), ✚ NEW GAME (wipes the save + skill unlocks), and music/sfx
    *  volume bars. Gameplay pauses until a choice is made. */
@@ -454,6 +505,7 @@ export class PlayScene extends Scene {
     z: number;
     vz: number;
     shadow: Graphics | null;
+    def?: EntityDef;
   }[] = [];
   private baseScales = new WeakMap<Container, number>();
   private joystick: VirtualJoystick | null = null;
@@ -554,6 +606,7 @@ export class PlayScene extends Scene {
   protected override onEnter(): void {
     // Game space lives in `world`; the camera pans it when the level is
     // bigger than one screen. HUD/UI stays on the stage (screen space).
+    setLocaleTable(this.project.locales);
     this.stage.addChildAt(this.world, 0);
     const bg = new Graphics()
       .rect(0, 0, this.sceneDef.worldW, this.sceneDef.worldH)
@@ -1231,6 +1284,7 @@ export class PlayScene extends Scene {
       }
       const speed = m.def.moveSpeed * (m.enraged ? 1.4 : 1);
       if (vx !== 0) this.face(m.e, vx);
+      this.autoClip(m.def, vx || vy ? 'walk' : 'idle');
       if (vx || vy) {
         m.e.x = Math.max(20, Math.min(W - 20, m.e.x + vx * speed * dt));
         m.e.y = Math.max(minY, Math.min(H - 20, m.e.y + vy * speed * dt));
@@ -1371,6 +1425,15 @@ export class PlayScene extends Scene {
     this.tileLayerView = layer.view;
   }
 
+  /** Animation state machine v1: imported models with clips named idle /
+   *  walk / jump switch automatically as they move — zero wiring. */
+  private autoClip(def: EntityDef | undefined, state: string): void {
+    if (!def || def.kind !== 'image') return;
+    if (!def.clips.some((c) => c.name === state)) return;
+    if (this.activeClips.get(def.name) === state) return;
+    this.playClip(def.name, state);
+  }
+
   /** Auto-facing: characters and imported models look where they walk.
    *  Flips the pop wrapper so Wobble's uniform scaling stays untouched. */
   private face(e: Entity, dirX: number): void {
@@ -1385,7 +1448,8 @@ export class PlayScene extends Scene {
     return def ? { hat: def.hat, held: def.held } : null;
   }
 
-  private sayLines(speaker: string, lines: string[]): void {
+  private sayLines(speaker: string, linesIn: string[]): void {
+    const lines = linesIn.map(tr);
     const nodes: DialogueData['nodes'] = {};
     lines.forEach((text, i) => {
       nodes[`n${i}`] = { speaker, text, ...(i < lines.length - 1 ? { next: `n${i + 1}` } : {}) };
@@ -1470,6 +1534,9 @@ export class PlayScene extends Scene {
           break;
         case 'vfx':
           this.spawnVfx((a.text ?? 'sparkle') as VfxPreset, a.x ?? def.x, a.y ?? def.y);
+          break;
+        case 'item':
+          if (a.text) this.giveItem(a.text, a.n ?? 1);
           break;
         case 'spawn':
           this.spawnDef(defaultEntity((a.text ?? 'crate') as EntityKind, a.x ?? def.x, a.y ?? def.y));
@@ -1557,7 +1624,9 @@ export class PlayScene extends Scene {
       player: (name, speed = 300) => {
         const e = this.byName.get(name);
         if (!e) return undefined;
-        const p = { entity: e, speed, groundY: e.y, vy: 0, z: 0, vz: 0, shadow: null as Graphics | null };
+        const pdef = this.sceneDef.entities.find((d) => d.name === name);
+        const p: (typeof this.players)[number] = { entity: e, speed, groundY: e.y, vy: 0, z: 0, vz: 0, shadow: null };
+        if (pdef) p.def = pdef;
         this.players.push(p);
         if (this.sceneDef.view === 'depth' && this.sceneDef.gravity) {
           // Brawler jump: a ground shadow (visible while airborne) + an
@@ -1719,6 +1788,30 @@ export class PlayScene extends Scene {
       outfit: (target, opts) => this.setOutfit(target, opts),
       playClip: (target, clipName) => this.playClip(target, clipName),
       title: () => this.showTitle(),
+      items: {
+        give: (id, count = 1) => this.giveItem(id, count),
+        count: (id) => this.itemCount(id),
+        use: (id) => this.useItem(id),
+        buy: (id) => this.buyItem(id),
+        list: () => (this.project.db?.items ?? []).map((i) => ({ id: i.id, name: i.name, emoji: i.emoji, price: i.price })),
+        open: () => this.openInventory(),
+      },
+      camera: {
+        panTo: (x, y, secs = 1) => this.cameraPanTo(x, y, secs),
+        shake: (power = 14, secs = 0.4) => {
+          this.shakePower = power;
+          this.shakeT = secs;
+        },
+        follow: (name) => {
+          this.camHold = false;
+          this.camPan = null;
+          const e = this.byName.get(name);
+          if (e) this.camera?.follow(e);
+        },
+        letterbox: (on) => this.setLetterbox(on),
+      },
+      t: (key) => tr(key.startsWith('@') ? key : `@${key}`),
+      setLang: (lang) => setLang(lang),
       gen: {
         maze: () => generateRows('maze', this.sceneDef.worldW / 40, this.sceneDef.worldH / 40),
         dungeon: () => generateRows('dungeon', this.sceneDef.worldW / 40, this.sceneDef.worldH / 40),
@@ -1727,6 +1820,181 @@ export class PlayScene extends Scene {
       setTiles: (rows) => this.setTilesLive(rows),
       gameOver: (message = 'GAME OVER') => this.endGame(message),
     };
+  }
+
+  // ------------------------------------------------------- 🗄 items
+  private invGet(): Record<string, number> {
+    return this.saveStore().get('__inv', {} as Record<string, number>);
+  }
+
+  private itemDefOf(id: string) {
+    return (this.project.db?.items ?? []).find((i) => i.id === id);
+  }
+
+  giveItem(id: string, count = 1): boolean {
+    if (!this.itemDefOf(id)) return false;
+    const inv = this.invGet();
+    inv[id] = Math.max(0, (inv[id] ?? 0) + count);
+    if (inv[id] === 0) delete inv[id];
+    this.saveStore().set('__inv', inv);
+    audio.pop(1.4);
+    return true;
+  }
+
+  itemCount(id: string): number {
+    return this.invGet()[id] ?? 0;
+  }
+
+  useItem(id: string): boolean {
+    const d = this.itemDefOf(id);
+    const inv = this.invGet();
+    if (!d || (inv[id] ?? 0) <= 0) return false;
+    inv[id] = inv[id]! - 1;
+    if (inv[id]! <= 0) delete inv[id];
+    this.saveStore().set('__inv', inv);
+    if (d.effect === 'heal') {
+      if (!this.heartsMax) this.enableHearts(3);
+      this.heartsVal = Math.min(this.heartsMax, this.heartsVal + Math.max(1, d.n));
+      this.refreshHearts();
+    } else if (d.effect === 'coins') {
+      this.coinsAdd(Math.max(1, d.n));
+    } else if (d.effect === 'xp') {
+      if (!this.levelsOn) this.enableLevels();
+      this.addXp(Math.max(1, d.n));
+    }
+    audio.chime();
+    return true;
+  }
+
+  buyItem(id: string): boolean {
+    const d = this.itemDefOf(id);
+    if (!d || d.price <= 0 || this.coinsGet() < d.price) return false;
+    this.coinsAdd(-d.price);
+    return this.giveItem(id, 1);
+  }
+
+  private invRoot: Entity | null = null;
+
+  /** 🎒 Inventory overlay — tap an item to use it. */
+  openInventory(): void {
+    this.invRoot?.destroy({ children: true });
+    const W = this.game.viewWidth;
+    const H = this.game.viewHeight;
+    const root = new Entity();
+    const bg = new Graphics().roundRect(W / 2 - 250, H * 0.2, 500, H * 0.5, 16).fill({ color: 0x16131f, alpha: 0.96 });
+    bg.eventMode = 'static';
+    root.addChild(bg);
+    const title = new Text({
+      text: '🎒 INVENTORY',
+      style: { fontFamily: 'system-ui, sans-serif', fontSize: 30, fontWeight: '800', fill: 0xffd166 },
+    });
+    title.anchor.set(0.5, 0);
+    title.position.set(W / 2, H * 0.2 + 18);
+    root.addChild(title);
+    const inv = this.invGet();
+    const ids = Object.keys(inv);
+    if (!ids.length) {
+      const empty = new Text({
+        text: '(nothing yet)',
+        style: { fontFamily: 'system-ui, sans-serif', fontSize: 24, fill: 0x9a97b8 },
+      });
+      empty.anchor.set(0.5);
+      empty.position.set(W / 2, H * 0.2 + 110);
+      root.addChild(empty);
+    }
+    ids.slice(0, 8).forEach((id, i) => {
+      const d = this.itemDefOf(id);
+      if (!d) return;
+      const row = new Text({
+        text: `${d.emoji} ${tr(d.name)}  ×${inv[id]}`,
+        style: { fontFamily: 'system-ui, sans-serif', fontSize: 26, fontWeight: '700', fill: 0xe6e4f0 },
+      });
+      row.anchor.set(0, 0.5);
+      row.position.set(W / 2 - 220, H * 0.2 + 90 + i * 46);
+      row.eventMode = 'static';
+      row.cursor = 'pointer';
+      row.on('pointertap', () => {
+        this.useItem(id);
+        this.openInventory(); // rebuild counts
+      });
+      root.addChild(row);
+    });
+    const close = new Text({
+      text: '✕',
+      style: { fontFamily: 'system-ui, sans-serif', fontSize: 30, fontWeight: '800', fill: 0x9a97b8 },
+    });
+    close.anchor.set(0.5);
+    close.position.set(W / 2 + 220, H * 0.2 + 34);
+    close.eventMode = 'static';
+    close.cursor = 'pointer';
+    close.on('pointertap', () => {
+      root.destroy({ children: true });
+      this.invRoot = null;
+    });
+    root.addChild(close);
+    this.add(root);
+    this.invRoot = root;
+  }
+
+  // ------------------------------------------------------ 🎥 camera api
+  private camPan: { fx: number; fy: number; tx: number; ty: number; secs: number; t: number } | null = null;
+  private camHold = false;
+  private shakeT = 0;
+  private shakePower = 0;
+  private lastShakeX = 0;
+  private lastShakeY = 0;
+  private letterboxG: Graphics | null = null;
+
+  cameraPanTo(x: number, y: number, secs: number): void {
+    const vw = this.game.viewWidth;
+    const vh = this.game.viewHeight;
+    const tx = -Math.max(0, Math.min(this.sceneDef.worldW - vw, x - vw / 2));
+    const ty = -Math.max(0, Math.min(this.sceneDef.worldH - vh, y - vh / 2));
+    this.camPan = { fx: this.world.position.x, fy: this.world.position.y, tx, ty, secs: Math.max(0.05, secs), t: 0 };
+    this.camHold = true;
+  }
+
+  private setLetterbox(on: boolean): void {
+    if (on && !this.letterboxG) {
+      const W = this.game.viewWidth;
+      const H = this.game.viewHeight;
+      const g = new Graphics().rect(0, 0, W, 84).fill(0x000000).rect(0, H - 84, W, 84).fill(0x000000);
+      this.stage.addChild(g);
+      this.letterboxG = g;
+    } else if (!on && this.letterboxG) {
+      this.letterboxG.destroy();
+      this.letterboxG = null;
+    }
+  }
+
+  cameraHolding(): boolean {
+    return this.camHold;
+  }
+
+  private tickCamera(dt: number): void {
+    // undo last frame's shake before anything repositions
+    this.world.position.x -= this.lastShakeX;
+    this.world.position.y -= this.lastShakeY;
+    this.lastShakeX = 0;
+    this.lastShakeY = 0;
+    if (this.camPan) {
+      const p = this.camPan;
+      p.t += dt;
+      const k = Math.min(1, p.t / p.secs);
+      const e = 1 - (1 - k) ** 2;
+      this.world.position.set(p.fx + (p.tx - p.fx) * e, p.fy + (p.ty - p.fy) * e);
+      if (k >= 1) this.camPan = null; // camHold keeps us parked here
+    } else if (!this.camHold) {
+      this.camera?.update(dt);
+      this.centerWorld();
+    }
+    if (this.shakeT > 0) {
+      this.shakeT = Math.max(0, this.shakeT - dt);
+      this.lastShakeX = (Math.random() - 0.5) * this.shakePower;
+      this.lastShakeY = (Math.random() - 0.5) * this.shakePower;
+      this.world.position.x += this.lastShakeX;
+      this.world.position.y += this.lastShakeY;
+    }
   }
 
   private titleRoot: Entity | null = null;
@@ -1950,6 +2218,10 @@ export class PlayScene extends Scene {
           this.tickJump(dt);
         }
       }
+      for (const p of this.players) {
+        if (p.entity.destroyed) continue;
+        this.autoClip(p.def, p.z > 0 ? 'jump' : mx || my ? 'walk' : 'idle');
+      }
       this.updateMobs(dt);
       this.tickAbilities(dt);
       this.tickCoinPickup();
@@ -1962,8 +2234,7 @@ export class PlayScene extends Scene {
       this.syncRemotes(dt);
     }
     if (this.sceneDef.view === 'depth') this.applyDepth();
-    this.camera?.update(dt);
-    this.centerWorld();
+    this.tickCamera(dt);
   }
 
   cameraX(): number {

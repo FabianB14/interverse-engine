@@ -6,7 +6,7 @@ import type { EntityDef, EventAction, EventDef } from './model.js';
 const hex = (n: number): string => `#${n.toString(16).padStart(6, '0')}`;
 
 /** The no-code command palette: label + which params each command needs. */
-const EVENT_CMDS: { cmd: EventAction['cmd']; label: string; params: 'text' | 'n' | 'sound' | 'music' | 'vfx' | 'spawn' | 'none' }[] = [
+const EVENT_CMDS: { cmd: EventAction['cmd']; label: string; params: 'text' | 'n' | 'sound' | 'music' | 'vfx' | 'item' | 'spawn' | 'none' }[] = [
   { cmd: 'say', label: '💬 Say message', params: 'text' },
   { cmd: 'coins', label: '🪙 Give coins', params: 'n' },
   { cmd: 'score', label: '⭐ Add score', params: 'n' },
@@ -15,6 +15,7 @@ const EVENT_CMDS: { cmd: EventAction['cmd']; label: string; params: 'text' | 'n'
   { cmd: 'sfx', label: '🔊 Play sound', params: 'sound' },
   { cmd: 'music', label: '🎵 Music', params: 'music' },
   { cmd: 'vfx', label: '✨ Particle burst', params: 'vfx' },
+  { cmd: 'item', label: '🎁 Give item', params: 'item' },
   { cmd: 'spawn', label: '🐣 Spawn a thing', params: 'spawn' },
   { cmd: 'remove', label: '🗑 Remove this', params: 'none' },
   { cmd: 'goto', label: '🚪 Go to level…', params: 'text' },
@@ -393,6 +394,27 @@ export function wireInspector(editor: StudioEditor): void {
             editor.touch();
           };
           arow.appendChild(n);
+        } else if (spec.params === 'item') {
+          const it = document.createElement('select');
+          const items = editor.project.db?.items ?? [];
+          if (!items.length) {
+            const o = document.createElement('option');
+            o.value = '';
+            o.textContent = '(add items in 🗄 Database)';
+            it.appendChild(o);
+          }
+          for (const item of items) {
+            const o = document.createElement('option');
+            o.value = item.id;
+            o.textContent = `${item.emoji} ${item.name}`;
+            if ((a.text ?? '') === item.id) o.selected = true;
+            it.appendChild(o);
+          }
+          it.onchange = () => {
+            a.text = it.value;
+            editor.touch();
+          };
+          arow.appendChild(it);
         } else if (spec.params === 'vfx') {
           const vf = document.createElement('select');
           for (const v of ['confetti', 'sparkle', 'poof', 'hearts', 'embers', 'coins']) {

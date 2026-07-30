@@ -28,6 +28,10 @@ edit is the real engine, live — press **▶ Play** at any moment.
 
 ## 2 · Build the scene
 
+The left panel starts with the **🌲 Hierarchy** — every level and its
+actors as a tree. Click a level to open it, click an actor to select it
+(⚡ marks actors with events). Below it, the palette adds new actors.
+
 - **Drag** items from the left palette onto the canvas (or click to place).
 - **Click** an entity to select it; **drag** it to move; edit everything else
   in the right-hand **inspector** — position, scale, rotation, color, blob
@@ -137,6 +141,13 @@ from a list: 💬 Say message, 🪙 Give coins, ⭐ Add score, ✨ Grant XP,
 ❤ Heal hearts, 🔊 Play sound, 🐣 Spawn a thing, 🗑 Remove this,
 🚪 Go to level, 🔛/⏹ Turn a switch on/off, 🏆 Win, 💀 Lose.
 
+**🎥 Camera direction** (code): `api.camera.panTo(x, y, secs)` parks the
+camera somewhere (a door opening across the map), `api.camera.follow('Hero')`
+returns it, `.shake(power, secs)` for impacts, `.letterbox(true)` for
+cutscene bars. And **imported models animate themselves**: clips named
+`idle` / `walk` / `jump` auto-switch as players and mobs move — a state
+machine with zero wiring.
+
 Two extras make real quests possible:
 - **only if switch…** — the event runs only while a named switch is ON.
   A chest can `Turn switch ON: opened`, and a door gated with
@@ -146,6 +157,21 @@ Two extras make real quests possible:
 Switches are shared with the Code window (`api.switches.on/off/isOn`),
 so no-code events and scripts work on the same world state.
 
+## 4⅝ · The 🗄 Database — items, shops, languages
+
+The **🗄** toolbar button opens the project database:
+
+- **🎁 Items** — one table of items for the whole game: emoji, id, name,
+  coin price, and a use-effect (heal / coins / xp). Reference them
+  everywhere: the 🎁 Give item event action, and from code —
+  `api.items.give('potion')`, `.count`, `.use` (applies the effect),
+  `.buy` (spends coins at the table price), and `api.items.open()` — a
+  ready-made 🎒 inventory screen where players tap items to use them.
+- **🌐 Languages** — a translation table. Any text starting with `@key`
+  (labels, buttons, stories, 💬 events) shows the player's language:
+  `{"en": {"greet": "Hello"}, "es": {"greet": "Hola"}}`. From code:
+  `api.t('greet')`, `api.setLang('es')` (remembered per device).
+
 ## 4¾ · The ⛓ Flow tab — your game as a graph
 
 The **Flow** tab (bottom panel) is the visual scripting map: every level
@@ -154,8 +180,12 @@ show the connections that make quests work — gold wires from a
 switch-setter to every event gated on that switch, purple wires from
 🚪 go-to-level actions to their destination level. Click a node to select
 that actor for editing in the inspector; double-click a level node to
-open it. (Wire-dragging authoring — connecting nodes to CREATE logic,
-Blueprints-style — builds on this map next.)
+open it.
+
+**Wire authoring**: drag from a node's ◉ port onto another node and the
+logic writes itself — **actor → level** adds a 🚪 door action;
+**actor → actor** invents a switch, makes the source set it, and gates
+the target's events on it. A chest-opens-door quest is one drag.
 
 The bottom panel itself minimizes with the **▾** button in the tab bar
 when you want the full canvas.

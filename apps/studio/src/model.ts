@@ -36,6 +36,7 @@ export interface EventAction {
     | 'sfx' // play a sound (text: pop|blip|chime|buzz)
     | 'music' // play a music track (text: adventure|cozy|battle|spooky|fanfare|stop)
     | 'vfx' // particle burst (text: confetti|sparkle|poof|hearts|embers|coins)
+    | 'item' // give n of database item (text: item id)
     | 'spawn' // spawn a kind (text) at x/y (defaults: this entity's spot)
     | 'remove' // remove this entity
     | 'goto' // switch to level (text)
@@ -139,6 +140,19 @@ export interface PlatformDef {
   wallet: string;
 }
 
+/** Content database: project-wide item definitions referenced by id. */
+export interface ItemDef {
+  id: string;
+  name: string;
+  emoji: string;
+  desc: string;
+  /** Coin price for api.items.buy (0 = not for sale). */
+  price: number;
+  /** What using it does. */
+  effect: 'none' | 'heal' | 'coins' | 'xp';
+  n: number;
+}
+
 export interface ProjectDef {
   version: 1;
   name: string;
@@ -152,6 +166,11 @@ export interface ProjectDef {
   scenes: SceneDef[];
   /** Imported images as data URLs, keyed by asset id. */
   assets: Record<string, string>;
+  /** 🗄 Content database (items today; more tables to come). */
+  db?: { items: ItemDef[] };
+  /** 🌐 Localization: language -> key -> text; strings starting with @key
+   *  resolve through this table at play time. */
+  locales?: Record<string, Record<string, string>>;
 }
 
 let nextId = 1;
@@ -310,5 +329,20 @@ export function parseProject(json: string): ProjectDef {
     }
   }
   if (!p.scenes.some((s) => s.id === p.startScene)) p.startScene = p.scenes[0]!.id;
+  // Content database + locales: normalize to well-formed shapes.
+  const db = p.db && typeof p.db === 'object' ? p.db : { items: [] };
+  db.items = (Array.isArray(db.items) ? db.items : []).filter(
+    (i): i is ItemDef => !!i && typeof i === 'object' && typeof (i as ItemDef).id === 'string' && (i as ItemDef).id !== '',
+  );
+  for (const i of db.items) {
+    i.name ||= i.id;
+    i.emoji ||= '🎁';
+    i.desc ||= '';
+    i.price = Math.max(0, Number(i.price) || 0);
+    if (!['none', 'heal', 'coins', 'xp'].includes(i.effect)) i.effect = 'none';
+    i.n = Math.max(0, Number(i.n) || 0);
+  }
+  p.db = db;
+  if (!p.locales || typeof p.locales !== 'object' || Array.isArray(p.locales)) p.locales = {};
   return p;
 }
