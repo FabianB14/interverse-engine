@@ -200,6 +200,38 @@ are one system. `api.xp.add(n)` grants XP from quests; `api.level()` reads
 the current level. The **Blob Arena** template shows the whole loop:
 slimes with different AI, two mapped abilities, hearts, XP, and a boss.
 
+### Saving — your game, and your players' progress
+
+Two save systems, both on-device:
+
+**💾 Save (the toolbar button)** keeps the whole game in **My Games** —
+one named slot per project. Open **✚ New** and your saved games are
+listed at the top: open any of them, or 🗑 delete one. (The editor also
+autosaves your current project continuously; Export/Import still moves
+games between devices as files.)
+
+**The in-game save file** is for players: each game gets its own
+persistent storage that survives closing the browser.
+
+```js
+api.save.set('quest', 'met-the-elder')  // any JSON-serializable value
+api.save.get('quest', '')               // read with a fallback
+api.save.remove('quest');  api.save.clear()
+```
+
+Progress persists automatically, no code needed: with `api.levels()` on,
+**XP and level carry over between plays** (skill unlocks already did);
+`api.gameOver` tracks the **best score** and shows it on the end screen;
+and defeated mobs **drop coins** that scatter where they fall — walk
+over them to bank them (🪙 HUD chip). The balance persists in the save
+file, ready for shops:
+
+```js
+api.coins.get()                  // current balance
+api.coins.spend(10)              // true if they could afford it
+api.coins.add(5)                 // grant bonus coins from code
+```
+
 ### Skill trees
 
 ```js

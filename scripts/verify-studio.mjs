@@ -329,9 +329,46 @@ const rangedOk = shots >= 1 && enraged === true;
 const combatOk =
   mobCount0 === 4 && abilities === 2 && bossBar === true && chaseOk &&
   hp1 === hp0 - 1 && mobsLeft === 3 && (xp > 0 || level > 1) && hearts > 0 && hearts <= 9;
+// LOOT: the slain slime scattered coins near where it died — walk the hero
+// over the spot and the pickup banks them in the game's save file.
+await page.evaluate(() => window.__studio.applyScriptNow("api.entity('Hero').x += 90;"));
+await sleep(400);
+await page.evaluate(() => window.__studio.applyScriptNow("api.entity('Hero').x += 50;"));
+await sleep(400);
+await page.evaluate(() => window.__studio.applyScriptNow("api.entity('Hero').y -= 60;"));
+await sleep(400);
+const coins = await page.evaluate(() => window.__studio.coinsNow());
+const coinsOk = coins >= 1;
+// IN-GAME SAVE: script data + XP/level survive stopping and replaying.
+await page.evaluate(() => window.__studio.applyScriptNow("api.save.set('quest', 'met-the-warden')"));
+const xpBefore = await page.evaluate(() => window.__studio.xpNow());
 await page.screenshot({ path: `${outDir}/st-11-combat.png` });
 await page.evaluate(() => window.__studio.stop());
+await sleep(200);
+await page.evaluate(() => window.__studio.play());
+await sleep(900);
+const savedQuest = await page.evaluate(() => {
+  window.__studio.applyScriptNow("window.__probeQ = api.save.get('quest', '')");
+  return window.__probeQ;
+});
+const xpRestored = await page.evaluate(() => window.__studio.xpNow());
+const persistOk = savedQuest === 'met-the-warden' && xpRestored === xpBefore && xpBefore > 0;
+await page.evaluate(() => window.__studio.stop());
 await sleep(150);
+
+// PROJECT LIBRARY: 💾 Save keeps the whole game in My Games; opening it
+// back restores the project after switching to something else.
+const savedName = await page.evaluate(() => window.__studio.projectName());
+const libId = await page.evaluate(() => window.__studio.librarySave());
+await page.evaluate(() => window.__studio.loadTemplate('cozy'));
+await sleep(300);
+const otherName = await page.evaluate(() => window.__studio.projectName());
+const reopened = await page.evaluate((id) => window.__studio.libraryOpen(id), libId);
+await sleep(300);
+const restoredName = await page.evaluate(() => window.__studio.projectName());
+const libCount = await page.evaluate(() => window.__studio.libraryList().length);
+const libOk =
+  reopened === true && restoredName === savedName && otherName !== savedName && libCount >= 1;
 
 // NPC WAYPOINT PATROL: api.patrol walks the Gardener along its loop.
 await page.evaluate(() => window.__studio.loadTemplate('topdown'));
@@ -398,7 +435,7 @@ aiBridge.kill();
 const ok =
   placeOk && editOk && storyOk && levelsOk && playOk && stopOk && exportOk && importOk &&
   templatesOk && skillsOk && scoreOk && tilesOk && cameraOk && frameOk && combatOk && rangedOk &&
-  patrolOk && chatOk && netOk && errors.length === 0;
+  patrolOk && chatOk && coinsOk && persistOk && libOk && netOk && errors.length === 0;
 console.log(
   JSON.stringify(
     {
@@ -410,6 +447,8 @@ console.log(
       combatOk, mobCount0, abilities, bossBar, chaseOk, gap0, gap1, hp0, hp1, mobsLeft, xp, level, hearts,
       rangedOk, shots, enraged, patrolOk, gardenerX,
       chatOk, bridged, chatCount0, chatCount1,
+      coinsOk, coins, persistOk, savedQuest, xpBefore, xpRestored,
+      libOk, libId, savedName, restoredName, libCount,
       netOk, playersA, playersB, remotesB, moveOk, remotePosB, stateB,
       errors: errors.slice(0, 6),
     },

@@ -158,7 +158,37 @@ async function main(): Promise<void> {
   // ------------------------------------------------- templates ("✚ New")
   const openTemplates = (): void =>
     openModal((root) => {
-      root.innerHTML = `<h2>✚ New game from a template</h2><div class="tpl-grid"></div>`;
+      root.innerHTML = `<h2>✚ New game from a template</h2><div id="lib-row"></div><div class="tpl-grid"></div>`;
+      // Your saved games first — open (or delete) any 💾 Save slot.
+      const lib = editor.libraryList();
+      const libRow = root.querySelector<HTMLElement>('#lib-row')!;
+      if (lib.length) {
+        libRow.innerHTML = `<p class="muted" style="margin:4px 0 6px">💾 Your saved games:</p>`;
+        for (const entry of lib) {
+          const row = document.createElement('div');
+          row.className = 'row';
+          row.style.marginBottom = '6px';
+          const open = document.createElement('button');
+          open.className = 'btn';
+          open.textContent = `📂 ${entry.name}`;
+          open.onclick = () => {
+            if (editor.openFromLibrary(entry.id)) closeModal();
+          };
+          const del = document.createElement('button');
+          del.className = 'btn';
+          del.textContent = '🗑';
+          del.title = 'Delete this saved game';
+          del.onclick = () => {
+            if (confirm(`Delete saved game "${entry.name}"?`)) {
+              editor.deleteFromLibrary(entry.id);
+              openTemplates();
+            }
+          };
+          row.append(open, del);
+          libRow.appendChild(row);
+        }
+        libRow.appendChild(document.createElement('hr'));
+      }
       const grid = root.querySelector('.tpl-grid')!;
       for (const t of TEMPLATES) {
         const card = document.createElement('div');
@@ -176,6 +206,14 @@ async function main(): Promise<void> {
       grid.appendChild(locked);
     });
   $('btn-new').onclick = openTemplates;
+
+  // 💾 quick-save the whole game to My Games (named slot per project name).
+  const saveBtn = $<HTMLButtonElement>('btn-save');
+  saveBtn.onclick = () => {
+    editor.saveToLibrary();
+    saveBtn.textContent = '✓ Saved';
+    setTimeout(() => (saveBtn.textContent = '💾 Save'), 1200);
+  };
 
   // --------------------------------------------------- publish ("🌍")
   const field = (root: HTMLElement, label: string, input: HTMLElement): void => {
@@ -653,6 +691,11 @@ async function main(): Promise<void> {
     shotsFired: () => editor.getPlayScene()?.shotsFired() ?? 0,
     mobEnraged: (name: string) => editor.getPlayScene()?.mobEnraged(name) ?? false,
     chatBridged: () => chat.bridged(),
+    coinsNow: () => editor.getPlayScene()?.coinsNow() ?? 0,
+    librarySave: () => editor.saveToLibrary(),
+    libraryList: () => editor.libraryList(),
+    libraryOpen: (id: string) => editor.openFromLibrary(id),
+    libraryDelete: (id: string) => editor.deleteFromLibrary(id),
   };
 
   // Player boot: ?load=<url-to-project-json> (+ &play=1 to jump straight in).

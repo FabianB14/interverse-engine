@@ -14,6 +14,7 @@ import {
   Wobble,
   audio,
   blobCharacter,
+  createSave,
   darken,
   easings,
   lighten,
@@ -21,7 +22,7 @@ import {
   moveWithCollision,
   verium,
 } from '@interverse/engine';
-import type { DialogueData, Game, TileMapData } from '@interverse/engine';
+import type { DialogueData, Game, SaveStore, TileMapData } from '@interverse/engine';
 import { DialogueBox } from '@interverse/ui';
 import { fetchChainBalance } from '@interverse/platform';
 import { drawIcon } from './icons.js';
@@ -319,6 +320,17 @@ export interface ScriptApi {
   levels: (opts?: { xpPerLevel?: number }) => void;
   xp: { add: (n: number) => void; get: () => number };
   level: () => number;
+  /** In-game save file (per game, on this device): survives closing the
+   *  game. Values must be JSON-serializable. */
+  save: {
+    set: (key: string, value: unknown) => void;
+    get: <T>(key: string, fallback: T) => T;
+    remove: (key: string) => void;
+    clear: () => void;
+  };
+  /** Coins dropped by defeated mobs (picked up by walking over them);
+   *  the balance persists in the game's save file. */
+  coins: { get: () => number; add: (n: number) => void; spend: (n: number) => boolean };
   /** Skill tree: define once, then open()/addPoints()/unlock()/isUnlocked(). */
   skills: SkillTree;
   /** End the game with a message (score shown too). */
@@ -415,6 +427,9 @@ export class PlayScene extends Scene {
   private xpBarG: Graphics | null = null;
   private bossBarRoot: Container | null = null;
   private bossBarFill: Graphics | null = null;
+  private gameSave: SaveStore | null = null;
+  private coinDrops: { e: Entity }[] = [];
+  private coinText: Text | null = null;
   private onKeyDown = (e: KeyboardEvent): void => {
     this.keys.add(e.key.toLowerCase());
     const a = this.abilityStates.find((x) => x.key && x.key === e.key.toLowerCase());
@@ -515,6 +530,7 @@ export class PlayScene extends Scene {
     });
     this.camera.setBounds(0, 0, this.sceneDef.worldW, this.sceneDef.worldH);
     for (const def of this.sceneDef.entities) this.spawnDef(def);
+    this.refreshCoinHud(); // shows the wallet if this game has banked coins
     this.centerWorld();
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
@@ -612,6 +628,80 @@ export class PlayScene extends Scene {
     }
     if (def.kind === 'mob' || def.kind === 'boss') this.registerMob(def, e);
     return e;
+  }
+
+  // ------------------------------------------------------------- saving
+
+  /** The game's save file — one namespace per project name, on-device. */
+  private saveStore(): SaveStore {
+    if (!this.gameSave) {
+      const slug = this.project.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'game';
+      this.gameSave = createSave(`studio-game-${slug}`);
+    }
+    return this.gameSave;
+  }
+
+  private coinsGet(): number {
+    return Number(this.saveStore().get('coins', 0)) || 0;
+  }
+
+  private coinsAdd(n: number): void {
+    this.saveStore().set('coins', Math.max(0, this.coinsGet() + n));
+    this.refreshCoinHud();
+  }
+
+  private refreshCoinHud(): void {
+    const total = this.coinsGet();
+    if (!this.coinText) {
+      if (total <= 0) return;
+      this.coinText = new Text({
+        text: '',
+        style: { fontFamily: 'system-ui, sans-serif', fontSize: 26, fontWeight: '800', fill: 0xffd166 },
+      });
+      // stacks under the hearts (which sit under the Verium chip if shown)
+      this.coinText.position.set(16, (this.project.interverse ? 54 : 12) + (this.heartsMax > 0 ? 42 : 0));
+      this.stage.addChild(this.coinText);
+    }
+    this.coinText.text = `🪙 ${total}`;
+  }
+
+  /** Defeated mobs scatter coins; walking over one banks it in the save. */
+  private dropCoins(x: number, y: number, count: number): void {
+    for (let i = 0; i < count; i++) {
+      const e = new Entity();
+      const g = new Graphics()
+        .circle(0, 0, 11)
+        .fill(0xffd166)
+        .circle(0, 0, 11)
+        .stroke({ color: darken(0xffd166, 0.4), width: 3 })
+        .circle(-3, -3, 3)
+        .fill(lighten(0xffd166, 0.4));
+      e.addChild(g);
+      e.position.set(x + (Math.random() - 0.5) * 80, y + (Math.random() - 0.5) * 60);
+      e.zIndex = e.y;
+      e.scale.set(0.01);
+      e.addBehavior(new Tween(e.scale, { x: 1, y: 1 }, 0.3, { ease: easings.outBack }));
+      this.add(e, this.world);
+      this.coinDrops.push({ e });
+    }
+  }
+
+  private tickCoinPickup(): void {
+    const me = this.players[0]?.entity;
+    if (!me || me.destroyed || !this.coinDrops.length) return;
+    for (let i = this.coinDrops.length - 1; i >= 0; i--) {
+      const c = this.coinDrops[i]!;
+      if (c.e.destroyed) {
+        this.coinDrops.splice(i, 1);
+        continue;
+      }
+      if (Math.hypot(me.x - c.e.x, me.y - c.e.y) < 70) {
+        this.remove(c.e);
+        this.coinDrops.splice(i, 1);
+        this.coinsAdd(1);
+        audio.pop(1.6);
+      }
+    }
   }
 
   // ------------------------------------------------------------- combat
@@ -728,6 +818,7 @@ export class PlayScene extends Scene {
       t += dt;
       if (t >= 0.24) this.remove(doomed);
     });
+    this.dropCoins(m.e.x, m.e.y, m.def.kind === 'boss' ? 5 : 1 + Math.floor(Math.random() * 2));
     if (this.levelsOn) this.addXp(Math.max(0, m.def.xp));
     for (const cb of this.defeatCbs) {
       try {
@@ -875,6 +966,10 @@ export class PlayScene extends Scene {
     if (this.levelsOn) return;
     this.levelsOn = true;
     this.xpPerLevel = Math.max(5, opts?.xpPerLevel ?? 20);
+    // Progress persists in the game's save file between plays.
+    const s = this.saveStore();
+    this.xpValue = Math.max(0, Number(s.get('__xp', 0)) || 0);
+    this.levelValue = Math.max(1, Number(s.get('__level', 1)) || 1);
     this.levelText = new Text({
       text: 'Lv 1',
       style: {
@@ -922,6 +1017,9 @@ export class PlayScene extends Scene {
       this.toast('LEVEL UP!');
       need = this.xpNeed();
     }
+    const s = this.saveStore();
+    s.set('__xp', this.xpValue);
+    s.set('__level', this.levelValue);
     this.refreshLevelHud();
   }
 
@@ -1350,6 +1448,21 @@ export class PlayScene extends Scene {
       levels: (opts) => this.enableLevels(opts),
       xp: { add: (n) => this.addXp(n), get: () => this.xpValue },
       level: () => this.levelValue,
+      save: {
+        set: (key, value) => this.saveStore().set(key, value),
+        get: (key, fallback) => this.saveStore().get(key, fallback),
+        remove: (key) => this.saveStore().remove(key),
+        clear: () => this.saveStore().clear(),
+      },
+      coins: {
+        get: () => this.coinsGet(),
+        add: (n) => this.coinsAdd(n),
+        spend: (n) => {
+          if (this.coinsGet() < n) return false;
+          this.coinsAdd(-n);
+          return true;
+        },
+      },
       gameOver: (message = 'GAME OVER') => this.endGame(message),
     };
   }
@@ -1377,8 +1490,12 @@ export class PlayScene extends Scene {
       title.anchor.set(0.5);
       title.position.set(W / 2, H * 0.4);
       root.addChild(title);
+      // the best score lives in the game's save file
+      const store = this.saveStore();
+      const best = Math.max(this.scoreValue, Number(store.get('__best', 0)) || 0);
+      store.set('__best', best);
       const sub = new Text({
-        text: `score ${this.scoreValue}`,
+        text: best > this.scoreValue ? `score ${this.scoreValue} · best ${best}` : `score ${this.scoreValue}`,
         style: {
           fontFamily: 'system-ui, sans-serif',
           fontSize: 32,
@@ -1458,6 +1575,7 @@ export class PlayScene extends Scene {
       }
       this.updateMobs(dt);
       this.tickAbilities(dt);
+      this.tickCoinPickup();
       for (const cb of this.updaters) cb(dt);
     }
     // Multiplayer: ship my position, render everyone else.
@@ -1561,6 +1679,10 @@ export class PlayScene extends Scene {
 
   shotsFired(): number {
     return this.shotsFiredTotal;
+  }
+
+  coinsNow(): number {
+    return this.coinsGet();
   }
 
   mobEnraged(name: string): boolean {

@@ -24,6 +24,7 @@ import {
 } from './tiles.js';
 
 const SAVE_KEY = 'interverse.studio.project';
+const LIB_INDEX = 'interverse.studio.library';
 
 class BootScene extends Scene {}
 
@@ -596,6 +597,48 @@ export class StudioEditor {
 
   exportJson(): string {
     return JSON.stringify(this.project, null, 2);
+  }
+
+  // ------------------------------------------------------ project library
+
+  /** Named save slots for whole games ("My games") — one per project name,
+   *  kept in localStorage alongside the rolling autosave. */
+  libraryList(): { id: string; name: string; updated: number }[] {
+    try {
+      return JSON.parse(localStorage.getItem(LIB_INDEX) ?? '[]') as {
+        id: string;
+        name: string;
+        updated: number;
+      }[];
+    } catch {
+      return [];
+    }
+  }
+
+  saveToLibrary(): string {
+    const id = slugify(this.project.name) || 'game';
+    localStorage.setItem(`${LIB_INDEX}.${id}`, JSON.stringify(this.project));
+    const list = this.libraryList().filter((e) => e.id !== id);
+    list.unshift({ id, name: this.project.name, updated: Date.now() });
+    localStorage.setItem(LIB_INDEX, JSON.stringify(list));
+    this.saveNow();
+    return id;
+  }
+
+  openFromLibrary(id: string): boolean {
+    const raw = localStorage.getItem(`${LIB_INDEX}.${id}`);
+    if (!raw) return false;
+    try {
+      this.importJson(raw);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  deleteFromLibrary(id: string): void {
+    localStorage.removeItem(`${LIB_INDEX}.${id}`);
+    localStorage.setItem(LIB_INDEX, JSON.stringify(this.libraryList().filter((e) => e.id !== id)));
   }
 
   importJson(json: string): void {

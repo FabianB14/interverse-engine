@@ -66,6 +66,11 @@ export interface StudioDebug {
   shotsFired: () => number;
   mobEnraged: (name: string) => boolean;
   chatBridged: () => boolean;
+  coinsNow: () => number;
+  librarySave: () => string;
+  libraryList: () => { id: string; name: string; updated: number }[];
+  libraryOpen: (id: string) => boolean;
+  libraryDelete: (id: string) => void;
 }
 
 declare global {
