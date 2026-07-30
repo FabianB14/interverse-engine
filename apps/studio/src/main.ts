@@ -527,6 +527,19 @@ async function main(): Promise<void> {
     window.matchMedia('(display-mode: standalone)').matches ||
     (navigator as { standalone?: boolean }).standalone === true;
   if (isIOS && !standalone) installBtn.style.display = '';
+  // Arriving from the hub's "⬇ Install Studio" link: surface the install
+  // flow immediately — the button appears highlighted, and as soon as the
+  // browser's install prompt is available one click starts it. (Browsers
+  // only allow prompt() inside a user gesture, so we spotlight, not force.)
+  if (new URLSearchParams(window.location.search).get('install') === '1' && !standalone) {
+    installBtn.style.display = '';
+    installBtn.classList.add('primary');
+    installBtn.animate(
+      [{ transform: 'scale(1)' }, { transform: 'scale(1.12)' }, { transform: 'scale(1)' }],
+      { duration: 700, iterations: 6 },
+    );
+    if (isIOS) setTimeout(() => installBtn.click(), 600); // Share-steps modal
+  }
   installBtn.onclick = () => {
     if (deferredInstall) {
       deferredInstall.prompt();

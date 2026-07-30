@@ -36,17 +36,9 @@ jobs:
 
       - run: pnpm build
 
-      - name: Assemble site (hub + demos)
-        run: |
-          mkdir -p dist-site
-          cp site/index.html dist-site/index.html
-          cp -r games/hello/dist dist-site/blob-tap
-          cp -r games/room/dist dist-site/room
-          cp -r games/taps/dist dist-site/taps
-          cp -r games/blobvale/dist dist-site/blobvale
-          cp -r games/farm/dist dist-site/farm
-          cp -r games/hushfall/dist dist-site/hushfall
-          cp -r apps/studio/dist dist-site/studio
+      # Same assembly Vercel uses (vercel.json) — one script, no drift.
+      - name: Assemble site (hub + games + studio)
+        run: node scripts/assemble-site.mjs
 
       - uses: actions/upload-pages-artifact@v3
         with:

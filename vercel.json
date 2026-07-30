@@ -1,0 +1,6 @@
+{
+  "buildCommand": "pnpm build:site",
+  "outputDirectory": "dist-site",
+  "installCommand": "pnpm install",
+  "framework": null
+}

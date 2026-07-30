@@ -3,126 +3,396 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#14101f" />
+    <meta name="theme-color" content="#12101c" />
+    <meta name="description" content="Interverse — make 2D mobile games in your browser with Interverse Studio, and play the games built on the Interverse Engine. Install-free multiplayer, AI copilot, no downloads." />
+    <meta property="og:title" content="Interverse — make games, play together" />
+    <meta property="og:description" content="Interverse Studio: a drag & drop game maker that runs in your browser. Plus multiplayer games built on the engine — join with a 4-letter code, nothing to install." />
     <link
       rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='17' r='13' fill='%23ff6f91' stroke='%23fff' stroke-width='2'/%3E%3Ccircle cx='11.5' cy='14' r='2' fill='%232b2b3a'/%3E%3Ccircle cx='20.5' cy='14' r='2' fill='%232b2b3a'/%3E%3C/svg%3E"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='3' y='3' width='26' height='26' rx='7' fill='%23c77dff'/%3E%3Ccircle cx='13' cy='14' r='2.4' fill='%2312101c'/%3E%3Ccircle cx='21' cy='14' r='2.4' fill='%2312101c'/%3E%3Cpath d='M11 20q5 4 10 0' stroke='%2312101c' stroke-width='2.4' fill='none' stroke-linecap='round'/%3E%3C/svg%3E"
     />
-    <title>Interverse Engine — Demos</title>
+    <title>Interverse — make games, play together</title>
     <style>
+      :root {
+        --bg: #12101c;
+        --panel: #1a1726;
+        --panel2: #211d30;
+        --line: #2e2942;
+        --ink: #e6e4f0;
+        --soft: #9a97b8;
+        --accent: #c77dff;
+        --good: #8affc1;
+        --warn: #ffd166;
+      }
       * {
         box-sizing: border-box;
       }
+      html {
+        scroll-behavior: smooth;
+      }
       body {
         margin: 0;
-        min-height: 100vh;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: 20px;
-        padding: 32px 20px;
-        background: #14101f;
-        color: #fff;
+        background: var(--bg);
+        color: var(--ink);
         font-family: system-ui, 'Segoe UI', sans-serif;
+        line-height: 1.5;
+      }
+      a {
+        color: inherit;
+      }
+      .wrap {
+        max-width: 1060px;
+        margin: 0 auto;
+        padding: 0 20px;
+      }
+      /* ------------------------------------------------------------ nav */
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        background: rgba(18, 16, 28, 0.92);
+        backdrop-filter: blur(8px);
+        border-bottom: 1px solid var(--line);
+      }
+      .nav {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        height: 60px;
+      }
+      .logo {
+        font-weight: 900;
+        letter-spacing: 0.06em;
+        color: var(--accent);
+        text-decoration: none;
+        font-size: 1.05rem;
+        white-space: nowrap;
+      }
+      .nav a.link {
+        color: var(--soft);
+        text-decoration: none;
+        font-weight: 700;
+        font-size: 0.95rem;
+      }
+      .nav a.link:hover {
+        color: var(--ink);
+      }
+      .nav .spacer {
+        flex: 1;
+      }
+      .btn {
+        display: inline-block;
+        text-decoration: none;
+        font-weight: 800;
+        border-radius: 12px;
+        padding: 10px 18px;
+        border: 1px solid var(--line);
+        background: var(--panel2);
+        color: var(--ink);
+        white-space: nowrap;
+      }
+      .btn:hover {
+        border-color: var(--accent);
+      }
+      .btn.primary {
+        background: var(--accent);
+        border-color: transparent;
+        color: #16101f;
+      }
+      .btn.good {
+        background: var(--good);
+        border-color: transparent;
+        color: #0c1a12;
+      }
+      /* ----------------------------------------------------------- hero */
+      .hero {
+        padding: 84px 0 56px;
         text-align: center;
       }
-      h1 {
-        margin: 0;
-        font-size: 2rem;
-        letter-spacing: 0.04em;
+      .hero h1 {
+        margin: 0 0 14px;
+        font-size: clamp(2rem, 6vw, 3.4rem);
+        letter-spacing: 0.01em;
+        line-height: 1.15;
       }
-      p.sub {
-        margin: 0 0 12px;
-        color: #b8a8e0;
+      .hero h1 em {
+        font-style: normal;
+        color: var(--accent);
+      }
+      .hero p {
+        margin: 0 auto 28px;
+        max-width: 620px;
+        color: var(--soft);
+        font-size: 1.1rem;
         font-weight: 600;
       }
-      a.card {
+      .hero .cta {
+        display: flex;
+        gap: 12px;
+        justify-content: center;
+        flex-wrap: wrap;
+      }
+      .hero .cta .btn {
+        font-size: 1.05rem;
+        padding: 14px 26px;
+      }
+      /* -------------------------------------------------------- studio */
+      section {
+        padding: 48px 0;
+      }
+      .kicker {
+        color: var(--warn);
+        font-weight: 900;
+        letter-spacing: 0.14em;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        margin: 0 0 8px;
+      }
+      h2.title {
+        margin: 0 0 10px;
+        font-size: 1.9rem;
+      }
+      .studio-box {
+        background: linear-gradient(135deg, #1d1430, #1a1726);
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        padding: 34px;
+        display: grid;
+        grid-template-columns: 1.2fr 1fr;
+        gap: 28px;
+        align-items: center;
+      }
+      .studio-box p.lead {
+        color: var(--soft);
+        margin: 0 0 18px;
+      }
+      .feat {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px 16px;
+        margin: 0 0 22px;
+        padding: 0;
+        list-style: none;
+        color: var(--ink);
+        font-weight: 600;
+        font-size: 0.95rem;
+      }
+      .feat li::before {
+        content: '✓ ';
+        color: var(--good);
+        font-weight: 900;
+      }
+      .studio-shot {
+        background: var(--panel2);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 18px;
+        font-size: 0.9rem;
+        color: var(--soft);
+      }
+      .studio-shot .bar {
+        height: 10px;
+        border-radius: 5px;
+        background: var(--line);
+        margin: 8px 0;
+      }
+      .studio-shot .bar.a {
+        width: 70%;
+        background: #3a2f55;
+      }
+      .studio-shot .bar.b {
+        width: 45%;
+      }
+      .studio-shot .canvas {
+        height: 120px;
+        border-radius: 10px;
+        background:
+          radial-gradient(circle at 30% 60%, #2f8d4a33 0 26%, transparent 27%),
+          radial-gradient(circle at 70% 35%, #ff6f9133 0 20%, transparent 21%),
+          radial-gradient(circle, #2a2740 1px, transparent 1px) 0 0 / 22px 22px,
+          #16131f;
+        border: 1px solid var(--line);
+        margin-top: 10px;
+      }
+      /* --------------------------------------------------------- games */
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 16px;
+      }
+      .card {
         display: block;
-        width: min(420px, 100%);
-        padding: 22px 26px;
-        border-radius: 20px;
         text-decoration: none;
-        color: inherit;
-        border: 2px solid rgba(255, 255, 255, 0.14);
-        transition: transform 0.12s ease;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 20px 22px;
+        background: var(--panel);
+        transition: transform 0.12s ease, border-color 0.12s ease;
       }
-      a.card:active {
-        transform: scale(0.97);
+      .card:hover {
+        border-color: var(--accent);
+        transform: translateY(-2px);
       }
-      a.blob {
-        background: #1b1035;
-      }
-      a.room {
-        background: #2b1d16;
-      }
-      .card h2 {
+      .card h3 {
         margin: 0 0 6px;
-        font-size: 1.4rem;
+        font-size: 1.25rem;
       }
       .card p {
         margin: 0;
-        color: rgba(255, 255, 255, 0.65);
-        font-size: 0.95rem;
+        color: var(--soft);
+        font-size: 0.92rem;
       }
       .tag {
         display: inline-block;
-        margin-top: 10px;
+        margin-top: 12px;
         padding: 3px 12px;
         border-radius: 999px;
-        font-size: 0.75rem;
+        font-size: 0.72rem;
         font-weight: 800;
-        background: rgba(255, 255, 255, 0.12);
-        color: #ffd166;
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--warn);
+        letter-spacing: 0.06em;
+      }
+      .cat {
+        margin: 26px 0 12px;
+        color: var(--soft);
+        font-weight: 800;
+        letter-spacing: 0.1em;
+        font-size: 0.85rem;
+        text-transform: uppercase;
+      }
+      footer {
+        border-top: 1px solid var(--line);
+        padding: 28px 0 40px;
+        color: var(--soft);
+        font-size: 0.9rem;
+        text-align: center;
+      }
+      footer a {
+        color: var(--soft);
+      }
+      @media (max-width: 760px) {
+        .studio-box {
+          grid-template-columns: 1fr;
+        }
+        .nav a.link {
+          display: none;
+        }
       }
     </style>
   </head>
   <body>
-    <h1>Interverse Engine</h1>
-    <p class="sub">demo games — best experienced on a phone</p>
-    <a class="card blob" href="./blob-tap/">
-      <h2>🫧 Blob Tap</h2>
-      <p>Pop the blobs before they escape. 30-second arcade rounds, saved best score.</p>
-      <span class="tag">PHASE 1 · ENGINE CORE</span>
-    </a>
-    <a class="card room" href="./room/">
-      <h2>🌿 Cozy Room</h2>
-      <p>Walk a little room with a joystick and have a chat with Fern.</p>
-      <span class="tag">PHASE 2 · TILEMAP + DIALOGUE + UI</span>
-    </a>
-    <a class="card blob" href="./blobvale/" style="background: #16281c">
-      <h2>⚔️ Blobvale</h2>
-      <p>5-player co-op RPG — pick a class, explore a shared world together. More every update!</p>
-      <span class="tag">PHASE 5 · MILESTONE 1</span>
-    </a>
-    <a class="card blob" href="./farm/" style="background: #2a2016">
-      <h2>🌱 Bloomstead</h2>
+    <header>
+      <div class="wrap nav">
+        <a class="logo" href="#">◆ INTERVERSE</a>
+        <a class="link" href="#studio">Studio</a>
+        <a class="link" href="#games">Games</a>
+        <a class="link" href="https://github.com/FabianB14/interverse-engine">GitHub</a>
+        <span class="spacer"></span>
+        <a class="btn" href="./studio/">Open Studio</a>
+        <a class="btn primary" href="./studio/?install=1">⬇ Install Studio</a>
+      </div>
+    </header>
+
+    <div class="wrap hero">
+      <h1>Make games.<br /><em>Play together.</em></h1>
       <p>
-        Name your farmer, pick a look, and plant, water and harvest to zen music. Weather and
-        seasons roll by.
+        Interverse Studio is a drag &amp; drop game maker that runs right here in your browser —
+        and every game built on the engine plays install-free: share a 4-letter code and friends
+        are in.
       </p>
-      <span class="tag">COZY · MILESTONE 1</span>
-    </a>
-    <a class="card blob" href="./taps/">
-      <h2>🎉 Tap Party</h2>
-      <p>Host a room, share the 4-letter code, and see everyone's taps live.</p>
-      <span class="tag">PHASE 3 · MULTIPLAYER</span>
-    </a>
-    <a class="card blob" href="./hushfall/" style="background: #0e0d1c">
-      <h2>🕯️ Hushfall</h2>
-      <p>
-        Asymmetric hide-and-seek: up to 7 Hiders light the lanterns and escape while 1 Seeker hunts
-        them down. Classes, abilities, rescues — and a terror heartbeat.
-      </p>
-      <span class="tag">MULTIPLAYER · 1 vs 7</span>
-    </a>
-    <a class="card blob" href="./studio/" style="background: #1d1430">
-      <h2>◆ Interverse Studio</h2>
-      <p>
-        Make your own game — drag &amp; drop characters, props and UI onto a live canvas, write
-        stories and code, add levels, then press Play. AI copilot included.
-      </p>
-      <span class="tag">STUDIO · BETA</span>
-    </a>
+      <div class="cta">
+        <a class="btn primary" href="./studio/?install=1">⬇ Install Interverse Studio</a>
+        <a class="btn" href="#games">🎮 Play the games</a>
+      </div>
+    </div>
+
+    <section id="studio">
+      <div class="wrap">
+        <p class="kicker">The game maker</p>
+        <h2 class="title">◆ Interverse Studio</h2>
+        <div class="studio-box">
+          <div>
+            <p class="lead">
+              A real engine with a friendly face: drag characters, monsters, props and UI onto a
+              live canvas, paint or generate terrain, stack no-code event blocks (or write one-line
+              scripts), and press Play at any moment. Works on the web, installs as an app on
+              Windows, Android and iOS.
+            </p>
+            <ul class="feat">
+              <li>No-code ⚡ events &amp; ⛓ Flow graph</li>
+              <li>AI copilot — no API key</li>
+              <li>Drop-in multiplayer rooms</li>
+              <li>Mobs, bosses, abilities, loot</li>
+              <li>Autotiled terrain + 🎲 procgen</li>
+              <li>Chiptune music &amp; VFX built in</li>
+              <li>Skill trees, saves, cosmetics</li>
+              <li>Publish to your own GitHub</li>
+            </ul>
+            <a class="btn primary" href="./studio/?install=1">⬇ Install Studio</a>
+            <a class="btn" href="./studio/">Open in browser</a>
+          </div>
+          <div class="studio-shot" aria-hidden="true">
+            <div>◆ INTERVERSE STUDIO</div>
+            <div class="bar a"></div>
+            <div class="bar b"></div>
+            <div class="canvas"></div>
+            <div class="bar b" style="width: 58%"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="games">
+      <div class="wrap">
+        <p class="kicker">Built on the engine</p>
+        <h2 class="title">🎮 The games</h2>
+
+        <p class="cat">Multiplayer — share a room code</p>
+        <div class="grid">
+          <a class="card" href="./hushfall/">
+            <h3>🕯️ Hushfall</h3>
+            <p>Asymmetric hide-and-seek: 7 Hiders light the lanterns and escape while 1 Seeker hunts. Classes, abilities, rescues — and a terror heartbeat.</p>
+            <span class="tag">1 vs 7 · HORROR</span>
+          </a>
+          <a class="card" href="./blobvale/">
+            <h3>⚔️ Blobvale</h3>
+            <p>5-player co-op RPG — pick a class and explore a shared world together.</p>
+            <span class="tag">CO-OP RPG</span>
+          </a>
+          <a class="card" href="./taps/">
+            <h3>🎉 Tap Party</h3>
+            <p>Host a room, share the 4-letter code, and see everyone's taps live.</p>
+            <span class="tag">PARTY</span>
+          </a>
+        </div>
+
+        <p class="cat">Cozy &amp; solo</p>
+        <div class="grid">
+          <a class="card" href="./farm/">
+            <h3>🌱 Bloomstead</h3>
+            <p>Name your farmer, then plant, water and harvest to zen music while weather and seasons roll by.</p>
+            <span class="tag">COZY FARMING</span>
+          </a>
+          <a class="card" href="./room/">
+            <h3>🌿 Cozy Room</h3>
+            <p>Walk a little room with a joystick and have a chat with Fern.</p>
+            <span class="tag">COZY</span>
+          </a>
+          <a class="card" href="./blob-tap/">
+            <h3>🫧 Blob Tap</h3>
+            <p>Pop the blobs before they escape — 30-second arcade rounds with a saved best score.</p>
+            <span class="tag">ARCADE</span>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      <div class="wrap">
+        Built with the <a href="https://github.com/FabianB14/interverse-engine">Interverse Engine</a>
+        — games are best on a phone; the Studio is best on a desktop.
+      </div>
+    </footer>
   </body>
 </html>

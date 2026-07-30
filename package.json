@@ -32,7 +32,8 @@
     "dev:studio": "pnpm --filter @interverse/studio dev",
     "verify:studio": "node scripts/verify-studio.mjs",
     "ai": "node scripts/ai-bridge.mjs",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build:site": "pnpm build && node scripts/assemble-site.mjs"
   },
   "devDependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.220",
