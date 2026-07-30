@@ -47,12 +47,48 @@ for (const t of TILE_TYPES) legend[t.ch] = { tile: IDS[t.ch]!, ...(t.solid ? { s
 const byId = new Map<number, TileType>();
 TILE_TYPES.forEach((t) => byId.set(IDS[t.ch]!, t));
 
+/** Autotiling terrain groups — tiles in the same group blend seamlessly;
+ *  edges/corners against anything else resolve automatically (RPG-Maker
+ *  style, zero config: it's computed from neighbors at render time). */
+const GROUP: Record<string, string> = {
+  g: 'grass',
+  f: 'grass',
+  d: 'dirt',
+  p: 'stone',
+  s: 'sand',
+  w: 'water',
+  k: 'rock',
+  t: 'tree',
+  b: 'brick',
+};
+const idGroup = new Map<number, string>();
+for (const t of TILE_TYPES) idGroup.set(IDS[t.ch]!, GROUP[t.ch]!);
+
+export const sameTerrain = (a: number, b: number): boolean =>
+  a !== 0 && b !== 0 && idGroup.get(a) === idGroup.get(b);
+
+/** Which sides of a tile face DIFFERENT terrain (and so get an edge). */
+const openEdges = (mask: number): { n: boolean; e: boolean; s: boolean; w: boolean } => ({
+  n: !(mask & 1),
+  e: !(mask & 2),
+  s: !(mask & 4),
+  w: !(mask & 8),
+});
+
 /** Code-vector painters per tile id (id 0 = empty, unpainted). */
 export const painters: Record<number, TilePainter> = {};
 for (const t of TILE_TYPES) {
   const id = IDS[t.ch]!;
-  painters[id] = (g, x, y, s, rng) => {
+  painters[id] = (g, x, y, s, rng, mask = 15) => {
     const c = t.color;
+    const edge = openEdges(mask);
+    // Autotile edge band along any side facing different terrain.
+    const band = (color: number, w = 3, alpha = 1): void => {
+      if (edge.n) g.rect(x, y, s, w).fill({ color, alpha });
+      if (edge.s) g.rect(x, y + s - w, s, w).fill({ color, alpha });
+      if (edge.w) g.rect(x, y, w, s).fill({ color, alpha });
+      if (edge.e) g.rect(x + s - w, y, w, s).fill({ color, alpha });
+    };
     switch (t.ch) {
       case 'g':
       case 'f':
@@ -65,27 +101,38 @@ for (const t of TILE_TYPES) {
             rng() > 0.5 ? 0xffd1e0 : 0xfff3ae,
           );
         }
+        // grass fringe where the lawn ends — darker lip + a few blades
+        band(darken(c, 0.32));
+        if (edge.n) for (let i = 0; i < 3; i++) g.rect(x + 5 + i * 13 + rng() * 4, y, 2, 6).fill(darken(c, 0.32));
+        if (edge.s) for (let i = 0; i < 3; i++) g.rect(x + 5 + i * 13 + rng() * 4, y + s - 6, 2, 6).fill(darken(c, 0.32));
         break;
       case 'd':
       case 's':
         g.rect(x, y, s, s).fill(rng() > 0.5 ? c : darken(c, 0.08));
         if (rng() > 0.6) g.circle(x + rng() * s, y + rng() * s, 2).fill(darken(c, 0.2));
+        band(darken(c, 0.22)); // soft path/beach edge
         break;
       case 'p':
         g.rect(x, y, s, s).fill(rng() > 0.5 ? c : darken(c, 0.1));
         g.rect(x + 2, y + 2, s - 4, s - 4).stroke({ color: darken(c, 0.3), width: 2, alpha: 0.6 });
+        band(darken(c, 0.35)); // paved edge kerb
         break;
       case 'w':
         g.rect(x, y, s, s).fill(c);
         g.moveTo(x + 4, y + s * (0.3 + rng() * 0.4))
           .lineTo(x + s - 4, y + s * (0.3 + rng() * 0.4))
           .stroke({ color: lighten(c, 0.25), width: 2, alpha: 0.5 });
+        // shoreline foam wherever water meets land
+        band(lighten(c, 0.5), 3, 0.9);
+        if (edge.n) g.rect(x, y + 3, s, 2).fill({ color: lighten(c, 0.3), alpha: 0.5 });
+        if (edge.w) g.rect(x + 3, y, 2, s).fill({ color: lighten(c, 0.3), alpha: 0.5 });
         break;
       case 'k':
         g.rect(x, y, s, s).fill(c);
         g.rect(x, y + s / 2 - 1, s, 2).fill(darken(c, 0.4));
         g.rect(x + (rng() > 0.5 ? s / 2 : s / 4), y, 2, s / 2).fill(darken(c, 0.4));
         g.rect(x + 2, y + 2, s - 4, s / 2 - 3).fill({ color: lighten(c, 0.12), alpha: 0.4 });
+        band(darken(c, 0.5)); // rock face caps at the wall's outline
         break;
       case 't': {
         g.rect(x, y, s, s).fill(0x2a4a30);
@@ -100,6 +147,7 @@ for (const t of TILE_TYPES) {
         g.rect(x, y + s / 2 - 1, s, 2).fill(darken(c, 0.45));
         g.rect(x + (rng() > 0.5 ? s / 2 : 0) - 1, y, 2, s / 2).fill(darken(c, 0.45));
         g.rect(x + (rng() > 0.5 ? s / 2 : 0) - 1, y + s / 2, 2, s / 2).fill(darken(c, 0.45));
+        band(darken(c, 0.55)); // continuous wall outline; bricks bond inside
         break;
     }
   };
@@ -141,9 +189,10 @@ export function anyTiles(rows: string[] | undefined): boolean {
   return !!rows && rows.some((r) => [...r].some((ch) => ch !== '.'));
 }
 
-/** Build the render layer + collision map for a rows grid. */
+/** Build the render layer + collision map for a rows grid — with
+ *  autotiling: edges resolve against neighboring terrain automatically. */
 export function buildTileLayer(rows: string[]): { view: Container; map: TileMapData } {
   const map = tileMapFromRows(rows, TILE_SIZE, legend);
-  const view = buildTileMapView(map, painters);
+  const view = buildTileMapView(map, painters, sameTerrain);
   return { view, map };
 }

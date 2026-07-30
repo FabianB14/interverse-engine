@@ -23,7 +23,7 @@ export type { VirtualJoystickOptions } from './input/VirtualJoystick.js';
 
 export { tileMapFromRows, solidAt, moveWithCollision } from './world/TileMap.js';
 export type { TileMapData, TileMapObject, TileLegendEntry } from './world/TileMap.js';
-export { buildTileMapView } from './world/TileMapView.js';
+export { buildTileMapView, neighborMask } from './world/TileMapView.js';
 export type { TilePainter } from './world/TileMapView.js';
 export { Camera } from './world/Camera.js';
 export type { CameraOptions } from './world/Camera.js';

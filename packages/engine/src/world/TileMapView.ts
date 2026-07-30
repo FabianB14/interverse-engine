@@ -5,6 +5,9 @@ import type { TileMapData } from './TileMap.js';
  * A tile painter draws one tile with code-drawn vector art (§4.5 + §4.6) —
  * no tileset images required. `rng` is deterministic per tile so variation
  * (knots, stitches, leaf placement) is stable across frames and reloads.
+ * `mask` is the autotile neighbor mask (1=N 2=E 4=S 8=W, bit set = the
+ * neighbor is the SAME terrain) — 15 when autotiling is off, so painters
+ * that ignore it keep working unchanged.
  */
 export type TilePainter = (
   g: Graphics,
@@ -12,7 +15,29 @@ export type TilePainter = (
   py: number,
   size: number,
   rng: () => number,
+  mask?: number,
 ) => void;
+
+/** Autotiling: which 4-neighbors count as the same terrain as (tx, ty).
+ *  Out-of-bounds counts as same so map borders don't grow edge fringes. */
+export function neighborMask(
+  map: TileMapData,
+  tx: number,
+  ty: number,
+  same: (a: number, b: number) => boolean,
+): number {
+  const id = map.ground[ty]?.[tx] ?? 0;
+  const at = (x: number, y: number): number => {
+    if (x < 0 || y < 0 || x >= map.width || y >= map.height) return id;
+    return map.ground[y]?.[x] ?? 0;
+  };
+  let m = 0;
+  if (same(id, at(tx, ty - 1))) m |= 1;
+  if (same(id, at(tx + 1, ty))) m |= 2;
+  if (same(id, at(tx, ty + 1))) m |= 4;
+  if (same(id, at(tx - 1, ty))) m |= 8;
+  return m;
+}
 
 function tileRng(tx: number, ty: number): () => number {
   let a = ((tx * 73856093) ^ (ty * 19349663) ^ 0x9e3779b9) >>> 0;
@@ -33,6 +58,7 @@ function tileRng(tx: number, ty: number): () => number {
 export function buildTileMapView(
   map: TileMapData,
   painters: Record<number, TilePainter>,
+  sameGroup?: (a: number, b: number) => boolean,
 ): Container {
   const view = new Container();
   const g = new Graphics();
@@ -42,7 +68,8 @@ export function buildTileMapView(
       const id = map.ground[ty]?.[tx] ?? 0;
       if (id === 0) continue;
       const paint = painters[id];
-      paint?.(g, tx * ts, ty * ts, ts, tileRng(tx, ty));
+      const mask = sameGroup ? neighborMask(map, tx, ty, sameGroup) : 15;
+      paint?.(g, tx * ts, ty * ts, ts, tileRng(tx, ty), mask);
     }
   }
   view.addChild(g);
