@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build:site": "pnpm -w run build:site && node -e \"require('node:fs').cpSync('../../dist-site','dist-site',{recursive:true})\""
   },
   "dependencies": {
     "@interverse/engine": "workspace:*",
