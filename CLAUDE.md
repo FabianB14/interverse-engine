@@ -8,8 +8,8 @@ iterate visually.
 ## The one rule that outranks everything
 
 **Always keep the game runnable.** Every change must leave `pnpm typecheck`,
-`pnpm lint`, and `pnpm build` green and the affected game playable. Verify
-with the headless playtests before calling work done.
+`pnpm lint`, `pnpm test`, and `pnpm build` green and the affected game
+playable. Verify with the headless playtests before calling work done.
 
 ## Repo map
 
@@ -41,6 +41,7 @@ scripts/              headless playtests + playtest launcher
 | `pnpm dev` / `dev:room` / `dev:taps`           | run a game's dev server (binds 0.0.0.0 for phones on LAN)       |
 | `pnpm relay`                                   | run the relay locally on :8787 (games on localhost auto-use it) |
 | `pnpm typecheck` / `lint` / `format` / `build` | quality gates — all must stay green                             |
+| `pnpm test`                                    | unit tests (vitest) — engine logic + studio model; keep green   |
 | `pnpm verify` / `verify:room` / `verify:net`   | headless playtests (Blob Tap, Cozy Room, 3-phone multiplayer)   |
 | `pnpm dev:studio` / `verify:studio`            | Interverse Studio (game-maker app) + its headless playtest      |
 | `pnpm ai`                                      | local AI bridge: Studio's AI Chat via Claude Code login (no key) |
