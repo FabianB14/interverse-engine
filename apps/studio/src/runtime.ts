@@ -24,6 +24,7 @@ import {
 import type { DialogueData, Game, TileMapData } from '@interverse/engine';
 import { DialogueBox } from '@interverse/ui';
 import { fetchChainBalance } from '@interverse/platform';
+import { drawIcon } from './icons.js';
 import { defaultEntity } from './model.js';
 import type { EntityDef, ProjectDef, SceneDef, TapSound } from './model.js';
 import { SkillTree } from './skills.js';
@@ -106,6 +107,28 @@ export function buildView(def: EntityDef, assets: Record<string, string>): Entit
       }
       break;
     }
+    case 'mob':
+    case 'boss': {
+      const char = blobCharacter({ radius: def.radius, color: def.color, seed: def.seed });
+      body.addChild(char.view);
+      const r = def.radius;
+      // angry brows so enemies read as enemies at a glance
+      g.moveTo(-r * 0.55, -r * 0.52)
+        .lineTo(-r * 0.12, -r * 0.28)
+        .moveTo(r * 0.55, -r * 0.52)
+        .lineTo(r * 0.12, -r * 0.28)
+        .stroke({ color: darken(def.color, 0.6), width: Math.max(3, r * 0.14), cap: 'round' });
+      if (def.kind === 'boss') {
+        g.poly([-r * 0.65, -r * 0.5, -r * 0.95, -r * 1.2, -r * 0.3, -r * 0.75]).fill(
+          darken(def.color, 0.35),
+        );
+        g.poly([r * 0.65, -r * 0.5, r * 0.95, -r * 1.2, r * 0.3, -r * 0.75]).fill(
+          darken(def.color, 0.35),
+        );
+      }
+      body.addChild(g);
+      break;
+    }
     case 'crate': {
       const s = def.radius * 2;
       g.roundRect(-s / 2, -s / 2, s, s, 6).fill(def.color);
@@ -183,7 +206,10 @@ export function buildView(def: EntityDef, assets: Record<string, string>): Entit
             for (let fy = 0; fy + def.frameH <= tex.height; fy += def.frameH) {
               for (let fx = 0; fx + def.frameW <= tex.width; fx += def.frameW) {
                 frames.push(
-                  new Texture({ source: tex.source, frame: new Rectangle(fx, fy, def.frameW, def.frameH) }),
+                  new Texture({
+                    source: tex.source,
+                    frame: new Rectangle(fx, fy, def.frameW, def.frameH),
+                  }),
                 );
               }
             }
@@ -266,6 +292,30 @@ export interface ScriptApi {
     props: Partial<{ x: number; y: number; rotation: number; alpha: number; scale: number }>,
     secs: number,
   ) => void;
+  /** On-screen ability button (bottom-right cluster): built-in icon id
+   *  ('sword','fire','bolt','snow','shield','boot','heart','star') or an
+   *  imported image via '@<assetId>'; optional cooldown secs + hotkey. */
+  ability: (
+    name: string,
+    opts: { icon?: string; cooldown?: number; key?: string },
+    cb: () => void,
+  ) => void;
+  /** Hit every mob within radius of the player for dmg. Returns hits. */
+  meleeAttack: (radius?: number, dmg?: number) => number;
+  /** Damage a mob/boss by name (or entity ref) directly. */
+  hurt: (target: string, dmg: number) => void;
+  /** Current HP of a mob/boss (0 when defeated/unknown). */
+  hpOf: (target: string) => number;
+  /** Called whenever any mob or boss is defeated (gets its name). */
+  onDefeat: (cb: (name: string) => void) => void;
+  /** Player hearts HUD; contact with mobs costs hearts, 0 = game over.
+   *  (Auto-enabled at 3 when a player + mobs share a scene.) */
+  hearts: (n: number) => void;
+  /** XP + level HUD; mob defeats grant their XP, each level-up awards a
+   *  skill point into api.skills. */
+  levels: (opts?: { xpPerLevel?: number }) => void;
+  xp: { add: (n: number) => void; get: () => number };
+  level: () => number;
   /** Skill tree: define once, then open()/addPoints()/unlock()/isUnlocked(). */
   skills: SkillTree;
   /** End the game with a message (score shown too). */
@@ -285,6 +335,30 @@ export interface ScriptApi {
   } | null;
 }
 
+interface MobState {
+  def: EntityDef;
+  e: Entity;
+  hp: number;
+  bar: Graphics;
+  homeX: number;
+  homeY: number;
+  dirX: number;
+  dirY: number;
+  wanderT: number;
+}
+
+interface AbilityState {
+  name: string;
+  key: string;
+  cooldown: number;
+  remaining: number;
+  cb: () => void;
+  root: Container;
+  overlay: Graphics;
+}
+
+const ABILITY_R = 52; // button radius (≥84 design-unit touch target)
+
 /** Live play-through of a project scene: behaviors, taps, stories, script. */
 export class PlayScene extends Scene {
   private byName = new Map<string, Entity>();
@@ -301,8 +375,26 @@ export class PlayScene extends Scene {
   private world = new Container();
   private camera: Camera | null = null;
   private over = false;
+  // Combat layer: mobs/bosses, hearts, abilities, XP/levels.
+  private mobStates = new Map<string, MobState>();
+  private defeatCbs: ((name: string) => void)[] = [];
+  private abilityStates: AbilityState[] = [];
+  private heartsMax = 0;
+  private heartsVal = 0;
+  private heartsText: Text | null = null;
+  private hurtT = 0;
+  private levelsOn = false;
+  private xpValue = 0;
+  private levelValue = 1;
+  private xpPerLevel = 20;
+  private levelText: Text | null = null;
+  private xpBarG: Graphics | null = null;
+  private bossBarRoot: Container | null = null;
+  private bossBarFill: Graphics | null = null;
   private onKeyDown = (e: KeyboardEvent): void => {
     this.keys.add(e.key.toLowerCase());
+    const a = this.abilityStates.find((x) => x.key && x.key === e.key.toLowerCase());
+    if (a) this.fireAbility(a.name);
   };
   private onKeyUp = (e: KeyboardEvent): void => {
     this.keys.delete(e.key.toLowerCase());
@@ -334,7 +426,12 @@ export class PlayScene extends Scene {
         root.addChild(char.view);
         const label = new Text({
           text: r.name,
-          style: { fontFamily: 'system-ui, sans-serif', fontSize: 17, fontWeight: '700', fill: 0xe6e4f0 },
+          style: {
+            fontFamily: 'system-ui, sans-serif',
+            fontSize: 17,
+            fontWeight: '700',
+            fill: 0xe6e4f0,
+          },
         });
         label.anchor.set(0.5);
         label.position.set(0, 46);
@@ -370,7 +467,9 @@ export class PlayScene extends Scene {
       .fill(this.sceneDef.background);
     if (this.sceneDef.view === 'depth') {
       // Backdrop above the horizon reads as scenery, the band below as ground.
-      bg.rect(0, 0, this.sceneDef.worldW, DEPTH_MIN_Y).fill(lighten(this.sceneDef.background, 0.22));
+      bg.rect(0, 0, this.sceneDef.worldW, DEPTH_MIN_Y).fill(
+        lighten(this.sceneDef.background, 0.22),
+      );
       bg.rect(0, DEPTH_MIN_Y - 3, this.sceneDef.worldW, 6).fill({
         color: darken(this.sceneDef.background, 0.35),
         alpha: 0.6,
@@ -400,7 +499,12 @@ export class PlayScene extends Scene {
     if (this.project.interverse) {
       const chip = new Text({
         text: `⬡ ${verium.balance()}`,
-        style: { fontFamily: 'system-ui, sans-serif', fontSize: 26, fontWeight: '800', fill: 0x8affc1 },
+        style: {
+          fontFamily: 'system-ui, sans-serif',
+          fontSize: 26,
+          fontWeight: '800',
+          fill: 0x8affc1,
+        },
       });
       chip.position.set(16, 12);
       this.stage.addChild(chip);
@@ -434,6 +538,15 @@ export class PlayScene extends Scene {
     this.scoreText?.position.set(w - 16, 12);
     this.joystick?.position.set(150, h - 170);
     this.box?.position.set((w - 656) / 2, h - 330);
+    this.layoutAbilities();
+    this.layoutLevelHud();
+    if (this.bossBarRoot) {
+      // width depends on the view — rebuild at the new size
+      this.bossBarRoot.destroy({ children: true });
+      this.bossBarRoot = null;
+      this.bossBarFill = null;
+      if ([...this.mobStates.values()].some((m) => m.def.kind === 'boss')) this.ensureBossBar();
+    }
     this.centerWorld();
   }
 
@@ -473,7 +586,426 @@ export class PlayScene extends Scene {
         if (def.kind === 'npc') this.openStory(dialogueFor(def));
       });
     }
+    if (def.kind === 'mob' || def.kind === 'boss') this.registerMob(def, e);
     return e;
+  }
+
+  // ------------------------------------------------------------- combat
+
+  private registerMob(def: EntityDef, e: Entity): void {
+    const bar = new Graphics();
+    bar.position.set(0, -def.radius - 24);
+    bar.visible = false;
+    e.addChild(bar);
+    this.mobStates.set(def.name, {
+      def,
+      e,
+      hp: Math.max(1, def.hp),
+      bar,
+      homeX: def.x,
+      homeY: def.y,
+      dirX: 1,
+      dirY: 0,
+      wanderT: 0,
+    });
+    if (def.kind === 'boss') this.ensureBossBar();
+    if (this.players.length && !this.heartsMax) this.enableHearts(3);
+  }
+
+  private enableHearts(n: number): void {
+    this.heartsMax = Math.max(1, n);
+    this.heartsVal = this.heartsMax;
+    if (!this.heartsText) {
+      this.heartsText = new Text({
+        text: '',
+        style: {
+          fontFamily: 'system-ui, sans-serif',
+          fontSize: 32,
+          fontWeight: '800',
+          fill: 0xff6f91,
+        },
+      });
+      this.heartsText.position.set(16, this.project.interverse ? 54 : 12);
+      this.stage.addChild(this.heartsText);
+    }
+    this.refreshHearts();
+  }
+
+  private refreshHearts(): void {
+    if (!this.heartsText) return;
+    this.heartsText.text =
+      '♥'.repeat(this.heartsVal) + '♡'.repeat(Math.max(0, this.heartsMax - this.heartsVal));
+  }
+
+  private hurtPlayer(dmg: number, from: Entity): void {
+    if (this.over || this.hurtT > 0) return;
+    this.heartsVal = Math.max(0, this.heartsVal - Math.max(1, dmg));
+    this.hurtT = 1; // i-frames
+    audio.buzz();
+    const me = this.players[0]?.entity;
+    if (me && !me.destroyed) {
+      // knockback away from the attacker, kept inside the walkable band
+      const d = Math.hypot(me.x - from.x, me.y - from.y) || 1;
+      const minY = this.sceneDef.view === 'depth' ? DEPTH_MIN_Y : 20;
+      me.x = Math.max(20, Math.min(this.sceneDef.worldW - 20, me.x + ((me.x - from.x) / d) * 70));
+      me.y = Math.max(minY, Math.min(this.sceneDef.worldH - 20, me.y + ((me.y - from.y) / d) * 70));
+    }
+    this.refreshHearts();
+    if (this.heartsVal <= 0) this.endGame('DEFEATED');
+  }
+
+  private refreshMobBar(m: MobState): void {
+    const max = Math.max(1, m.def.hp);
+    m.bar.visible = m.hp < max;
+    m.bar.clear();
+    const w = Math.max(44, m.def.radius * 1.6);
+    m.bar.roundRect(-w / 2, 0, w, 8, 4).fill({ color: 0x0a0812, alpha: 0.75 });
+    const frac = Math.max(0, m.hp / max);
+    if (frac > 0) m.bar.roundRect(-w / 2, 0, w * frac, 8, 4).fill(frac > 0.5 ? 0x8affc1 : 0xff6f91);
+  }
+
+  private damageMob(m: MobState, dmg: number, from?: Entity): void {
+    if (m.e.destroyed || m.hp <= 0) return;
+    m.hp -= Math.max(1, dmg);
+    if (from && !from.destroyed) {
+      const d = Math.hypot(m.e.x - from.x, m.e.y - from.y) || 1;
+      m.e.x += ((m.e.x - from.x) / d) * 26;
+      m.e.y += ((m.e.y - from.y) / d) * 26;
+    }
+    this.refreshMobBar(m);
+    if (m.hp <= 0) this.defeatMob(m);
+  }
+
+  private defeatMob(m: MobState): void {
+    this.mobStates.delete(m.def.name);
+    for (const [k, v] of this.byName) if (v === m.e) this.byName.delete(k);
+    audio.chime();
+    // squash out, then remove
+    const pop = viewPop.get(m.e);
+    if (pop)
+      m.e.addBehavior(new Tween(pop.scale, { x: 0.01, y: 0.01 }, 0.22, { ease: easings.outQuad }));
+    const doomed = m.e;
+    let t = 0;
+    this.updaters.push((dt) => {
+      if (doomed.destroyed) return;
+      t += dt;
+      if (t >= 0.24) this.remove(doomed);
+    });
+    if (this.levelsOn) this.addXp(Math.max(0, m.def.xp));
+    for (const cb of this.defeatCbs) {
+      try {
+        cb(m.def.name);
+      } catch (err) {
+        this.onScriptError(err);
+      }
+    }
+  }
+
+  private meleeAttack(radius = 120, dmg = 1): number {
+    const me = this.players[0]?.entity;
+    if (!me || me.destroyed) return 0;
+    let hits = 0;
+    for (const m of [...this.mobStates.values()]) {
+      if (m.e.destroyed) continue;
+      if (Math.hypot(m.e.x - me.x, m.e.y - me.y) < radius + m.def.radius) {
+        hits++;
+        this.damageMob(m, dmg, me);
+      }
+    }
+    if (hits) audio.pop(1.3);
+    else audio.blip(0.7);
+    // swing ring vfx
+    const fx = new Entity();
+    fx.addChild(
+      new Graphics().circle(0, 0, radius).stroke({ color: 0xffffff, width: 5, alpha: 0.55 }),
+    );
+    fx.position.set(me.x, me.y);
+    this.add(fx, this.world);
+    let t = 0;
+    this.updaters.push((dt) => {
+      if (fx.destroyed) return;
+      t += dt;
+      fx.alpha = Math.max(0, 1 - t / 0.28);
+      if (t >= 0.28) this.remove(fx);
+    });
+    return hits;
+  }
+
+  // ----------------------------------------------------------- abilities
+
+  private addAbility(
+    name: string,
+    opts: { icon?: string; cooldown?: number; key?: string },
+    cb: () => void,
+  ): void {
+    if (this.abilityStates.some((a) => a.name === name)) return;
+    const root = new Container();
+    const bg = new Graphics()
+      .circle(0, 0, ABILITY_R)
+      .fill({ color: 0x1c1930, alpha: 0.92 })
+      .circle(0, 0, ABILITY_R)
+      .stroke({ color: 0x8affc1, width: 3, alpha: 0.8 });
+    root.addChild(bg);
+    const iconId = opts.icon ?? 'star';
+    if (iconId.startsWith('@')) {
+      const url = this.project.assets[iconId.slice(1)];
+      if (url) {
+        assetTexture(url, (tex) => {
+          const sp = new Sprite(tex);
+          sp.anchor.set(0.5);
+          sp.scale.set((ABILITY_R * 1.2) / Math.max(tex.width, tex.height));
+          root.addChildAt(sp, 1);
+        });
+      }
+    } else {
+      root.addChild(drawIcon(iconId, ABILITY_R * 1.15));
+    }
+    const overlay = new Graphics();
+    root.addChild(overlay);
+    if (opts.key) {
+      const k = new Text({
+        text: opts.key.toUpperCase(),
+        style: {
+          fontFamily: 'system-ui, sans-serif',
+          fontSize: 17,
+          fontWeight: '800',
+          fill: 0x9a97b8,
+        },
+      });
+      k.anchor.set(0.5);
+      k.position.set(0, ABILITY_R - 12);
+      root.addChild(k);
+    }
+    root.eventMode = 'static';
+    root.cursor = 'pointer';
+    root.on('pointerdown', () => this.fireAbility(name));
+    this.stage.addChild(root);
+    this.abilityStates.push({
+      name,
+      key: (opts.key ?? '').toLowerCase(),
+      cooldown: Math.max(0.1, opts.cooldown ?? 0.5),
+      remaining: 0,
+      cb,
+      root,
+      overlay,
+    });
+    this.layoutAbilities();
+  }
+
+  private layoutAbilities(): void {
+    const W = this.game.viewWidth;
+    const H = this.game.viewHeight;
+    this.abilityStates.forEach((a, i) =>
+      a.root.position.set(W - 84 - i * (ABILITY_R * 2 + 22), H - 96),
+    );
+  }
+
+  fireAbility(name: string): boolean {
+    const a = this.abilityStates.find((x) => x.name === name);
+    if (!a || a.remaining > 0 || this.over) return false;
+    a.remaining = a.cooldown;
+    a.root.scale.set(0.85);
+    try {
+      a.cb();
+    } catch (err) {
+      this.onScriptError(err);
+    }
+    return true;
+  }
+
+  private tickAbilities(dt: number): void {
+    for (const a of this.abilityStates) {
+      a.root.scale.x += (1 - a.root.scale.x) * Math.min(1, dt * 12);
+      a.root.scale.y = a.root.scale.x;
+      if (a.remaining > 0) {
+        a.remaining = Math.max(0, a.remaining - dt);
+        a.overlay.clear();
+        if (a.remaining > 0) {
+          const frac = a.remaining / a.cooldown;
+          a.overlay
+            .moveTo(0, 0)
+            .arc(0, 0, ABILITY_R, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * frac)
+            .lineTo(0, 0)
+            .fill({ color: 0x0a0812, alpha: 0.7 });
+        }
+      }
+    }
+  }
+
+  // ------------------------------------------------------- levels & boss
+
+  private enableLevels(opts?: { xpPerLevel?: number }): void {
+    if (this.levelsOn) return;
+    this.levelsOn = true;
+    this.xpPerLevel = Math.max(5, opts?.xpPerLevel ?? 20);
+    this.levelText = new Text({
+      text: 'Lv 1',
+      style: {
+        fontFamily: 'system-ui, sans-serif',
+        fontSize: 26,
+        fontWeight: '800',
+        fill: 0xc77dff,
+      },
+    });
+    this.levelText.anchor.set(0.5, 0);
+    this.xpBarG = new Graphics();
+    this.stage.addChild(this.levelText, this.xpBarG);
+    this.layoutLevelHud();
+    this.refreshLevelHud();
+  }
+
+  private layoutLevelHud(): void {
+    const cx = this.game.viewWidth / 2;
+    this.levelText?.position.set(cx, 10);
+    this.xpBarG?.position.set(cx - 70, 44);
+  }
+
+  private xpNeed(): number {
+    return this.xpPerLevel + (this.levelValue - 1) * Math.round(this.xpPerLevel * 0.6);
+  }
+
+  private refreshLevelHud(): void {
+    if (!this.levelText || !this.xpBarG) return;
+    this.levelText.text = `Lv ${this.levelValue}`;
+    this.xpBarG.clear();
+    this.xpBarG.roundRect(0, 0, 140, 8, 4).fill({ color: 0x0a0812, alpha: 0.75 });
+    const frac = Math.min(1, this.xpValue / this.xpNeed());
+    if (frac > 0) this.xpBarG.roundRect(0, 0, 140 * frac, 8, 4).fill(0xc77dff);
+  }
+
+  private addXp(n: number): void {
+    if (!this.levelsOn || n <= 0) return;
+    this.xpValue += n;
+    let need = this.xpNeed();
+    while (this.xpValue >= need) {
+      this.xpValue -= need;
+      this.levelValue++;
+      this.skillsTree?.addPoints(1);
+      audio.chime();
+      this.toast('LEVEL UP!');
+      need = this.xpNeed();
+    }
+    this.refreshLevelHud();
+  }
+
+  private toast(message: string): void {
+    const t = new Text({
+      text: message,
+      style: {
+        fontFamily: 'system-ui, sans-serif',
+        fontSize: 44,
+        fontWeight: '800',
+        fill: 0xffd166,
+      },
+    });
+    t.anchor.set(0.5);
+    t.position.set(this.game.viewWidth / 2, this.game.viewHeight * 0.32);
+    this.stage.addChild(t);
+    let age = 0;
+    this.updaters.push((dt) => {
+      if (t.destroyed) return;
+      age += dt;
+      t.y -= 26 * dt;
+      t.alpha = Math.max(0, 1 - age / 1.1);
+      if (age >= 1.1) t.destroy();
+    });
+  }
+
+  private ensureBossBar(): void {
+    if (this.bossBarRoot) return;
+    const boss = [...this.mobStates.values()].find((m) => m.def.kind === 'boss');
+    const root = new Container();
+    const W = Math.min(560, this.game.viewWidth - 140);
+    const label = new Text({
+      text: boss?.def.name ?? 'BOSS',
+      style: {
+        fontFamily: 'system-ui, sans-serif',
+        fontSize: 20,
+        fontWeight: '800',
+        fill: 0xe6e4f0,
+      },
+    });
+    label.anchor.set(0.5, 0);
+    label.position.set(W / 2, 0);
+    root.addChild(label);
+    root.addChild(new Graphics().roundRect(0, 26, W, 14, 7).fill({ color: 0x0a0812, alpha: 0.8 }));
+    this.bossBarFill = new Graphics();
+    root.addChild(this.bossBarFill);
+    // sits below the level HUD (Lv text + XP bar occupy the top ~52px)
+    root.position.set((this.game.viewWidth - W) / 2, 60);
+    this.stage.addChild(root);
+    this.bossBarRoot = root;
+    this.updateBossBar();
+  }
+
+  private updateBossBar(): void {
+    if (!this.bossBarRoot || !this.bossBarFill) return;
+    const boss = [...this.mobStates.values()].find((m) => m.def.kind === 'boss');
+    if (!boss) {
+      this.bossBarRoot.visible = false;
+      return;
+    }
+    this.bossBarRoot.visible = true;
+    const W = Math.min(560, this.game.viewWidth - 140);
+    const frac = Math.max(0, boss.hp / Math.max(1, boss.def.hp));
+    this.bossBarFill.clear();
+    if (frac > 0) this.bossBarFill.roundRect(0, 26, W * frac, 14, 7).fill(0xff6f91);
+  }
+
+  // --------------------------------------------------------------- mob AI
+
+  private updateMobs(dt: number): void {
+    if (this.hurtT > 0) this.hurtT = Math.max(0, this.hurtT - dt);
+    const me = this.players[0]?.entity;
+    if (me && !me.destroyed) me.alpha = this.hurtT > 0 ? 0.55 : 1;
+    const W = this.sceneDef.worldW;
+    const H = this.sceneDef.worldH;
+    const minY = this.sceneDef.view === 'depth' ? DEPTH_MIN_Y : 20;
+    for (const m of this.mobStates.values()) {
+      if (m.e.destroyed || m.hp <= 0) continue;
+      let vx = 0;
+      let vy = 0;
+      const b = m.def.behavior;
+      const dMe = me && !me.destroyed ? Math.hypot(me.x - m.e.x, me.y - m.e.y) : Infinity;
+      if (b === 'chase' && me && !me.destroyed && dMe > 6) {
+        vx = (me.x - m.e.x) / dMe;
+        vy = (me.y - m.e.y) / dMe;
+      } else if (b === 'guard') {
+        const dHome = Math.hypot(m.e.x - m.homeX, m.e.y - m.homeY);
+        if (me && !me.destroyed && dMe < 280 && dHome < 420 && dMe > 6) {
+          vx = (me.x - m.e.x) / dMe;
+          vy = (me.y - m.e.y) / dMe;
+        } else if (dHome > 12) {
+          vx = (m.homeX - m.e.x) / dHome;
+          vy = (m.homeY - m.e.y) / dHome;
+        }
+      } else if (b === 'patrol') {
+        vx = m.dirX;
+        if (m.e.x > Math.min(W - 60, m.homeX + 200)) m.dirX = -1;
+        else if (m.e.x < Math.max(60, m.homeX - 200)) m.dirX = 1;
+      } else if (b === 'wander') {
+        m.wanderT -= dt;
+        if (m.wanderT <= 0) {
+          m.wanderT = 0.8 + Math.random() * 1.4;
+          const a = Math.random() * Math.PI * 2;
+          m.dirX = Math.cos(a);
+          m.dirY = Math.sin(a);
+        }
+        vx = m.dirX;
+        vy = m.dirY;
+      }
+      if (vx || vy) {
+        m.e.x = Math.max(20, Math.min(W - 20, m.e.x + vx * m.def.moveSpeed * dt));
+        m.e.y = Math.max(minY, Math.min(H - 20, m.e.y + vy * m.def.moveSpeed * dt));
+      }
+      // touching the player costs a heart (with i-frames + knockback)
+      if (me && !me.destroyed && this.heartsMax > 0 && this.hurtT <= 0) {
+        if (Math.hypot(me.x - m.e.x, me.y - m.e.y) < m.def.radius * m.def.scale + 30) {
+          this.hurtPlayer(m.def.damage, m.e);
+        }
+      }
+    }
+    this.updateBossBar();
   }
 
   private openStory(data: DialogueData): void {
@@ -495,7 +1027,12 @@ export class PlayScene extends Scene {
     if (this.scoreText) return;
     this.scoreText = new Text({
       text: '0',
-      style: { fontFamily: 'system-ui, sans-serif', fontSize: 34, fontWeight: '800', fill: 0xffd166 },
+      style: {
+        fontFamily: 'system-ui, sans-serif',
+        fontSize: 34,
+        fontWeight: '800',
+        fill: 0xffd166,
+      },
     });
     this.scoreText.anchor.set(1, 0);
     this.scoreText.position.set(this.game.viewWidth - 16, 12);
@@ -521,7 +1058,11 @@ export class PlayScene extends Scene {
       say: (speaker, ...lines) => {
         const nodes: DialogueData['nodes'] = {};
         lines.forEach((text, i) => {
-          nodes[`n${i}`] = { speaker, text, ...(i < lines.length - 1 ? { next: `n${i + 1}` } : {}) };
+          nodes[`n${i}`] = {
+            speaker,
+            text,
+            ...(i < lines.length - 1 ? { next: `n${i + 1}` } : {}),
+          };
         });
         this.openStory({ start: 'n0', nodes });
       },
@@ -529,6 +1070,7 @@ export class PlayScene extends Scene {
         const e = this.byName.get(name);
         if (!e) return undefined;
         this.players.push({ entity: e, speed, groundY: e.y, vy: 0 });
+        if (this.mobStates.size && !this.heartsMax) this.enableHearts(3);
         this.camera?.follow(e);
         if (!this.joystick) {
           this.joystick = new VirtualJoystick({ radius: 90 });
@@ -592,10 +1134,16 @@ export class PlayScene extends Scene {
         if (!e || e.destroyed) return;
         const { scale, ...rest } = props;
         if (scale !== undefined) {
-          e.addBehavior(new Tween(e.scale, { x: scale, y: scale }, secs, { ease: easings.outQuad }));
+          e.addBehavior(
+            new Tween(e.scale, { x: scale, y: scale }, secs, { ease: easings.outQuad }),
+          );
         }
         if (Object.keys(rest).length) {
-          e.addBehavior(new Tween(e as unknown as Record<string, number>, rest, secs, { ease: easings.outQuad }));
+          e.addBehavior(
+            new Tween(e as unknown as Record<string, number>, rest, secs, {
+              ease: easings.outQuad,
+            }),
+          );
         }
       },
       skills: this.skillsTree,
@@ -612,32 +1160,59 @@ export class PlayScene extends Scene {
             onMessage: (cb) => this.net!.onMsg(cb),
           }
         : null,
-      gameOver: (message = 'GAME OVER') => {
-        if (this.over) return;
-        this.over = true;
-        const W = this.game.viewWidth;
-        const H = this.game.viewHeight;
-        const root = new Entity();
-        const bg = new Graphics().rect(0, 0, W, H).fill({ color: 0x0a0812, alpha: 0.85 });
-        bg.eventMode = 'static';
-        root.addChild(bg);
-        const title = new Text({
-          text: message,
-          style: { fontFamily: 'system-ui, sans-serif', fontSize: 62, fontWeight: '800', fill: 0xffd166, align: 'center' },
-        });
-        title.anchor.set(0.5);
-        title.position.set(W / 2, H * 0.4);
-        root.addChild(title);
-        const sub = new Text({
-          text: `score ${this.scoreValue}`,
-          style: { fontFamily: 'system-ui, sans-serif', fontSize: 32, fontWeight: '700', fill: 0xe6e4f0 },
-        });
-        sub.anchor.set(0.5);
-        sub.position.set(W / 2, H * 0.5);
-        root.addChild(sub);
-        this.add(root);
+      ability: (name, opts, cb) => this.addAbility(name, opts ?? {}, cb),
+      meleeAttack: (radius = 120, dmg = 1) => this.meleeAttack(radius, dmg),
+      hurt: (target, dmg) => {
+        const m = this.mobStates.get(target);
+        if (m) this.damageMob(m, dmg, this.players[0]?.entity);
       },
+      hpOf: (target) => this.mobStates.get(target)?.hp ?? 0,
+      onDefeat: (cb) => this.defeatCbs.push(cb),
+      hearts: (n) => this.enableHearts(n),
+      levels: (opts) => this.enableLevels(opts),
+      xp: { add: (n) => this.addXp(n), get: () => this.xpValue },
+      level: () => this.levelValue,
+      gameOver: (message = 'GAME OVER') => this.endGame(message),
     };
+  }
+
+  private endGame(message: string): void {
+    if (this.over) return;
+    this.over = true;
+    {
+      const W = this.game.viewWidth;
+      const H = this.game.viewHeight;
+      const root = new Entity();
+      const bg = new Graphics().rect(0, 0, W, H).fill({ color: 0x0a0812, alpha: 0.85 });
+      bg.eventMode = 'static';
+      root.addChild(bg);
+      const title = new Text({
+        text: message,
+        style: {
+          fontFamily: 'system-ui, sans-serif',
+          fontSize: 62,
+          fontWeight: '800',
+          fill: 0xffd166,
+          align: 'center',
+        },
+      });
+      title.anchor.set(0.5);
+      title.position.set(W / 2, H * 0.4);
+      root.addChild(title);
+      const sub = new Text({
+        text: `score ${this.scoreValue}`,
+        style: {
+          fontFamily: 'system-ui, sans-serif',
+          fontSize: 32,
+          fontWeight: '700',
+          fill: 0xe6e4f0,
+        },
+      });
+      sub.anchor.set(0.5);
+      sub.position.set(W / 2, H * 0.5);
+      root.addChild(sub);
+      this.add(root);
+    }
   }
 
   protected override onUpdate(dt: number): void {
@@ -692,6 +1267,8 @@ export class PlayScene extends Scene {
           }
         }
       }
+      this.updateMobs(dt);
+      this.tickAbilities(dt);
       for (const cb of this.updaters) cb(dt);
     }
     // Multiplayer: ship my position, render everyone else.
@@ -763,6 +1340,34 @@ export class PlayScene extends Scene {
 
   isOver(): boolean {
     return this.over;
+  }
+
+  mobCount(): number {
+    return this.mobStates.size;
+  }
+
+  mobHpOf(name: string): number {
+    return this.mobStates.get(name)?.hp ?? 0;
+  }
+
+  heartsState(): { now: number; max: number } {
+    return { now: this.heartsVal, max: this.heartsMax };
+  }
+
+  xpNow(): number {
+    return this.xpValue;
+  }
+
+  levelNow(): number {
+    return this.levelValue;
+  }
+
+  abilityCount(): number {
+    return this.abilityStates.length;
+  }
+
+  bossBarVisible(): boolean {
+    return !!this.bossBarRoot?.visible;
   }
 }
 

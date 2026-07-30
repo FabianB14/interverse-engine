@@ -246,6 +246,53 @@ await page.screenshot({ path: `${outDir}/st-10-frame.png` });
 await page.evaluate(() => window.__studio.setFramePreview('off'));
 const frameOk = frameMode === 'landscape';
 
+// COMBAT: Blob Arena — mobs with AI chase the hero, ability buttons hit
+// for damage, defeats grant XP toward levels, and the boss bar shows.
+await page.evaluate(() => window.__studio.loadTemplate('action'));
+await sleep(300);
+await page.evaluate(() => window.__studio.play());
+await sleep(800);
+const mobCount0 = await page.evaluate(() => window.__studio.mobCount());
+const abilities = await page.evaluate(() => window.__studio.abilityCount());
+const bossBar = await page.evaluate(() => window.__studio.bossBarVisible());
+const gap0 = await page.evaluate(() => {
+  window.__studio.applyScriptNow(
+    "var h=api.entity('Hero'), m=api.entity('Slime A'); window.__gap=Math.hypot(h.x-m.x,h.y-m.y);",
+  );
+  return window.__gap;
+});
+await sleep(1100);
+const gap1 = await page.evaluate(() => {
+  window.__studio.applyScriptNow(
+    "var h=api.entity('Hero'), m=api.entity('Slime A'); window.__gap=Math.hypot(h.x-m.x,h.y-m.y);",
+  );
+  return window.__gap;
+});
+const chaseOk = gap1 < gap0 - 60;
+// Park the slime at slash range (just outside contact range) and cut it down.
+const parkSlime =
+  "var h=api.entity('Hero'), m=api.entity('Slime A'); if (m && !m.destroyed) { m.x=h.x+70; m.y=h.y; }";
+await page.evaluate((c) => window.__studio.applyScriptNow(c), parkSlime);
+const hp0 = await page.evaluate(() => window.__studio.mobHp('Slime A'));
+await page.evaluate(() => window.__studio.fireAbility('Slash'));
+const hp1 = await page.evaluate(() => window.__studio.mobHp('Slime A'));
+for (let i = 0; i < 2; i++) {
+  await sleep(700); // cooldown
+  await page.evaluate((c) => window.__studio.applyScriptNow(c), parkSlime);
+  await page.evaluate(() => window.__studio.fireAbility('Slash'));
+}
+await sleep(400);
+const mobsLeft = await page.evaluate(() => window.__studio.mobCount());
+const xp = await page.evaluate(() => window.__studio.xpNow());
+const level = await page.evaluate(() => window.__studio.levelNow());
+const hearts = await page.evaluate(() => window.__studio.heartsNow());
+const combatOk =
+  mobCount0 === 4 && abilities === 2 && bossBar === true && chaseOk &&
+  hp1 === hp0 - 1 && mobsLeft === 3 && (xp > 0 || level > 1) && hearts > 0 && hearts <= 3;
+await page.screenshot({ path: `${outDir}/st-11-combat.png` });
+await page.evaluate(() => window.__studio.stop());
+await sleep(150);
+
 // MULTIPLAYER BLOCKS: two browsers share a room on the co-op template —
 // roster syncs, the remote avatar appears and tracks movement, and shared
 // state (the co-op score) reaches the joiner.
@@ -282,7 +329,8 @@ relay.kill();
 
 const ok =
   placeOk && editOk && storyOk && levelsOk && playOk && stopOk && exportOk && importOk &&
-  templatesOk && skillsOk && scoreOk && tilesOk && cameraOk && frameOk && netOk && errors.length === 0;
+  templatesOk && skillsOk && scoreOk && tilesOk && cameraOk && frameOk && combatOk && netOk &&
+  errors.length === 0;
 console.log(
   JSON.stringify(
     {
@@ -290,6 +338,7 @@ console.log(
       templatesOk, templates, skillsOk, skillNodes, stormEarly, strength, scoreOk, score,
       tilesOk, tileBefore, tilePainted, tilesPersist, playTiles, heroX,
       cameraOk, worldSize, heroX2, camX, heroY2, horizonOk, heroScale, subtleOk, frameOk,
+      combatOk, mobCount0, abilities, bossBar, chaseOk, gap0, gap1, hp0, hp1, mobsLeft, xp, level, hearts,
       netOk, playersA, playersB, remotesB, moveOk, remotePosB, stateB,
       errors: errors.slice(0, 6),
     },

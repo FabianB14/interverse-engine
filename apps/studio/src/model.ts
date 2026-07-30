@@ -9,12 +9,18 @@ import { colsFor, normalizeRows, rowsFor } from './tiles.js';
 export type EntityKind =
   | 'blob' // playable-looking character
   | 'npc' // character with a story (tap to talk)
+  | 'mob' // enemy with HP + AI (chase/patrol/wander/guard)
+  | 'boss' // big enemy with a named health bar
   | 'crate'
   | 'lantern'
   | 'plant'
   | 'text'
   | 'button'
   | 'image';
+
+/** Enemy AI (kind 'mob'/'boss'): chase the player, patrol left-right,
+ *  wander randomly, or guard a home spot (chase when close, then return). */
+export type MobBehavior = 'chase' | 'patrol' | 'wander' | 'guard';
 
 export type TapSound = '' | 'pop' | 'blip' | 'chime' | 'buzz';
 
@@ -37,6 +43,12 @@ export interface EntityDef {
   frameW: number;
   frameH: number;
   fps: number;
+  /** Combat (kind 'mob'/'boss'): health, contact damage, XP dropped, AI. */
+  hp: number;
+  damage: number;
+  xp: number;
+  moveSpeed: number;
+  behavior: MobBehavior;
   /** Behaviors / juice. */
   wobble: boolean;
   popIn: boolean;
@@ -118,7 +130,12 @@ export function defaultEntity(kind: EntityKind, x: number, y: number): EntityDef
     frameW: 0,
     frameH: 0,
     fps: 8,
-    wobble: kind === 'blob' || kind === 'npc',
+    hp: 3,
+    damage: 1,
+    xp: 5,
+    moveSpeed: 120,
+    behavior: 'chase',
+    wobble: kind === 'blob' || kind === 'npc' || kind === 'mob' || kind === 'boss',
     popIn: true,
     tapSound: kind === 'button' ? 'blip' : '',
     lines: [],
@@ -127,6 +144,18 @@ export function defaultEntity(kind: EntityKind, x: number, y: number): EntityDef
     case 'npc':
       base.color = 0x8fd0ff;
       base.lines = ['Hello, traveler!'];
+      break;
+    case 'mob':
+      base.color = 0xff5b5b;
+      base.radius = 28;
+      break;
+    case 'boss':
+      base.color = 0x9d4edd;
+      base.radius = 58;
+      base.hp = 25;
+      base.xp = 50;
+      base.moveSpeed = 90;
+      base.behavior = 'guard';
       break;
     case 'crate':
       base.color = 0x4a3826;
@@ -214,6 +243,7 @@ export function parseProject(json: string): ProjectDef {
       const d = defaultEntity(e.kind ?? 'blob', e.x ?? 360, e.y ?? 640);
       Object.assign(d, e);
       Object.assign(e, d);
+      if (!['chase', 'patrol', 'wander', 'guard'].includes(e.behavior)) e.behavior = 'chase';
     }
   }
   if (!p.scenes.some((s) => s.id === p.startScene)) p.startScene = p.scenes[0]!.id;

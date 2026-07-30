@@ -135,6 +135,55 @@ api.gameOver('YOU WIN! 🌟')   // end screen with the score
 api.verium                    // the local Verium wallet (earn/spend)
 ```
 
+### Fight: monsters, bosses, abilities, hearts & leveling
+
+Drag a **👾 Monster** or **👹 Boss** from the palette — they're real actors
+with combat stats in the inspector: **Health**, **Contact damage**, **XP
+reward**, **Move speed**, and a **Behavior** AI you pick from a dropdown:
+
+| Behavior | What it does |
+| --- | --- |
+| 🏃 Chase | hunts the player |
+| ↔ Patrol | walks left-right around its spot |
+| 🎲 Wander | drifts randomly |
+| 🛡 Guard | stays home, chases when you get close, then returns |
+
+Monsters show a health bar when hurt; a Boss gets a big named bar at the
+top of the screen. Touching a mob costs the player a **heart** (with
+knockback + a moment of invincibility) — at zero hearts the game ends.
+Hearts switch on automatically when a player and mobs share a scene, or
+set them yourself with `api.hearts(5)`.
+
+**Ability buttons** are how the player fights back — real on-screen
+buttons (bottom-right, like every mobile action game) with a cooldown
+sweep and an optional keyboard hotkey:
+
+```js
+api.ability('Slash', { icon: 'sword', cooldown: 0.5, key: 'j' }, () => {
+  api.meleeAttack(140, 1);          // hit mobs within 140 for 1 damage
+});
+api.ability('Heal', { icon: 'heart', cooldown: 8, key: 'h' }, () => {
+  api.hearts(3);                    // any code works — it's just a button
+});
+```
+
+Built-in icons: `sword fire bolt snow shield boot heart star` — or use an
+imported image with `icon: '@<assetId>'`. More combat tools:
+
+```js
+api.meleeAttack(140, 1)     // swing around the player, returns hits
+api.hurt('Warden', 2)       // damage a mob/boss by name
+api.hpOf('Warden')          // its current HP (0 = defeated)
+api.onDefeat((name) => {})  // react to any defeat (loot! win checks!)
+```
+
+**Leveling** ties it together: call `api.levels()` and defeated mobs grant
+their XP reward toward a level curve with a HUD — and **every level-up
+awards a skill point** into `api.skills`, so leveling and your skill tree
+are one system. `api.xp.add(n)` grants XP from quests; `api.level()` reads
+the current level. The **Blob Arena** template shows the whole loop:
+slimes with different AI, two mapped abilities, hearts, XP, and a boss.
+
 ### Skill trees
 
 ```js

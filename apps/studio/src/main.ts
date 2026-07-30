@@ -641,6 +641,14 @@ async function main(): Promise<void> {
     },
     setFramePreview: (m: 'off' | 'landscape' | 'portrait') => editor.setFramePreview(m),
     framePreview: () => editor.framePreview,
+    mobCount: () => editor.getPlayScene()?.mobCount() ?? 0,
+    mobHp: (name: string) => editor.getPlayScene()?.mobHpOf(name) ?? 0,
+    heartsNow: () => editor.getPlayScene()?.heartsState().now ?? 0,
+    xpNow: () => editor.getPlayScene()?.xpNow() ?? 0,
+    levelNow: () => editor.getPlayScene()?.levelNow() ?? 0,
+    abilityCount: () => editor.getPlayScene()?.abilityCount() ?? 0,
+    fireAbility: (name: string) => editor.getPlayScene()?.fireAbility(name) ?? false,
+    bossBarVisible: () => editor.getPlayScene()?.bossBarVisible() ?? false,
   };
 
   // Player boot: ?load=<url-to-project-json> (+ &play=1 to jump straight in).

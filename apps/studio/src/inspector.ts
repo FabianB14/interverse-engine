@@ -30,7 +30,21 @@ export function wireInspector(editor: StudioEditor): void {
     };
     const num = (
       label: string,
-      key: 'x' | 'y' | 'scale' | 'rotation' | 'radius' | 'fontSize' | 'seed' | 'frameW' | 'frameH' | 'fps',
+      key:
+        | 'x'
+        | 'y'
+        | 'scale'
+        | 'rotation'
+        | 'radius'
+        | 'fontSize'
+        | 'seed'
+        | 'frameW'
+        | 'frameH'
+        | 'fps'
+        | 'hp'
+        | 'damage'
+        | 'xp'
+        | 'moveSpeed',
       step = 1,
     ): void => {
       const i = document.createElement('input');
@@ -83,6 +97,34 @@ export function wireInspector(editor: StudioEditor): void {
     if (def.kind === 'blob' || def.kind === 'npc') {
       num('Radius', 'radius');
       num('Look (seed)', 'seed');
+    }
+    if (def.kind === 'mob' || def.kind === 'boss') {
+      num('Radius', 'radius');
+      num('Look (seed)', 'seed');
+      num('Health (HP)', 'hp');
+      num('Contact damage', 'damage');
+      num('XP reward', 'xp');
+      num('Move speed', 'moveSpeed');
+      const beh = document.createElement('select');
+      for (const opt of ['chase', 'patrol', 'wander', 'guard'] as const) {
+        const o = document.createElement('option');
+        o.value = opt;
+        o.textContent =
+          opt === 'chase'
+            ? '🏃 Chase the player'
+            : opt === 'patrol'
+              ? '↔ Patrol left-right'
+              : opt === 'wander'
+                ? '🎲 Wander around'
+                : '🛡 Guard its spot';
+        if (def.behavior === opt) o.selected = true;
+        beh.appendChild(o);
+      }
+      beh.onchange = () => {
+        def.behavior = beh.value as EntityDef['behavior'];
+        editor.touch();
+      };
+      field('Behavior (AI)', beh);
     }
     if (def.kind === 'crate') num('Size', 'radius');
     if (def.kind === 'text' || def.kind === 'button') {

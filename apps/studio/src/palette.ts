@@ -12,6 +12,8 @@ export const PALETTE: { title: string; items: PaletteItem[] }[] = [
     items: [
       { kind: 'blob', label: 'Blob character', emoji: '🙂' },
       { kind: 'npc', label: 'Story character', emoji: '💬' },
+      { kind: 'mob', label: 'Monster', emoji: '👾' },
+      { kind: 'boss', label: 'Boss', emoji: '👹' },
     ],
   },
   {

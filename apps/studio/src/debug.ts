@@ -54,6 +54,14 @@ export interface StudioDebug {
   cameraX: () => number;
   setFramePreview: (m: 'off' | 'landscape' | 'portrait') => void;
   framePreview: () => 'off' | 'landscape' | 'portrait';
+  mobCount: () => number;
+  mobHp: (name: string) => number;
+  heartsNow: () => number;
+  xpNow: () => number;
+  levelNow: () => number;
+  abilityCount: () => number;
+  fireAbility: (name: string) => boolean;
+  bossBarVisible: () => boolean;
 }
 
 declare global {
