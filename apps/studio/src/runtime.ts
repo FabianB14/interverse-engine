@@ -24,7 +24,7 @@ import {
   verium,
 } from '@interverse/engine';
 import type { DialogueData, Game, MusicTrackId, SaveStore, TileMapData, VfxPreset } from '@interverse/engine';
-import { DialogueBox } from '@interverse/ui';
+import { DialogueBox, UIButton } from '@interverse/ui';
 import { fetchChainBalance } from '@interverse/platform';
 import { drawOutfit } from './cosmetics.js';
 import { drawIcon } from './icons.js';
@@ -375,6 +375,10 @@ export interface ScriptApi {
   /** Play a named animation clip on an imported spritesheet model
    *  (define clips in the inspector: name + frame range + fps). */
   playClip: (target: string, clipName: string) => void;
+  /** Title / save-slot screen: game name, ▶ CONTINUE (when a save file
+   *  exists), ✚ NEW GAME (wipes the save + skill unlocks), and music/sfx
+   *  volume bars. Gameplay pauses until a choice is made. */
+  title: () => void;
   /** Procedural generation: tile rows sized to this level, ready for
    *  api.setTiles — maze (rock/dirt), dungeon (brick/stone), island. */
   gen: { maze: () => string[]; dungeon: () => string[]; island: () => string[] };
@@ -1714,6 +1718,7 @@ export class PlayScene extends Scene {
       vfx: (preset, x, y) => this.spawnVfx(preset, x, y),
       outfit: (target, opts) => this.setOutfit(target, opts),
       playClip: (target, clipName) => this.playClip(target, clipName),
+      title: () => this.showTitle(),
       gen: {
         maze: () => generateRows('maze', this.sceneDef.worldW / 40, this.sceneDef.worldH / 40),
         dungeon: () => generateRows('dungeon', this.sceneDef.worldW / 40, this.sceneDef.worldH / 40),
@@ -1722,6 +1727,117 @@ export class PlayScene extends Scene {
       setTiles: (rows) => this.setTilesLive(rows),
       gameOver: (message = 'GAME OVER') => this.endGame(message),
     };
+  }
+
+  private titleRoot: Entity | null = null;
+  titlePaused = false;
+
+  /** Save-slot title screen (RPG-style Continue / New Game + volumes). */
+  showTitle(): void {
+    if (this.titleRoot) return;
+    this.titlePaused = true;
+    const W = this.game.viewWidth;
+    const H = this.game.viewHeight;
+    const root = new Entity();
+    const bg = new Graphics().rect(0, 0, W, H).fill({ color: 0x0a0812, alpha: 0.93 });
+    bg.eventMode = 'static';
+    root.addChild(bg);
+    const title = new Text({
+      text: this.project.name,
+      style: { fontFamily: 'system-ui, sans-serif', fontSize: 58, fontWeight: '800', fill: 0xffd166, align: 'center' },
+    });
+    title.anchor.set(0.5);
+    title.position.set(W / 2, H * 0.26);
+    root.addChild(title);
+    const best = Number(this.saveStore().get('__best', 0)) || 0;
+    if (best > 0) {
+      const sub = new Text({
+        text: `best score ${best}`,
+        style: { fontFamily: 'system-ui, sans-serif', fontSize: 26, fontWeight: '700', fill: 0x9a97b8 },
+      });
+      sub.anchor.set(0.5);
+      sub.position.set(W / 2, H * 0.26 + 52);
+      root.addChild(sub);
+    }
+    const played = !!this.saveStore().get('__played', false);
+    let by = H * 0.44;
+    if (played) {
+      const cont = new UIButton('▶ CONTINUE', { fill: 0x8affc1, onTap: () => this.dismissTitle() });
+      cont.position.set(W / 2, by);
+      root.addChild(cont);
+      by += 110;
+    }
+    const fresh = new UIButton(played ? '✚ NEW GAME' : '▶ PLAY', {
+      onTap: () => {
+        if (played) this.wipeSave();
+        this.dismissTitle();
+      },
+    });
+    fresh.position.set(W / 2, by);
+    root.addChild(fresh);
+    // volume bars: 5 notches each for music + sfx
+    const bar = (label: string, bus: 'music' | 'sfx', y: number): void => {
+      const t = new Text({
+        text: label,
+        style: { fontFamily: 'system-ui, sans-serif', fontSize: 26, fill: 0xe6e4f0 },
+      });
+      t.anchor.set(1, 0.5);
+      t.position.set(W / 2 - 120, y);
+      root.addChild(t);
+      const draw = (g: Graphics): void => {
+        g.clear();
+        const v = audio.getVolume(bus);
+        for (let i = 0; i < 5; i++) {
+          const on = v >= (i + 1) / 5 - 0.001;
+          g.roundRect(W / 2 - 100 + i * 46, y - 11, 38, 22, 6).fill(on ? 0xc77dff : 0x35304d);
+        }
+      };
+      const g = new Graphics();
+      draw(g);
+      g.eventMode = 'static';
+      g.cursor = 'pointer';
+      g.on('pointerdown', (ev) => {
+        const local = g.toLocal(ev.global);
+        const i = Math.max(0, Math.min(4, Math.floor((local.x - (W / 2 - 100)) / 46)));
+        audio.setVolume(bus, (i + 1) / 5);
+        draw(g);
+        if (bus === 'sfx') audio.blip();
+      });
+      root.addChild(g);
+    };
+    bar('🎵', 'music', H * 0.44 + (played ? 220 : 110));
+    bar('🔊', 'sfx', H * 0.44 + (played ? 270 : 160));
+    this.add(root);
+    this.titleRoot = root;
+  }
+
+  private wipeSave(): void {
+    this.saveStore().clear();
+    createSave('studio-skills').remove(this.project.name);
+    this.xpValue = 0;
+    this.levelValue = 1;
+    this.refreshLevelHud();
+    this.refreshHearts();
+    this.refreshCoinHud();
+  }
+
+  private dismissTitle(): void {
+    if (!this.titleRoot) return;
+    if (!this.titleRoot.destroyed) this.titleRoot.destroy({ children: true });
+    this.titleRoot = null;
+    this.titlePaused = false;
+    this.saveStore().set('__played', true);
+    audio.chime();
+  }
+
+  titleVisible(): boolean {
+    return !!this.titleRoot;
+  }
+
+  titlePick(kind: 'continue' | 'new'): void {
+    if (!this.titleRoot) return;
+    if (kind === 'new') this.wipeSave();
+    this.dismissTitle();
   }
 
   private endGame(message: string): void {
@@ -1770,7 +1886,7 @@ export class PlayScene extends Scene {
   protected override onUpdate(dt: number): void {
     if (this.scoreText) this.scoreText.text = String(this.scoreValue);
     // Player movement: arrows/WASD + the touch joystick, clamped to design.
-    if (!this.over) {
+    if (!this.over && !this.titlePaused) {
       const depth = this.sceneDef.view === 'depth';
       // Gravity means two different things by view: top = platformer physics
       // (run + jump on a fixed ground); 2.5D = a BRAWLER jump (Castle

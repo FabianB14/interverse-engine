@@ -2,6 +2,7 @@
 import { StudioEditor } from './editor.js';
 import { wireInspector } from './inspector.js';
 import { wireChat } from './chat.js';
+import { wireFlow } from './flow.js';
 import { PALETTE } from './palette.js';
 import { TEMPLATES } from './templates.js';
 import { TILE_TYPES } from './tiles.js';
@@ -233,11 +234,73 @@ async function main(): Promise<void> {
   $('btn-publish').onclick = () =>
     openModal((root) => {
       root.innerHTML = `<h2>🌍 Publish "${editor.project.name}"</h2>
-        <p class="muted">Both paths use YOUR credentials, stored only on this device (never inside the game).</p>
-        <h3>1 · Push to your GitHub repo</h3><div id="pub-gh"></div>
-        <h3 style="margin-top:18px">2 · Add it to the Interverse world</h3><div id="pub-world"></div>`;
+        <p class="muted">All paths use YOUR credentials/devices, stored only on this device (never inside the game).</p>
+        <h3>1 · A folder on this computer</h3><div id="pub-folder"></div>
+        <h3 style="margin-top:18px">2 · Push to your GitHub repo</h3><div id="pub-gh"></div>
+        <h3 style="margin-top:18px">3 · Add it to the Interverse world</h3><div id="pub-world"></div>`;
       const gh = root.querySelector<HTMLElement>('#pub-gh')!;
       const world = root.querySelector<HTMLElement>('#pub-world')!;
+      const folder = root.querySelector<HTMLElement>('#pub-folder')!;
+      // File System Access: save/open .interverse.json in a folder the user
+      // picks — their PC's documents, a synced drive, a git checkout, etc.
+      type DirPicker = { showDirectoryPicker?: (o?: { mode?: string }) => Promise<FileSystemDirectoryHandle> };
+      const picker = window as unknown as DirPicker;
+      if (picker.showDirectoryPicker) {
+        const row = document.createElement('div');
+        row.className = 'row';
+        const fOut = document.createElement('div');
+        fOut.className = 'muted';
+        fOut.style.cssText = 'font-size:12px;margin-top:6px';
+        fOut.textContent = 'Works great with a local git checkout — commit the saved file with your usual tools.';
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'btn primary';
+        saveBtn.textContent = '📁 Save to a folder…';
+        saveBtn.onclick = () => {
+          void (async () => {
+            try {
+              const dir = await picker.showDirectoryPicker!({ mode: 'readwrite' });
+              const name = `${slugify(editor.project.name) || 'game'}.interverse.json`;
+              const fh = await dir.getFileHandle(name, { create: true });
+              const w = await (fh as unknown as { createWritable: () => Promise<{ write: (s: string) => Promise<void>; close: () => Promise<void> }> }).createWritable();
+              await w.write(editor.exportJson());
+              await w.close();
+              fOut.textContent = `Saved ${name} ✓`;
+            } catch (err) {
+              if ((err as Error).name !== 'AbortError') fOut.textContent = `Could not save: ${(err as Error).message}`;
+            }
+          })();
+        };
+        const openBtn = document.createElement('button');
+        openBtn.className = 'btn';
+        openBtn.textContent = '📂 Open from this computer…';
+        openBtn.onclick = () => {
+          void (async () => {
+            try {
+              const input = document.createElement('input');
+              input.type = 'file';
+              input.accept = '.json,application/json';
+              input.onchange = () => {
+                const f = input.files?.[0];
+                if (!f) return;
+                void f.text().then((json) => {
+                  editor.importJson(json);
+                  closeModal();
+                });
+              };
+              input.click();
+            } catch {
+              /* cancelled */
+            }
+          })();
+        };
+        row.append(saveBtn, openBtn);
+        folder.append(row, fOut);
+      } else {
+        const note = document.createElement('p');
+        note.className = 'muted';
+        note.textContent = 'This browser (Safari/iPhone/iPad) can’t write folders directly — use Export/Import in the toolbar; the files are identical.';
+        folder.appendChild(note);
+      }
 
       const token = textInput(localStorage.getItem(pubStore.ghToken) ?? '', 'password');
       token.placeholder = 'fine-grained token with Contents: write';
@@ -522,15 +585,28 @@ async function main(): Promise<void> {
   });
 
   // ---------------------------------------------------------------- tabs
-  const tabs = document.querySelectorAll<HTMLButtonElement>('#tabs button');
+  const flow = wireFlow(editor);
+  const tabs = document.querySelectorAll<HTMLButtonElement>('#tabs button[data-tab]');
   tabs.forEach((b) =>
     b.addEventListener('click', () => {
       tabs.forEach((x) => x.classList.toggle('active', x === b));
       document
         .querySelectorAll<HTMLElement>('.tabpane')
         .forEach((p) => p.classList.toggle('active', p.dataset.pane === b.dataset.tab));
+      if (b.dataset.tab === 'flow') flow.render();
     }),
   );
+
+  // ▾ minimize the bottom panel (the canvas grows to fill the space)
+  const minBtn = $<HTMLButtonElement>('btn-minimize');
+  minBtn.style.cssText = 'background:transparent;border:0;color:var(--ink-soft);cursor:pointer;font-weight:800';
+  minBtn.onclick = () => {
+    const app = document.getElementById('app')!;
+    const min = app.classList.toggle('bottom-min');
+    minBtn.textContent = min ? '▴' : '▾';
+    minBtn.title = min ? 'Restore this panel' : 'Minimize this panel';
+    window.dispatchEvent(new Event('resize'));
+  };
 
   // ------------------------------------------------------------ code tab
   const codeText = $<HTMLTextAreaElement>('code-text');
@@ -717,6 +793,14 @@ async function main(): Promise<void> {
     setOutfit: (name: string, opts: { hat?: string; held?: string }) =>
       editor.getPlayScene()?.setOutfit(name, opts),
     outfitOf: (name: string) => editor.getPlayScene()?.outfitOf(name) ?? null,
+    flowNodes: () => {
+      flow.render();
+      return flow.nodeCount();
+    },
+    titleVisible: () => editor.getPlayScene()?.titleVisible() ?? false,
+    titlePick: (kind: 'continue' | 'new') => editor.getPlayScene()?.titlePick(kind),
+    togglePanel: () => $<HTMLButtonElement>('btn-minimize').click(),
+    panelMinimized: () => document.getElementById('app')!.classList.contains('bottom-min'),
     genTiles: (kind: 'maze' | 'dungeon' | 'island') => editor.generateTiles(kind),
     tileRows: () => editor.scene.tiles ?? null,
     playClip: (name: string, clip: string) => editor.getPlayScene()?.playClip(name, clip) ?? false,

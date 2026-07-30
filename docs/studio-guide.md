@@ -146,6 +146,20 @@ Two extras make real quests possible:
 Switches are shared with the Code window (`api.switches.on/off/isOn`),
 so no-code events and scripts work on the same world state.
 
+## 4¾ · The ⛓ Flow tab — your game as a graph
+
+The **Flow** tab (bottom panel) is the visual scripting map: every level
+and every actor with ⚡ events appears as a draggable node card. Wires
+show the connections that make quests work — gold wires from a
+switch-setter to every event gated on that switch, purple wires from
+🚪 go-to-level actions to their destination level. Click a node to select
+that actor for editing in the inspector; double-click a level node to
+open it. (Wire-dragging authoring — connecting nodes to CREATE logic,
+Blueprints-style — builds on this map next.)
+
+The bottom panel itself minimizes with the **▾** button in the tab bar
+when you want the full canvas.
+
 ## 5 · Stories (narratives)
 
 Select a character → **Story** tab → one line per row → **Save story**.
@@ -301,6 +315,13 @@ palette groups them by what they're for:
 | **UI** | Text, Button | fonts, tap handlers |
 | **Assets** | Imported images | spritesheet clips, any art you own |
 
+### The title / save-slot screen
+
+`api.title()` at the top of your first level's script gives players a
+proper front door: the game's name, **▶ CONTINUE** (only when a save
+file exists), **✚ NEW GAME** (wipes the save file AND skill unlocks),
+and 🎵/🔊 volume bars — gameplay stays paused until they choose.
+
 ### Skill trees
 
 ```js
@@ -320,6 +341,25 @@ api.skills.onUnlock((id) => {});  // react to unlocks
 
 Node positions are laid out automatically from `requires` chains — linear
 paths and branching trees both work. Unlocks persist per project.
+
+## 7¾ · Where your game lives (and what MCP is for)
+
+Your game is one JSON file, and it can live in four places:
+
+1. **This device** — continuous autosave + named **💾 My Games** slots.
+2. **A folder on your computer** — Publish → *A folder on this computer*
+   saves `<name>.interverse.json` anywhere you pick (documents, a synced
+   drive, or a local git checkout you commit yourself). Chrome/Edge;
+   on Safari/iPhone use Export/Import — the files are identical.
+3. **Your GitHub repo** — Publish → *Push to your GitHub repo* with your
+   own token; everyone gets a play link.
+4. **The Interverse world** — register it against an IVX node.
+
+Separately from ALL of that: the **MCP connection is for editing the
+ENGINE and the Studio itself** — Claude Code attaches to the
+interverse-engine repo through the `interverse` MCP server (studio_*
+tools) to build features, fix bugs, and drive the dev cycle. Your game
+projects never need MCP; they're data files in the places above.
 
 ## 8 · Multiplayer blocks
 

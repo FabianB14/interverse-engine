@@ -439,6 +439,27 @@ const eventsOk =
 await page.evaluate(() => window.__studio.stop());
 await sleep(150);
 
+// FLOW TAB + PANEL + TITLE SCREEN: the visual scripting map renders nodes
+// for the event-built actors; the bottom panel minimizes and restores; and
+// api.title() pauses on a save-slot screen until a choice is made.
+const flowN = await page.evaluate(() => window.__studio.flowNodes());
+await page.evaluate(() => window.__studio.togglePanel());
+const minOn = await page.evaluate(() => window.__studio.panelMinimized());
+await page.evaluate(() => window.__studio.togglePanel());
+const minOff = await page.evaluate(() => window.__studio.panelMinimized());
+await page.evaluate(() => {
+  window.__studio.setScript("api.player('Hero', 300); api.title();");
+  window.__studio.play();
+});
+await sleep(700);
+const titleShown = await page.evaluate(() => window.__studio.titleVisible());
+await page.screenshot({ path: `${outDir}/st-14-title.png` });
+await page.evaluate(() => window.__studio.titlePick('new'));
+const titleGone = await page.evaluate(() => window.__studio.titleVisible());
+const uiOk = flowN >= 3 && minOn === true && minOff === false && titleShown === true && titleGone === false;
+await page.evaluate(() => window.__studio.stop());
+await sleep(150);
+
 // PROCGEN: generate a maze into the editor, play it (solid walls), then
 // swap to a generated island LIVE via the script api.
 await page.evaluate(() => window.__studio.loadTemplate('blank'));
@@ -512,7 +533,8 @@ aiBridge.kill();
 const ok =
   placeOk && editOk && storyOk && levelsOk && playOk && stopOk && exportOk && importOk &&
   templatesOk && skillsOk && scoreOk && tilesOk && cameraOk && frameOk && combatOk && rangedOk &&
-  patrolOk && chatOk && coinsOk && persistOk && libOk && eventsOk && genOk && netOk && errors.length === 0;
+  patrolOk && chatOk && coinsOk && persistOk && libOk && eventsOk && genOk && uiOk && netOk &&
+  errors.length === 0;
 console.log(
   JSON.stringify(
     {
@@ -528,6 +550,7 @@ console.log(
       libOk, libId, savedName, restoredName, libCount,
       eventsOk, evCoins0, evCoinsGated, evScore, evSwitch, evCount0, evCount1, evCoins1,
       genOk, mazeHasWalls, mazePlays, islandLive,
+      uiOk, flowN, minOn, minOff, titleShown, titleGone,
       netOk, playersA, playersB, remotesB, moveOk, remotePosB, stateB,
       errors: errors.slice(0, 6),
     },

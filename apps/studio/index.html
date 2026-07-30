@@ -123,6 +123,47 @@
         display: flex;
         gap: 10px;
       }
+      #app.bottom-min {
+        grid-template:
+          'top top top' 52px
+          'left center right' 1fr
+          'bottom bottom right' 36px / 232px 1fr 296px;
+      }
+      #app.bottom-min .tabpane {
+        display: none !important;
+      }
+      #flow-canvas {
+        position: relative;
+        flex: 1;
+        overflow: auto;
+        background:
+          radial-gradient(circle, #2a2740 1px, transparent 1px) 0 0 / 26px 26px,
+          var(--panel2);
+        border-radius: 10px;
+      }
+      .flow-node {
+        position: absolute;
+        min-width: 150px;
+        max-width: 220px;
+        background: var(--panel);
+        border: 1px solid #35304d;
+        border-radius: 10px;
+        padding: 8px 10px;
+        cursor: grab;
+        font-size: 12px;
+        user-select: none;
+      }
+      .flow-node .fn-title {
+        font-weight: 800;
+        margin-bottom: 4px;
+      }
+      .flow-node .fn-ev {
+        color: var(--ink-soft);
+        margin-top: 2px;
+      }
+      .flow-node.level {
+        border-color: var(--accent);
+      }
       textarea,
       input,
       select {
@@ -398,7 +439,10 @@
         <div id="tabs">
           <button data-tab="code" class="active">Code</button>
           <button data-tab="story">Story</button>
+          <button data-tab="flow">⛓ Flow</button>
           <button data-tab="chat">AI Chat</button>
+          <span style="flex:1"></span>
+          <button id="btn-minimize" title="Minimize this panel">▾</button>
         </div>
         <div class="tabpane active" data-pane="code">
           <textarea id="code-text" style="flex: 1" spellcheck="false"></textarea>
@@ -422,6 +466,12 @@
             <button class="btn primary" id="btn-apply-story">Save story</button>
             <div class="muted" style="font-size: 12px" id="story-hint">No character selected.</div>
           </div>
+        </div>
+        <div class="tabpane" data-pane="flow" style="flex-direction: column">
+          <div class="muted" style="font-size: 12px; margin-bottom: 6px">
+            ⛓ Visual scripting map — every actor's events as nodes; wires show switch gates and level doors. Click a node to edit it in the inspector; drag to arrange.
+          </div>
+          <div id="flow-canvas"></div>
         </div>
         <div class="tabpane" data-pane="chat" style="flex-direction: column">
           <div id="chat-log"></div>

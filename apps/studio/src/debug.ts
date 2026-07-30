@@ -73,6 +73,11 @@ export interface StudioDebug {
   vfxCount: () => number;
   setOutfit: (name: string, opts: { hat?: string; held?: string }) => void;
   outfitOf: (name: string) => { hat: string; held: string } | null;
+  flowNodes: () => number;
+  titleVisible: () => boolean;
+  titlePick: (kind: 'continue' | 'new') => void;
+  togglePanel: () => void;
+  panelMinimized: () => boolean;
   genTiles: (kind: 'maze' | 'dungeon' | 'island') => void;
   tileRows: () => string[] | null;
   playClip: (name: string, clip: string) => boolean;
