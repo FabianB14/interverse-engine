@@ -446,7 +446,8 @@
     <script>
       // PWA: cache the app shell for installs (not during local dev).
       if ('serviceWorker' in navigator && location.hostname !== 'localhost') {
-        navigator.serviceWorker.register('./sw.js');
+        // update() makes installed apps pick up new releases on every launch
+        navigator.serviceWorker.register('./sw.js').then((reg) => reg.update());
       }
     </script>
     <script type="module" src="/src/main.ts"></script>

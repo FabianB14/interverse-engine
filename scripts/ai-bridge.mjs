@@ -29,16 +29,48 @@ try {
   process.exit(1);
 }
 
-const wss = new WebSocketServer({ host: '127.0.0.1', port: PORT });
-wss.on('error', (err) => {
+// A plain-HTTP status page shares the port: open http://127.0.0.1:8790 in
+// the same browser as the Studio to prove the bridge is reachable.
+const { createServer } = await import('node:http');
+const { existsSync } = await import('node:fs');
+const { homedir } = await import('node:os');
+const { join } = await import('node:path');
+
+const hasSavedLogin =
+  existsSync(join(homedir(), '.claude', '.credentials.json')) ||
+  !!process.env.CLAUDE_CODE_OAUTH_TOKEN ||
+  !!process.env.ANTHROPIC_API_KEY;
+
+const httpServer = createServer((req, res) => {
+  res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+  res.end(
+    `<body style="font-family:system-ui;background:#131120;color:#e6e4f0;padding:40px">
+       <h1>✅ Interverse AI bridge is running${MOCK ? ' (mock mode)' : ''}</h1>
+       <p>If you can read this, the Studio in <b>this browser</b> can reach the bridge.
+       Open the Studio's <b>AI Chat</b> tab — it should say “✦ Connected” within a few seconds.</p>
+       <p>If the chat still says it's looking: that Studio tab is probably running old cached
+       code — close every Studio tab/window (installed app too), reopen it twice, and check again.</p>
+       <p>The bridge signs in with your <b>Claude Code login</b> (run <code>claude</code> once in a
+       terminal to log in).</p>
+     </body>`,
+  );
+});
+httpServer.on('error', (err) => {
   if (err && err.code === 'EADDRINUSE') {
     console.error(`[ai-bridge] port ${PORT} is already in use — is another \`pnpm ai\` running? (That one works fine; you don't need two.)`);
     process.exit(1);
   }
   console.error('[ai-bridge] server error:', err?.message ?? err);
 });
-wss.on('listening', () => {
+const wss = new WebSocketServer({ server: httpServer });
+httpServer.listen(PORT, '127.0.0.1', () => {
   console.log(`[ai-bridge] ready on ws://127.0.0.1:${PORT}${MOCK ? ' (mock mode)' : ' — using your Claude Code login'}`);
+  console.log(`[ai-bridge] self-test: open http://127.0.0.1:${PORT} in the same browser as the Studio`);
+  console.log(
+    hasSavedLogin
+      ? '[ai-bridge] Claude login: found saved credentials ✓'
+      : '[ai-bridge] Claude login: no saved credentials seen — if asks fail, run `claude` in a terminal and sign in, then restart pnpm ai',
+  );
   console.log('[ai-bridge] open the Studio (dev server, website, or installed app) on THIS computer — the AI Chat connects by itself.');
 });
 

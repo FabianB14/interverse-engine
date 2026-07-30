@@ -1,7 +1,9 @@
 // Minimal app-shell cache (stale-while-revalidate). Multiplayer still
 // needs the network; this makes launches instant and single-player usable
 // offline.
-const CACHE = 'interverse-studio-v1';
+// Bump the version whenever cached shell code must be force-refreshed
+// (installed apps otherwise keep serving the old JS for a while).
+const CACHE = 'interverse-studio-v2';
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) =>
   e.waitUntil(

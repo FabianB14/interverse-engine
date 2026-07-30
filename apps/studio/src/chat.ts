@@ -14,7 +14,9 @@ import type { EntityDef, EntityKind } from './model.js';
 
 const KEY_STORE = 'interverse.studio.apikey';
 const MODEL = 'claude-sonnet-5';
-const BRIDGE_URL = 'ws://127.0.0.1:8790';
+// ?bridge=ws://host:port overrides the default local bridge address.
+const BRIDGE_URL =
+  new URLSearchParams(window.location.search).get('bridge') ?? 'ws://127.0.0.1:8790';
 
 interface ToolSpec {
   name: string;
@@ -207,7 +209,10 @@ export function wireChat(editor: StudioEditor): { bridged: () => boolean } {
     'tool',
     '✦ Chat with Claude, no API key. On the computer you use for this game (once): 1) get the interverse-engine repo, 2) `pnpm install`, 3) `pnpm ai` — leave it running. This chat finds it automatically within a few seconds (works from the installed app and the website too — the bridge just has to run on THIS computer). It signs in with your Claude Code login; run `claude` in a terminal once if it asks.\n\nNo Claude Code? Paste an Anthropic API key below as a fallback (kept only on this device) and ask — "add a spooky forest", "make the button switch to Level 2".',
   );
-  setStatus('⏳ Looking for the local bridge (`pnpm ai`) at ws://127.0.0.1:8790 — retrying every few seconds…');
+  setStatus(
+    `⏳ Looking for the local bridge (\`pnpm ai\`) at ${BRIDGE_URL} — retrying every few seconds… ` +
+      `Self-test: open http://127.0.0.1:8790 in a new tab; a green "bridge is running" page means it's reachable.`,
+  );
 
   const history: { role: 'user' | 'assistant'; content: unknown }[] = [];
 
