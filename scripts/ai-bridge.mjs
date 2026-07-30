@@ -18,15 +18,33 @@
  * AI_BRIDGE_MOCK=1 answers with a canned agent (used by verify-studio so
  * headless tests exercise the full protocol without a Claude login).
  */
-import { WebSocketServer } from 'ws';
-
 const PORT = Number(process.env.AI_BRIDGE_PORT || 8790);
 const MOCK = process.env.AI_BRIDGE_MOCK === '1';
 
+let WebSocketServer;
+try {
+  ({ WebSocketServer } = await import('ws'));
+} catch {
+  console.error('[ai-bridge] missing dependencies — run `pnpm install` in the repo first, then `pnpm ai` again.');
+  process.exit(1);
+}
+
 const wss = new WebSocketServer({ host: '127.0.0.1', port: PORT });
-console.log(`[ai-bridge] ws://127.0.0.1:${PORT}${MOCK ? ' (mock mode)' : ' — using your Claude Code login'}`);
+wss.on('error', (err) => {
+  if (err && err.code === 'EADDRINUSE') {
+    console.error(`[ai-bridge] port ${PORT} is already in use — is another \`pnpm ai\` running? (That one works fine; you don't need two.)`);
+    process.exit(1);
+  }
+  console.error('[ai-bridge] server error:', err?.message ?? err);
+});
+wss.on('listening', () => {
+  console.log(`[ai-bridge] ready on ws://127.0.0.1:${PORT}${MOCK ? ' (mock mode)' : ' — using your Claude Code login'}`);
+  console.log('[ai-bridge] open the Studio (dev server, website, or installed app) on THIS computer — the AI Chat connects by itself.');
+});
 
 wss.on('connection', (ws) => {
+  console.log('[ai-bridge] studio connected');
+  ws.on('close', () => console.log('[ai-bridge] studio disconnected'));
   const send = (m) => {
     try {
       ws.send(JSON.stringify(m));
@@ -62,7 +80,10 @@ wss.on('connection', (ws) => {
     else if (msg.type === 'tool_result') {
       pending.get(msg.id)?.(String(msg.out ?? ''));
       pending.delete(msg.id);
-    } else if (msg.type === 'ask') void handleAsk(String(msg.ask ?? ''), String(msg.system ?? ''));
+    } else if (msg.type === 'ask') {
+      console.log(`[ai-bridge] ask: ${String(msg.ask ?? '').slice(0, 80)}`);
+      void handleAsk(String(msg.ask ?? ''), String(msg.system ?? ''));
+    }
   });
 
   async function handleAsk(ask, system) {

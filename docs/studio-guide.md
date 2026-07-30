@@ -299,14 +299,27 @@ applies it locally. Firefly Party's script is a worked example.
 No API key needed — the AI dev cycle runs on your **Claude Code login**,
 two ways:
 
-1. **The AI Chat tab + the local bridge.** Run `pnpm ai` in the repo,
-   open the Studio, and the chat connects automatically (the key box
-   disappears). Type "add a spooky forest" or "give the boss a second
-   phase" and Claude edits the live project through studio tools. This
-   works from the dev server AND the installed app / hosted page —
-   browsers trust `ws://127.0.0.1`, so the deployed Studio can talk to
-   the bridge on your machine. The bridge signs in with whatever
-   `claude` is logged in as; run `claude` once in a terminal if it asks.
+1. **The AI Chat tab + the local bridge.** One-time setup on the
+   computer you build on: clone the `interverse-engine` repo and run
+   `pnpm install`. Then whenever you want the copilot: `pnpm ai` (leave
+   it running) and open the Studio — the chat shows "✦ Connected" within
+   a few seconds and the key box disappears (it retries automatically,
+   so the order doesn't matter). Type "add a spooky forest" or "give the
+   boss a second phase" and Claude edits the live project through studio
+   tools. Works from the dev server AND the installed app / hosted page.
+   The bridge signs in with whatever `claude` is logged in as; run
+   `claude` once in a terminal if it asks.
+
+   **If the chat says it can't find the bridge:**
+   - The bridge must run on the **same computer as the browser** —
+     `pnpm ai` on your PC won't reach a phone. (Phones: use the API-key
+     fallback, or build on the PC and Publish.)
+   - Look at the `pnpm ai` terminal — it prints exactly what's wrong
+     (`pnpm install` not run yet, port already in use) and logs
+     "studio connected" when the chat finds it.
+   - On the hosted https page use **Chrome or Edge** — Safari blocks
+     pages from talking to local programs, so the bridge can't connect
+     there (the dev server at `localhost:5179` works in any browser).
 2. **Claude Code driving the Studio directly over MCP.** Open this repo
    in Claude Code and the `interverse` MCP server exposes studio tools
    (`studio_open`, `studio_project`, `studio_add_entity`,

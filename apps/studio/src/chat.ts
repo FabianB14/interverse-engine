@@ -134,6 +134,16 @@ export function wireChat(editor: StudioEditor): { bridged: () => boolean } {
   let bridge: WebSocket | null = null;
   let bridgeReady = false;
   let bridgeDone: (() => void) | null = null;
+  let connecting = false;
+
+  // One live status line the retry loop updates in place (no log spam).
+  const statusDiv = document.createElement('div');
+  statusDiv.className = 'msg tool';
+  const setStatus = (text: string): void => {
+    statusDiv.textContent = text;
+    if (!statusDiv.parentElement) log.appendChild(statusDiv);
+    log.scrollTop = log.scrollHeight;
+  };
 
   const systemContext = (): string =>
     `You are the Interverse Studio copilot, editing a 2D mobile game project live. ` +
@@ -142,6 +152,8 @@ export function wireChat(editor: StudioEditor): { bridged: () => boolean } {
     `. Use the studio tools to make changes; keep answers to one or two short sentences.`;
 
   const connectBridge = (): void => {
+    if (connecting || bridgeReady) return;
+    connecting = true;
     try {
       const ws = new WebSocket(BRIDGE_URL);
       ws.onopen = () => ws.send(JSON.stringify({ type: 'hello' }));
@@ -155,8 +167,9 @@ export function wireChat(editor: StudioEditor): { bridged: () => boolean } {
         if (msg.type === 'ready') {
           bridge = ws;
           bridgeReady = true;
+          connecting = false;
           keyInput.style.display = 'none';
-          say('tool', `✦ Connected to Claude through your local bridge${msg.mode === 'mock' ? ' (mock)' : ''} — no API key needed. Ask away!`);
+          setStatus(`✦ Connected to Claude through your local bridge${msg.mode === 'mock' ? ' (mock)' : ''} — no API key needed. Ask away!`);
         } else if (msg.type === 'text' && msg.text) {
           say('bot', `Claude: ${msg.text}`);
         } else if (msg.type === 'tool_use') {
@@ -171,24 +184,30 @@ export function wireChat(editor: StudioEditor): { bridged: () => boolean } {
         }
       };
       ws.onclose = () => {
-        if (bridgeReady) say('tool', 'Bridge disconnected — restart it with `pnpm ai`.');
+        const wasReady = bridgeReady;
         bridge = null;
         bridgeReady = false;
+        connecting = false;
         keyInput.style.display = '';
         bridgeDone?.();
         bridgeDone = null;
+        if (wasReady) setStatus('Bridge disconnected — restart it with `pnpm ai`; this chat reconnects automatically.');
       };
       ws.onerror = () => ws.close();
     } catch {
-      /* no bridge running — API-key fallback stays available */
+      connecting = false;
     }
   };
+  // Keep looking for the bridge — starting `pnpm ai` AFTER opening the
+  // Studio must "just work" without a reload or a manual Send.
   connectBridge();
+  window.setInterval(connectBridge, 3000);
 
   say(
     'tool',
-    '✦ No API key needed: run `pnpm ai` in the repo and this chat connects to Claude through your Claude Code login (works from the installed app too — it retries each time you Send). Claude Code can also drive the studio directly via the `interverse` MCP studio_* tools.\n\nNo Claude Code? Paste an Anthropic API key below as a fallback (kept only on this device) and ask — "add a spooky forest", "make the button switch to Level 2".',
+    '✦ Chat with Claude, no API key. On the computer you use for this game (once): 1) get the interverse-engine repo, 2) `pnpm install`, 3) `pnpm ai` — leave it running. This chat finds it automatically within a few seconds (works from the installed app and the website too — the bridge just has to run on THIS computer). It signs in with your Claude Code login; run `claude` in a terminal once if it asks.\n\nNo Claude Code? Paste an Anthropic API key below as a fallback (kept only on this device) and ask — "add a spooky forest", "make the button switch to Level 2".',
   );
+  setStatus('⏳ Looking for the local bridge (`pnpm ai`) at ws://127.0.0.1:8790 — retrying every few seconds…');
 
   const history: { role: 'user' | 'assistant'; content: unknown }[] = [];
 
@@ -211,10 +230,13 @@ export function wireChat(editor: StudioEditor): { bridged: () => boolean } {
       send.disabled = false;
       return;
     }
-    if (!bridge) connectBridge(); // maybe the bridge started after page load
+    connectBridge(); // one extra immediate attempt beyond the retry loop
     const key = keyInput.value.trim();
     if (!key) {
-      say('tool', 'No bridge found — run `pnpm ai` in the repo (no API key needed), or paste an Anthropic API key.');
+      say(
+        'tool',
+        'Not connected to the bridge yet. On THIS computer: `pnpm install` once, then `pnpm ai` in the repo and leave it running — the chat connects by itself. (Check the terminal running `pnpm ai` for errors.) Or paste an Anthropic API key as a fallback.',
+      );
       return;
     }
     input.value = '';
