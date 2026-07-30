@@ -365,7 +365,16 @@ export class PlayScene extends Scene {
   private updaters: ((dt: number) => void)[] = [];
   private box: DialogueBox | null = null;
   private keys = new Set<string>();
-  private players: { entity: Entity; speed: number; groundY: number; vy: number }[] = [];
+  private players: {
+    entity: Entity;
+    speed: number;
+    groundY: number;
+    vy: number;
+    /** Brawler jump (2.5D + Gravity): height above the ground plane. */
+    z: number;
+    vz: number;
+    shadow: Graphics | null;
+  }[] = [];
   private baseScales = new WeakMap<Container, number>();
   private joystick: VirtualJoystick | null = null;
   private scoreValue = 0;
@@ -952,6 +961,44 @@ export class PlayScene extends Scene {
     if (frac > 0) this.bossBarFill.roundRect(0, 26, W * frac, 14, 7).fill(0xff6f91);
   }
 
+  // -------------------------------------------------------- brawler jump
+
+  /** 2.5D + Gravity: hop above the ground plane (Space / the Jump button). */
+  private tryJump(): void {
+    for (const p of this.players) {
+      if (p.entity.destroyed || p.z > 0) continue;
+      p.vz = 640;
+      audio.blip(1.3);
+    }
+  }
+
+  /** Height physics: the visual lifts off the plane while e.x/e.y stay the
+   *  steerable ground position — so you land wherever you walked to. */
+  private tickJump(dt: number): void {
+    for (const p of this.players) {
+      if (p.entity.destroyed) continue;
+      if (p.z > 0 || p.vz > 0) {
+        p.vz -= 2000 * dt;
+        p.z += p.vz * dt;
+        if (p.z <= 0) {
+          p.z = 0;
+          p.vz = 0;
+          audio.pop(0.7);
+        }
+      }
+      const body = viewBody.get(p.entity);
+      if (body) body.position.y = -p.z;
+      if (p.shadow) {
+        p.shadow.visible = p.z > 0;
+        if (p.z > 0) p.shadow.scale.set(Math.max(0.55, 1 - p.z / 420));
+      }
+    }
+  }
+
+  playerAirHeight(): number {
+    return this.players[0]?.z ?? 0;
+  }
+
   // --------------------------------------------------------------- mob AI
 
   private updateMobs(dt: number): void {
@@ -998,8 +1045,10 @@ export class PlayScene extends Scene {
         m.e.x = Math.max(20, Math.min(W - 20, m.e.x + vx * m.def.moveSpeed * dt));
         m.e.y = Math.max(minY, Math.min(H - 20, m.e.y + vy * m.def.moveSpeed * dt));
       }
-      // touching the player costs a heart (with i-frames + knockback)
-      if (me && !me.destroyed && this.heartsMax > 0 && this.hurtT <= 0) {
+      // touching the player costs a heart (with i-frames + knockback);
+      // an airborne brawler-jump player sails safely over mobs
+      const airborne = (this.players[0]?.z ?? 0) > 30;
+      if (me && !me.destroyed && !airborne && this.heartsMax > 0 && this.hurtT <= 0) {
         if (Math.hypot(me.x - m.e.x, me.y - m.e.y) < m.def.radius * m.def.scale + 30) {
           this.hurtPlayer(m.def.damage, m.e);
         }
@@ -1069,7 +1118,19 @@ export class PlayScene extends Scene {
       player: (name, speed = 300) => {
         const e = this.byName.get(name);
         if (!e) return undefined;
-        this.players.push({ entity: e, speed, groundY: e.y, vy: 0 });
+        const p = { entity: e, speed, groundY: e.y, vy: 0, z: 0, vz: 0, shadow: null as Graphics | null };
+        this.players.push(p);
+        if (this.sceneDef.view === 'depth' && this.sceneDef.gravity) {
+          // Brawler jump: a ground shadow (visible while airborne) + an
+          // auto Jump button so phones can jump too (Space on keyboards).
+          const shadow = new Graphics().ellipse(0, 34, 26, 10).fill({ color: 0x000000, alpha: 0.35 });
+          shadow.visible = false;
+          e.addChildAt(shadow, 0);
+          p.shadow = shadow;
+          if (!this.abilityStates.some((a) => a.name === 'Jump')) {
+            this.addAbility('Jump', { icon: 'boot', cooldown: 0.1 }, () => this.tryJump());
+          }
+        }
         if (this.mobStates.size && !this.heartsMax) this.enableHearts(3);
         this.camera?.follow(e);
         if (!this.joystick) {
@@ -1219,11 +1280,17 @@ export class PlayScene extends Scene {
     if (this.scoreText) this.scoreText.text = String(this.scoreValue);
     // Player movement: arrows/WASD + the touch joystick, clamped to design.
     if (!this.over) {
+      const depth = this.sceneDef.view === 'depth';
+      // Gravity means two different things by view: top = platformer physics
+      // (run + jump on a fixed ground); 2.5D = a BRAWLER jump (Castle
+      // Crashers): you rise above the ground plane, keep steering in x AND
+      // depth while airborne, and land wherever you are on the plane.
+      const brawlerJump = depth && this.sceneDef.gravity;
       let kx = 0;
       let ky = 0;
       if (this.keys.has('arrowleft') || this.keys.has('a')) kx -= 1;
       if (this.keys.has('arrowright') || this.keys.has('d')) kx += 1;
-      if (this.keys.has('arrowup') || this.keys.has('w') || this.keys.has(' ')) ky -= 1;
+      if (this.keys.has('arrowup') || this.keys.has('w') || (!brawlerJump && this.keys.has(' '))) ky -= 1;
       if (this.keys.has('arrowdown') || this.keys.has('s')) ky += 1;
       const jx = this.joystick?.value.x ?? 0;
       const jy = this.joystick?.value.y ?? 0;
@@ -1231,7 +1298,7 @@ export class PlayScene extends Scene {
       const my = ky || jy;
       const W = this.sceneDef.worldW;
       const H = this.sceneDef.worldH;
-      if (this.sceneDef.gravity) {
+      if (this.sceneDef.gravity && !depth) {
         // Gravity physics: run left/right; up (or joystick up) jumps.
         for (const p of this.players) {
           if (p.entity.destroyed) continue;
@@ -1245,26 +1312,31 @@ export class PlayScene extends Scene {
           p.entity.y = Math.min(p.groundY, p.entity.y + p.vy * dt);
           if (p.entity.y >= p.groundY) p.vy = 0;
         }
-      } else if (mx || my) {
-        const len = Math.hypot(mx, my) || 1;
-        // 2.5D: the horizon is a wall — you walk the ground band, not the sky —
-        // and up/down is a slower lane than the run (Castle Crashers feel).
-        const depth = this.sceneDef.view === 'depth';
-        const minY = depth ? DEPTH_MIN_Y : 20;
-        const laneY = depth ? DEPTH_LANE_SPEED : 1;
-        for (const p of this.players) {
-          if (p.entity.destroyed) continue;
-          const dx = (mx / len) * p.speed * dt;
-          const dy = (my / len) * p.speed * laneY * dt;
-          if (this.tileMap) {
-            // Painted solid tiles (walls, water, trees) block movement.
-            const moved = moveWithCollision(this.tileMap, p.entity.x, p.entity.y, 16, 14, dx, dy);
-            p.entity.x = Math.max(20, Math.min(W - 20, moved.x));
-            p.entity.y = Math.max(minY, Math.min(H - 20, moved.y));
-          } else {
-            p.entity.x = Math.max(20, Math.min(W - 20, p.entity.x + dx));
-            p.entity.y = Math.max(minY, Math.min(H - 20, p.entity.y + dy));
+      } else {
+        if (mx || my) {
+          const len = Math.hypot(mx, my) || 1;
+          // 2.5D: the horizon is a wall — you walk the ground band, not the
+          // sky — and up/down is a slower lane than the run.
+          const minY = depth ? DEPTH_MIN_Y : 20;
+          const laneY = depth ? DEPTH_LANE_SPEED : 1;
+          for (const p of this.players) {
+            if (p.entity.destroyed) continue;
+            const dx = (mx / len) * p.speed * dt;
+            const dy = (my / len) * p.speed * laneY * dt;
+            if (this.tileMap) {
+              // Painted solid tiles (walls, water, trees) block movement.
+              const moved = moveWithCollision(this.tileMap, p.entity.x, p.entity.y, 16, 14, dx, dy);
+              p.entity.x = Math.max(20, Math.min(W - 20, moved.x));
+              p.entity.y = Math.max(minY, Math.min(H - 20, moved.y));
+            } else {
+              p.entity.x = Math.max(20, Math.min(W - 20, p.entity.x + dx));
+              p.entity.y = Math.max(minY, Math.min(H - 20, p.entity.y + dy));
+            }
           }
+        }
+        if (brawlerJump) {
+          if (this.keys.has(' ')) this.tryJump();
+          this.tickJump(dt);
         }
       }
       this.updateMobs(dt);

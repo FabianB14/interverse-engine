@@ -62,6 +62,7 @@ export interface StudioDebug {
   abilityCount: () => number;
   fireAbility: (name: string) => boolean;
   bossBarVisible: () => boolean;
+  playerZ: () => number;
 }
 
 declare global {

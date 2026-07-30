@@ -232,8 +232,33 @@ const heroScale = await page.evaluate(() => {
   return window.__probeS;
 });
 const subtleOk = heroScale > 0.75 && heroScale < 0.92;
+// BRAWLER JUMP (2.5D + Gravity): Space lifts off the plane; a plain jump
+// lands back on the SAME ground row; steering mid-air lands on a NEW row.
+await page.keyboard.down(' ');
+await sleep(220);
+const zMid = await page.evaluate(() => window.__studio.playerZ());
+await page.keyboard.up(' ');
+await sleep(900);
+const zLand = await page.evaluate(() => window.__studio.playerZ());
+const yPlain = await page.evaluate(() => {
+  window.__studio.applyScriptNow("window.__probeYp = api.entity('Hero').y");
+  return window.__probeYp;
+});
+await page.keyboard.down(' ');
+await page.keyboard.down('ArrowDown');
+await sleep(500);
+await page.keyboard.up(' ');
+await sleep(400);
+await page.keyboard.up('ArrowDown');
+await sleep(600);
+const ySteer = await page.evaluate(() => {
+  window.__studio.applyScriptNow("window.__probeYs = api.entity('Hero').y");
+  return window.__probeYs;
+});
+const jumpOk = zMid > 20 && zLand === 0 && yPlain > 300 && yPlain < 340 && ySteer > 380;
 const cameraOk =
-  worldSize.w === 2160 && worldSize.h === 720 && heroX2 > 750 && camX > 60 && horizonOk && subtleOk;
+  worldSize.w === 2160 && worldSize.h === 720 && heroX2 > 750 && camX > 60 && horizonOk && subtleOk &&
+  jumpOk;
 await page.screenshot({ path: `${outDir}/st-9-camera.png` });
 await page.evaluate(() => window.__studio.stop());
 await sleep(150);
@@ -338,6 +363,7 @@ console.log(
       templatesOk, templates, skillsOk, skillNodes, stormEarly, strength, scoreOk, score,
       tilesOk, tileBefore, tilePainted, tilesPersist, playTiles, heroX,
       cameraOk, worldSize, heroX2, camX, heroY2, horizonOk, heroScale, subtleOk, frameOk,
+      jumpOk, zMid, zLand, yPlain, ySteer,
       combatOk, mobCount0, abilities, bossBar, chaseOk, gap0, gap1, hp0, hp1, mobsLeft, xp, level, hearts,
       netOk, playersA, playersB, remotesB, moveOk, remotePosB, stateB,
       errors: errors.slice(0, 6),

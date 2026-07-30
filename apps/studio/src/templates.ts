@@ -92,6 +92,7 @@ function side25(): ProjectDef {
   const s = defaultScene('Street');
   s.background = 0x1a1826;
   s.view = 'depth'; // 2.5D: a landscape-height board, journey runs LONG-WAYS
+  s.gravity = true; // in 2.5D this is the BRAWLER jump (Space / Jump button)
   s.worldW = 2160; // three screens long
   s.entities.push(
     E('text', 'Sky', 360, 90, { text: '🌇 SUNSET STREET →', fontSize: 40, color: 0xffb86b }),
@@ -108,6 +109,8 @@ function side25(): ProjectDef {
   );
   s.script = S([
     '// 2.5D + a 3-screen-wide world: the camera follows the Hero long-ways.',
+    '// Gravity on a 2.5D level = brawler jump: Space (or the Jump button),',
+    '// steer while airborne, land anywhere on the ground plane.',
     "api.player('Hero', 300);",
   ]);
   return project('Sunset Street (2.5D)', [s]);

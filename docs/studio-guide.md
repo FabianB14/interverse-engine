@@ -61,8 +61,15 @@ like every classic mobile RPG.
   (comfortable deadzone, clamped to the world). In the editor, scroll with
   the wheel/trackpad to pan along the board; faint guide lines mark each
   screen.
-- **Gravity** — check it for platformers: ← → run, ↑ / W / joystick-up to
-  **jump**. It's level physics, not a view — Hilltop Hop is the example.
+- **Gravity** — level physics, not a view, and it adapts to the view:
+  - *Top-down levels*: platformer physics — ← → run, ↑ / W / joystick-up
+    to **jump** (Hilltop Hop is the example).
+  - *2.5D levels*: the **brawler jump** (Castle Crashers) — **Space** or
+    the auto-added **Jump button** hops you above the ground plane with a
+    shadow below; you keep steering in every direction while airborne and
+    **land wherever you are on the plane** — never yanked back to the row
+    you jumped from. Airborne heroes also sail safely over monsters.
+    Sunset Street ships with it on.
 - **📱 Fit** — a rotated device isn't a game style, it's just a wider
   window into the same world. The Fit button previews exactly that in the
   editor: it outlines what a **rotated (landscape)** or **portrait** phone

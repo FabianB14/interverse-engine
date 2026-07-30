@@ -89,6 +89,9 @@ class EditScene extends Scene {
    *  device frame — 📱 portrait or the rotated (landscape) screen — so you
    *  can check how things fit before playing. Pan to move the window. */
   refreshFrame(): void {
+    // Scene transitions are async — before onEnter there's no game attached
+    // yet; onEnter calls us again once there is.
+    if (!(this as unknown as { game?: unknown }).game) return;
     this.frameG.clear();
     this.frameLabel?.destroy();
     this.frameLabel = null;
