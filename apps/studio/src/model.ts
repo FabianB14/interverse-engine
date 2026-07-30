@@ -34,6 +34,7 @@ export interface EventAction {
     | 'xp' // grant n XP (turns leveling on)
     | 'heal' // restore n hearts
     | 'sfx' // play a sound (text: pop|blip|chime|buzz)
+    | 'music' // play a music track (text: adventure|cozy|battle|spooky|fanfare|stop)
     | 'spawn' // spawn a kind (text) at x/y (defaults: this entity's spot)
     | 'remove' // remove this entity
     | 'goto' // switch to level (text)

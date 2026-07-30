@@ -326,8 +326,11 @@ const shots = await page.evaluate(() => window.__studio.shotsFired());
 await page.evaluate(() => window.__studio.applyScriptNow("api.hurt('Warden', 13)"));
 const enraged = await page.evaluate(() => window.__studio.mobEnraged('Warden'));
 const rangedOk = shots >= 1 && enraged === true;
+// MUSIC: the arena template asked for battle BGM at scene start.
+const music = await page.evaluate(() => window.__studio.musicNow());
+const musicOk = music === 'battle';
 const combatOk =
-  mobCount0 === 4 && abilities === 2 && bossBar === true && chaseOk &&
+  musicOk && mobCount0 === 4 && abilities === 2 && bossBar === true && chaseOk &&
   hp1 === hp0 - 1 && mobsLeft === 3 && (xp > 0 || level > 1) && hearts > 0 && hearts <= 9;
 // LOOT: the slain slime scattered coins near where it died — walk the hero
 // over the spot and the pickup banks them in the game's save file.
@@ -491,7 +494,7 @@ console.log(
       tilesOk, tileBefore, tilePainted, tilesPersist, playTiles, heroX,
       cameraOk, worldSize, heroX2, camX, heroY2, horizonOk, heroScale, subtleOk, frameOk,
       jumpOk, zMid, zLand, yPlain, ySteer,
-      combatOk, mobCount0, abilities, bossBar, chaseOk, gap0, gap1, hp0, hp1, mobsLeft, xp, level, hearts,
+      combatOk, musicOk, music, mobCount0, abilities, bossBar, chaseOk, gap0, gap1, hp0, hp1, mobsLeft, xp, level, hearts,
       rangedOk, shots, enraged, patrolOk, gardenerX,
       chatOk, bridged, chatCount0, chatCount1,
       coinsOk, coins, persistOk, savedQuest, xpBefore, xpRestored,

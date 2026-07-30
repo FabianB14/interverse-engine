@@ -74,6 +74,7 @@ function topDown(): ProjectDef {
   s.script = S([
     "// Top-down collect-a-thon: move with WASD/arrows or the joystick.",
     "api.player('Hero', 320);",
+    "api.music.play('adventure');",
     '// The gardener strolls a waypoint loop while you hunt fireflies.',
     "api.patrol('Gardener', [[160, 300], [560, 300], [560, 520], [160, 520]], 80);",
     'var left = 6;',
@@ -233,6 +234,7 @@ function action(): ProjectDef {
     '// Mobs/bosses are palette actors — HP, damage, XP and AI live in the',
     '// inspector; abilities are on-screen buttons mapped to code below.',
     "api.player('Hero', 330);",
+    "api.music.play('battle');",
     'api.hearts(3);',
     'api.levels();',
     "api.ability('Slash', { icon: 'sword', cooldown: 0.5, key: 'j' }, function () {",

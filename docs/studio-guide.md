@@ -102,6 +102,13 @@ template ships with a painted garden to start from.
 - **Property animation from code** — `api.tween(thing, { x, y, rotation,
   alpha, scale }, seconds)` for cutscenes and juice.
 - From code: `api.sfx.pop()`, `.blip()`, `.chime()`, `.buzz()`.
+- **Music** — looping chiptune BGM, synthesized live (no downloads):
+  `api.music.play('adventure' | 'cozy' | 'battle' | 'spooky')`,
+  `.stop()`, and `.fanfare()` — a victory jingle that ducks the BGM and
+  lets it resume, RPG-Maker style. Events have a 🎵 Music action too, so
+  no code is needed. Volumes: `api.music.setVolume('music'|'sfx'|'master',
+  0..1)` — remembered per device. Garden Explorer opens on 'adventure',
+  Blob Arena on 'battle'.
 
 ## 4½ · Events — build logic with no code
 

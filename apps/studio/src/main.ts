@@ -700,6 +700,7 @@ async function main(): Promise<void> {
       return true;
     },
     switchIsOn: (name: string) => editor.getPlayScene()?.switchState(name) ?? false,
+    musicNow: () => editor.getPlayScene()?.musicNow() ?? null,
     librarySave: () => editor.saveToLibrary(),
     libraryList: () => editor.libraryList(),
     libraryOpen: (id: string) => editor.openFromLibrary(id),

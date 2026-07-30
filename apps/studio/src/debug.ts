@@ -69,6 +69,7 @@ export interface StudioDebug {
   coinsNow: () => number;
   setEvents: (name: string, events: unknown) => boolean;
   switchIsOn: (name: string) => boolean;
+  musicNow: () => string | null;
   librarySave: () => string;
   libraryList: () => { id: string; name: string; updated: number }[];
   libraryOpen: (id: string) => boolean;

@@ -22,7 +22,7 @@ import {
   moveWithCollision,
   verium,
 } from '@interverse/engine';
-import type { DialogueData, Game, SaveStore, TileMapData } from '@interverse/engine';
+import type { DialogueData, Game, MusicTrackId, SaveStore, TileMapData } from '@interverse/engine';
 import { DialogueBox } from '@interverse/ui';
 import { fetchChainBalance } from '@interverse/platform';
 import { drawIcon } from './icons.js';
@@ -334,6 +334,15 @@ export interface ScriptApi {
   /** Named on/off switches — shared with the no-code event system
    *  ("only if switch" gates), so code and event blocks interoperate. */
   switches: { on: (name: string) => void; off: (name: string) => void; isOn: (name: string) => boolean };
+  /** Looping chiptune BGM ('adventure'|'cozy'|'battle'|'spooky'), a
+   *  victory fanfare that ducks + resumes the BGM, and volume buses. */
+  music: {
+    play: (id: MusicTrackId) => void;
+    stop: () => void;
+    fanfare: () => void;
+    current: () => MusicTrackId | null;
+    setVolume: (bus: 'master' | 'music' | 'sfx', v: number) => void;
+  };
   /** Skill tree: define once, then open()/addPoints()/unlock()/isUnlocked(). */
   skills: SkillTree;
   /** End the game with a message (score shown too). */
@@ -571,6 +580,7 @@ export class PlayScene extends Scene {
   }
 
   protected override onExit(): void {
+    audio.music.stop();
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
     this.net?.resetSceneBindings();
@@ -1339,6 +1349,11 @@ export class PlayScene extends Scene {
         case 'sfx':
           playSound((a.text ?? 'pop') as TapSound);
           break;
+        case 'music':
+          if (a.text === 'stop') audio.music.stop();
+          else if (a.text === 'fanfare') audio.music.fanfare();
+          else audio.music.play((a.text ?? 'adventure') as MusicTrackId);
+          break;
         case 'spawn':
           this.spawnDef(defaultEntity((a.text ?? 'crate') as EntityKind, a.x ?? def.x, a.y ?? def.y));
           break;
@@ -1576,6 +1591,13 @@ export class PlayScene extends Scene {
         off: (name) => void this.switchesMap.set(name, false),
         isOn: (name) => this.switchesMap.get(name) ?? false,
       },
+      music: {
+        play: (id) => audio.music.play(id),
+        stop: () => audio.music.stop(),
+        fanfare: () => audio.music.fanfare(),
+        current: () => audio.music.current(),
+        setVolume: (bus, v) => audio.setVolume(bus, v),
+      },
       gameOver: (message = 'GAME OVER') => this.endGame(message),
     };
   }
@@ -1792,6 +1814,10 @@ export class PlayScene extends Scene {
 
   shotsFired(): number {
     return this.shotsFiredTotal;
+  }
+
+  musicNow(): string | null {
+    return audio.music.current();
   }
 
   coinsNow(): number {

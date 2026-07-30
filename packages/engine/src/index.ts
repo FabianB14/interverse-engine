@@ -47,7 +47,8 @@ export {
 export type { Palette } from './art/palettes.js';
 export { popIn, squash } from './art/juice.js';
 
-export { audio } from './audio/audio.js';
+export { audio, MUSIC_TRACKS } from './audio/audio.js';
+export type { MusicTrackId } from './audio/audio.js';
 
 export { createSave } from './save/save.js';
 export type { SaveStore } from './save/save.js';

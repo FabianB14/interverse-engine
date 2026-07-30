@@ -5,13 +5,14 @@ import type { EntityDef, EventAction, EventDef } from './model.js';
 const hex = (n: number): string => `#${n.toString(16).padStart(6, '0')}`;
 
 /** The no-code command palette: label + which params each command needs. */
-const EVENT_CMDS: { cmd: EventAction['cmd']; label: string; params: 'text' | 'n' | 'sound' | 'spawn' | 'none' }[] = [
+const EVENT_CMDS: { cmd: EventAction['cmd']; label: string; params: 'text' | 'n' | 'sound' | 'music' | 'spawn' | 'none' }[] = [
   { cmd: 'say', label: '💬 Say message', params: 'text' },
   { cmd: 'coins', label: '🪙 Give coins', params: 'n' },
   { cmd: 'score', label: '⭐ Add score', params: 'n' },
   { cmd: 'xp', label: '✨ Grant XP', params: 'n' },
   { cmd: 'heal', label: '❤ Heal hearts', params: 'n' },
   { cmd: 'sfx', label: '🔊 Play sound', params: 'sound' },
+  { cmd: 'music', label: '🎵 Music', params: 'music' },
   { cmd: 'spawn', label: '🐣 Spawn a thing', params: 'spawn' },
   { cmd: 'remove', label: '🗑 Remove this', params: 'none' },
   { cmd: 'goto', label: '🚪 Go to level…', params: 'text' },
@@ -323,6 +324,20 @@ export function wireInspector(editor: StudioEditor): void {
             editor.touch();
           };
           arow.appendChild(n);
+        } else if (spec.params === 'music') {
+          const mus = document.createElement('select');
+          for (const m of ['adventure', 'cozy', 'battle', 'spooky', 'fanfare', 'stop']) {
+            const o = document.createElement('option');
+            o.value = m;
+            o.textContent = m;
+            if ((a.text ?? 'adventure') === m) o.selected = true;
+            mus.appendChild(o);
+          }
+          mus.onchange = () => {
+            a.text = mus.value;
+            editor.touch();
+          };
+          arow.appendChild(mus);
         } else if (spec.params === 'sound') {
           const snd = document.createElement('select');
           for (const s of ['pop', 'blip', 'chime', 'buzz']) {
