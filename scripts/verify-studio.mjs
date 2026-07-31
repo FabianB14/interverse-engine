@@ -544,11 +544,13 @@ await page.evaluate(() => window.__studio.openAssets());
 await sleep(200);
 await page.screenshot({ path: `${outDir}/st-21-art.png` });
 await page.keyboard.press('Escape');
+await sleep(150);
+const artModalClosed = await page.evaluate(() => !document.getElementById('modal-back')?.classList.contains('open'));
 const artOk =
   artId.length > 0 && artList0.length === 1 && artUnused.length === 1 &&
   artAssigned === true && artList1[0].users === 1 && artBytes > 0 &&
   artPlays === artCount && artCleared === 1 && heroAfter.assetId === '' &&
-  /2D/.test(artReject);
+  /2D/.test(artReject) && artModalClosed === true;
 
 // DRAG-OFF SEARCH: drag a ⛓ Flow port into empty canvas, type, and the
 // thing you pick arrives already wired to where you dragged from.
@@ -616,6 +618,57 @@ const gameGenOk =
   genProblems.length === 0 && genScenes === 4 && genFirst === 'Menu' && genName.length > 3 &&
   genPlays > 0 && genVisible === genPlays && genOver === false &&
   genMobs > 0 && genLive > genMobs && cozyMobs === 0;
+
+// ACTOR-OWNED ABILITIES: create one with no code, give it to an actor, and
+// it becomes a working on-screen button when that actor is the player.
+await page.evaluate(() => window.__studio.loadTemplate('action'));
+await sleep(300);
+const abId = await page.evaluate(() => window.__studio.createAbility('Cleave'));
+await page.evaluate((id) => window.__studio.setAbility(id, { effect: 'melee', power: 5, radius: 4000, cooldown: 0 }), abId);
+const granted = await page.evaluate((id) => window.__studio.grantAbility('Hero', id, true), abId);
+const heroAbilities = await page.evaluate(() => window.__studio.abilitiesOf('Hero'));
+await page.evaluate(() => window.__studio.play());
+await sleep(800);
+const abCount = await page.evaluate(() => window.__studio.abilityCount());
+const mobsBefore = await page.evaluate(() => window.__studio.mobCount());
+// Firing the BUTTON (not a script call) must actually damage enemies.
+await page.evaluate(() => window.__studio.fireAbility('Cleave'));
+await sleep(300);
+await page.evaluate(() => window.__studio.fireAbility('Cleave'));
+await sleep(400);
+const mobsAfter = await page.evaluate(() => window.__studio.mobCount());
+await page.evaluate(() => window.__studio.stop());
+await sleep(250);
+// The inspector is where this feature lives — show it selecting the Hero.
+await page.evaluate(() => window.__studio.select('Hero'));
+await sleep(200);
+await page.screenshot({ path: `${outDir}/st-22-abilities.png` });
+// A heal ability restores hearts, proving the effect list is not just melee.
+const healId = await page.evaluate(() => window.__studio.createAbility('Mend'));
+await page.evaluate((id) => window.__studio.setAbility(id, { effect: 'heal', power: 2, cooldown: 0 }), healId);
+await page.evaluate((id) => window.__studio.grantAbility('Hero', id, true), healId);
+// A SKILL NODE can hand out an ability when invested in.
+await page.evaluate((id) => {
+  window.__studio.setSkillTreeDb('paths', {
+    points: 3,
+    branches: [{ id: 'war', name: 'WAR', nodes: [{ id: 'unlock-mend', name: 'Mend', emoji: 'heart', cost: 1, maxRank: 1, tier: 0, grants: id }] }],
+  });
+  window.__studio.setActorSkillTree('Hero', 'paths');
+}, healId);
+// Take it away so only the skill node can grant it back.
+await page.evaluate((id) => window.__studio.grantAbility('Hero', id, false), healId);
+await page.evaluate(() => window.__studio.play());
+await sleep(800);
+const beforeUnlock = await page.evaluate(() => window.__studio.abilityCount());
+await page.evaluate(() => window.__studio.skillInvest('unlock-mend'));
+await sleep(300);
+const afterUnlock = await page.evaluate(() => window.__studio.abilityCount());
+await page.evaluate(() => window.__studio.stop());
+await sleep(150);
+const abilityOk =
+  abId === 'cleave' && granted === true && heroAbilities.includes('cleave') &&
+  abCount >= 3 && mobsBefore > 0 && mobsAfter < mobsBefore &&
+  afterUnlock === beforeUnlock + 1;
 
 // BRANCHED SKILL TREE: three coloured paths, multi-rank cells, and tiers
 // that only open once enough points are spent IN THAT branch.
@@ -905,7 +958,7 @@ const ok =
   placeOk && editOk && storyOk && levelsOk && playOk && stopOk && exportOk && importOk &&
   templatesOk && skillsOk && scoreOk && tilesOk && cameraOk && frameOk && combatOk && rangedOk &&
   patrolOk && chatOk && coinsOk && persistOk && libOk && eventsOk && genOk && uiOk && dbOk &&
-  questOk && levelEvOk && apiOk && keysOk && controlsOk && skillsBranchOk && gameGenOk && dropOk && artOk && originOk && netOk &&
+  questOk && levelEvOk && apiOk && keysOk && controlsOk && skillsBranchOk && gameGenOk && dropOk && artOk && originOk && abilityOk && netOk &&
   errors.length === 0;
 console.log(
   JSON.stringify(
@@ -929,10 +982,11 @@ console.log(
       apiOk, apiN: apiAll.length, apiHit0: apiHit[0], inserted, scriptErr,
       keysOk, kx0, kxD, kxL, ky0, kyS,
       controlsOk, defRight, reboundRight, rx0, rxOldKey, rxNewKey, addedCustom, killBuiltin, killCustom, conflicts,
+      abilityOk, abId, granted, heroAbilities, abCount, mobsBefore, mobsAfter, beforeUnlock, afterUnlock,
       skillsBranchOk, brN, skOpen, layout, rank3, crossBranch, sameBranch, spentBrawl, refunded, afterRespec,
       gameGenOk, genProblems, genName, genScenes, genFirst, genPlays, genVisible, genMobs, genLive, cozyMobs,
       originOk, whereBefore, whereLabel, whereAfter, originKind, syncDirty, leaks, originDevice,
-      artOk, artId, artUnused, artAssigned, artBytes, artPlays, artCount, artCleared, artReject,
+      artOk, artId, artUnused, artModalClosed, artAssigned, artBytes, artPlays, artCount, artCleared, artReject,
       dropOk, dropOpened, dropN: dropAll.length, dropCoin0: dropCoin[0], dropHigh, dropMoved, scenesBefore, scenesAfter, lvlEvAfter,
       netOk, playersA, playersB, remotesB, moveOk, remotePosB, stateB,
       errors: errors.slice(0, 6),

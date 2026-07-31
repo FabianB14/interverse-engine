@@ -2,12 +2,18 @@
 import type { StudioEditor } from './editor.js';
 import { HATS, HELD_ITEMS } from './cosmetics.js';
 import { cmdMenuLabel, cmdSpec, cmdsFor, triggerLabel, triggersFor } from './cmds.js';
+import { EFFECT_LABEL, abilityList, createAbility, grantTo } from './abilities.js';
 import type { Scope } from './cmds.js';
 import type { EntityDef, EventAction, EventDef } from './model.js';
 
 const hex = (n: number): string => `#${n.toString(16).padStart(6, '0')}`;
 
-export function wireInspector(editor: StudioEditor): void {
+export interface InspectorHooks {
+  /** Opens the ⚡ ability editor (owned by main.ts, which has the modal). */
+  openAbilityEditor: (focusId?: string) => void;
+}
+
+export function wireInspector(editor: StudioEditor, hooks: InspectorHooks): void {
   const title = document.getElementById('insp-title')!;
   const body = document.getElementById('insp-body')!;
 
@@ -255,6 +261,7 @@ export function wireInspector(editor: StudioEditor): void {
       body.appendChild(hint);
     }
 
+    renderAbilities(def);
     renderEvents(def, 'entity');
 
     const del = document.createElement('button');
@@ -263,6 +270,86 @@ export function wireInspector(editor: StudioEditor): void {
     del.textContent = '🗑 Delete';
     del.onclick = () => editor.removeEntity(def.id);
     body.appendChild(del);
+  };
+
+  /** ⚡ Abilities this actor OWNS. On the player they become on-screen
+   *  buttons; this is where a mobile game's controls really get authored. */
+  const renderAbilities = (def: EntityDef): void => {
+    if (!['blob', 'npc', 'mob', 'boss', 'image'].includes(def.kind)) return;
+    const head = document.createElement('div');
+    head.className = 'muted';
+    head.style.margin = '12px 0 4px';
+    head.textContent = '⚡ Abilities (buttons this actor gets)';
+    body.appendChild(head);
+
+    const all = abilityList(editor.project);
+    if (!all.length) {
+      const none = document.createElement('div');
+      none.className = 'muted';
+      none.style.fontSize = '11px';
+      none.textContent = 'No abilities exist yet.';
+      body.appendChild(none);
+    }
+    for (const a of all) {
+      const row = document.createElement('label');
+      row.className = 'muted';
+      row.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:2px';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = def.abilities.includes(a.id);
+      cb.onchange = () => {
+        grantTo(editor.project, def.name, a.id, cb.checked);
+        editor.touch();
+      };
+      const edit = document.createElement('button');
+      edit.className = 'btn';
+      edit.style.cssText = 'padding:1px 6px;font-size:11px';
+      edit.textContent = '✎';
+      edit.title = `Edit "${a.name}"`;
+      edit.onclick = (e) => {
+        e.preventDefault();
+        hooks.openAbilityEditor(a.id);
+      };
+      row.append(cb, `${a.name} — ${EFFECT_LABEL[a.effect]}`, edit);
+      body.appendChild(row);
+    }
+
+    const make = document.createElement('button');
+    make.className = 'btn';
+    make.style.marginTop = '4px';
+    make.textContent = '✚ Create an ability…';
+    make.onclick = () => {
+      const a = createAbility(editor.project, 'New ability');
+      grantTo(editor.project, def.name, a.id, true);
+      editor.touch();
+      hooks.openAbilityEditor(a.id);
+    };
+    body.appendChild(make);
+
+    // 🌳 Which skill tree this actor uses, if any.
+    const trees = Object.keys(editor.project.db?.skills ?? {});
+    if (trees.length) {
+      const row = document.createElement('div');
+      row.className = 'row';
+      row.style.marginTop = '6px';
+      const label = document.createElement('label');
+      label.className = 'muted';
+      label.textContent = '🌳 Skill tree';
+      const sel = document.createElement('select');
+      for (const t of ['', ...trees]) {
+        const o = document.createElement('option');
+        o.value = t;
+        o.textContent = t || '(none)';
+        if (t === def.skillTree) o.selected = true;
+        sel.appendChild(o);
+      }
+      sel.onchange = () => {
+        def.skillTree = sel.value;
+        editor.touch();
+      };
+      row.append(label, sel);
+      body.appendChild(row);
+    }
   };
 
   /** ⚡ No-code events: trigger + stacked actions, all dropdowns. The same

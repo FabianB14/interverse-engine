@@ -121,6 +121,11 @@ export interface EntityDef {
   clips: { name: string; from: number; to: number; fps: number }[];
   /** Story lines (kind 'npc') — said in order when tapped in Play mode. */
   lines: string[];
+  /** ⚡ Ability ids this actor owns (see ProjectDef.db.abilities). When the
+   *  actor is the player they become on-screen buttons automatically. */
+  abilities: string[];
+  /** 🌳 Skill tree id this actor uses (see ProjectDef.db.skills). */
+  skillTree: string;
   /** No-code events: triggers + action lists (see EventDef). */
   events: EventDef[];
 }
@@ -175,6 +180,55 @@ export interface ItemDef {
   /** What using it does. */
   effect: 'none' | 'heal' | 'coins' | 'xp';
   n: number;
+}
+
+/** ⚡ What an ability DOES, chosen from a list instead of written in code.
+ *  These are the verbs the runtime knows how to perform natively. */
+export type AbilityEffect = 'melee' | 'ranged' | 'heal' | 'dash' | 'spawn' | 'custom';
+
+/** An ability an actor OWNS. Granting one to the player draws its button
+ *  on screen automatically — no api.ability() call needed. */
+export interface AbilityDef {
+  id: string;
+  name: string;
+  /** Built-in icon id ('sword','fire','bolt','snow','shield','boot','heart',
+   *  'star'), an emoji, or '@assetId' for imported art. */
+  icon: string;
+  effect: AbilityEffect;
+  /** Damage · hearts healed · dash distance — whatever the effect measures. */
+  power: number;
+  /** Melee reach, or projectile speed for 'ranged'. */
+  radius: number;
+  /** Seconds before it can be used again. */
+  cooldown: number;
+  /** Optional keyboard shortcut (handy in the editor; phones use the button). */
+  key: string;
+  /** Particle burst when it fires. */
+  vfx: string;
+  sfx: TapSound;
+  /** Actor kind spawned by the 'spawn' effect. */
+  spawn: EntityKind;
+  /** Body of the 'custom' effect — runs with `api` in scope. */
+  script: string;
+}
+
+export const ABILITY_EFFECTS: readonly AbilityEffect[] = ['melee', 'ranged', 'heal', 'dash', 'spawn', 'custom'];
+
+export function defaultAbility(id: string, name = id): AbilityDef {
+  return {
+    id,
+    name,
+    icon: 'sword',
+    effect: 'melee',
+    power: 1,
+    radius: 130,
+    cooldown: 0.6,
+    key: '',
+    vfx: '',
+    sfx: 'pop',
+    spawn: 'crate',
+    script: '',
+  };
 }
 
 /** 🎮 One named thing the player can do. Keys and the on-screen button are
@@ -236,7 +290,13 @@ export interface ProjectDef {
   /** 🎮 Key + on-screen button bindings (absent = engine defaults). */
   controls?: ControlsDef;
   /** 🗄 Content database (items today; more tables to come). */
-  db?: { items: ItemDef[] };
+  db?: {
+    items: ItemDef[];
+    /** ⚡ Abilities actors can be given. */
+    abilities?: AbilityDef[];
+    /** 🌳 Named skill trees, id -> tree definition (see skilltree.ts). */
+    skills?: Record<string, unknown>;
+  };
   /** 🌐 Localization: language -> key -> text; strings starting with @key
    *  resolve through this table at play time. */
   locales?: Record<string, Record<string, string>>;
@@ -278,6 +338,8 @@ export function defaultEntity(kind: EntityKind, x: number, y: number): EntityDef
     held: '',
     clips: [],
     lines: [],
+    abilities: [],
+    skillTree: '',
     events: [],
   };
   switch (kind) {
@@ -451,6 +513,8 @@ export function parseProject(json: string): ProjectDef {
       e.clips = (Array.isArray(e.clips) ? e.clips : []).filter(
         (c) => !!c && typeof c === 'object' && typeof c.name === 'string' && Number.isFinite(c.from) && Number.isFinite(c.to),
       );
+      e.abilities = (Array.isArray(e.abilities) ? e.abilities : []).filter((a): a is string => typeof a === 'string' && !!a);
+      e.skillTree = typeof e.skillTree === 'string' ? e.skillTree : '';
       e.events = normalizeEvents(e.events, 'entity');
     }
     // ⚡ Level events use the same blocks, minus the actor-only ones. Kept
@@ -468,6 +532,28 @@ export function parseProject(json: string): ProjectDef {
   db.items = (Array.isArray(db.items) ? db.items : []).filter(
     (i): i is ItemDef => !!i && typeof i === 'object' && typeof (i as ItemDef).id === 'string' && (i as ItemDef).id !== '',
   );
+  db.abilities = (Array.isArray(db.abilities) ? db.abilities : []).filter(
+    (a): a is AbilityDef => !!a && typeof a === 'object' && typeof a.id === 'string' && a.id !== '',
+  );
+  for (const a of db.abilities) {
+    const d = defaultAbility(a.id, a.name || a.id);
+    // Keep what the author set, repair what they did not.
+    a.name = a.name || d.name;
+    a.icon = a.icon || d.icon;
+    if (!ABILITY_EFFECTS.includes(a.effect)) a.effect = d.effect;
+    a.power = Number.isFinite(Number(a.power)) ? Number(a.power) : d.power;
+    a.radius = Number.isFinite(Number(a.radius)) ? Number(a.radius) : d.radius;
+    a.cooldown = Math.max(0, Number(a.cooldown) || 0);
+    a.key = typeof a.key === 'string' ? a.key.toLowerCase() : '';
+    a.vfx = typeof a.vfx === 'string' ? a.vfx : '';
+    a.sfx = (['', 'pop', 'blip', 'chime', 'buzz'] as const).includes(a.sfx) ? a.sfx : 'pop';
+    a.spawn = a.spawn || d.spawn;
+    a.script = typeof a.script === 'string' ? a.script : '';
+  }
+  // Absent rather than empty, like level events — a project that uses no
+  // abilities should not carry an empty table in every saved file.
+  if (!db.abilities.length) delete db.abilities;
+  if (!db.skills || typeof db.skills !== 'object' || !Object.keys(db.skills).length) delete db.skills;
   for (const i of db.items) {
     i.name ||= i.id;
     i.emoji ||= '🎁';

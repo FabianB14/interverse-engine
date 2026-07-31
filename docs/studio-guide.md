@@ -120,7 +120,42 @@ like every classic mobile RPG.
 The engine renders with **WebGPU/WebGL** (PixiJS) — hardware-accelerated on
 phones and desktops alike.
 
-## 3¼ · 🎮 Controls — key and button binds
+## 3¼ · ⚡ Abilities — the buttons your players tap
+
+This is where a mobile game's controls really get made. **Select an actor**
+and the inspector has an **⚡ Abilities** section: tick the abilities that
+actor should have. When that actor is the player, each one becomes an
+**on-screen button automatically** — no code, no `api.ability()` call.
+
+**✚ Create an ability…** makes a new one and opens the editor. You choose
+what it *does* from a list, and only the numbers that effect uses are
+shown:
+
+| Effect | What it does | You set |
+| --- | --- | --- |
+| 🗡 Attack nearby enemies | Hits everything in reach | Damage, Reach |
+| 🏹 Shoot the nearest enemy | Fires a homing shot | Damage, Shot speed |
+| ❤ Heal yourself | Restores hearts | Hearts |
+| 👟 Dash forward | Leaps the way you face | Distance |
+| 🐣 Drop something | Spawns an actor beside you | What to drop |
+| 📝 Custom code | Anything the list misses | Your code |
+
+Plus a cooldown, an icon, a particle burst, a sound, and an optional
+**key** — handy while editing on a desktop, though phone players just tap
+the button. A line under the dropdown tells you in words what the ability
+will do, and switching the effect resets the numbers so you never end up
+with "heal 130 hearts".
+
+Deleting an ability also removes it from every actor that had it, so
+nobody is left with a button that does nothing.
+
+**🌳 From a skill tree**: give a skill node a `grants` field with an
+ability id and investing in that node hands the ability over mid-game —
+the button appears as the player unlocks it. Point an actor at a tree with
+the **🌳 Skill tree** dropdown in its inspector (trees live in the
+project database under an id).
+
+## 3½ · 🎮 Controls — key and button binds
 
 **🎮 Controls** in the toolbar (also the first item in the left palette)
 is where every control lives. Each one has a NAME, and keys and the
@@ -143,7 +178,7 @@ game serves both a phone player and a keyboard player.
   works — and if a control with that name exists in the table, the table
   wins, so a player can rebind an ability the author hard-coded.
 
-## 3½ · Paint the world (Tiles)
+## 3¾ · Paint the world (Tiles)
 
 Hit **🗺 Tiles** in the toolbar and the palette becomes a paintbox: grass,
 flowers, dirt and stone paths, sand, water, rock walls, trees, brick.

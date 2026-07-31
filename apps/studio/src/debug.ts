@@ -74,6 +74,14 @@ export interface StudioDebug {
   whereText: () => string;
   syncState: () => string;
   projectHasSecrets: () => string[];
+  openAbilities: (id?: string) => void;
+  createAbility: (name: string) => string;
+  setAbility: (id: string, patch: Record<string, unknown>) => boolean;
+  grantAbility: (entity: string, id: string, on: boolean) => boolean;
+  abilitiesOf: (entity: string) => string[];
+  abilityIds: () => string[];
+  setSkillTreeDb: (id: string, tree: unknown) => void;
+  setActorSkillTree: (entity: string, treeId: string) => boolean;
   assetList: () => { id: string; bytes: number; users: number }[];
   assetBytes: () => number;
   importAsset: (dataUrl: string) => string;

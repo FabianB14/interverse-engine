@@ -5,6 +5,7 @@ import { wireChat } from './chat.js';
 import { wireFlow } from './flow.js';
 import { wireCodePane } from './codepane.js';
 import { wireControls } from './controls.js';
+import { createAbility, grantTo, openAbilityEditor } from './abilities.js';
 import {
   ASSET_BUDGET, assetBytes, assetList, assetUsers, assignAsset, deleteAsset,
   formatBytes, frameCount, frameRect, guessFrameSize, importRejectReason, unusedAssets,
@@ -109,7 +110,13 @@ async function main(): Promise<void> {
   };
   playBtn.onclick = () => (editor.playing ? editor.stop() : editor.play());
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && editor.playing) editor.stop();
+    if (e.key !== 'Escape') return;
+    // Escape closes whatever is on top: an open dialog first, then Play.
+    if (document.getElementById('modal-back')?.classList.contains('open')) {
+      document.getElementById('modal-back')!.classList.remove('open');
+      return;
+    }
+    if (editor.playing) editor.stop();
   });
 
   // ---------------------------------------------------------------- modal
@@ -1285,7 +1292,9 @@ async function main(): Promise<void> {
   };
 
   // ------------------------------------------------------------ wire-ups
-  wireInspector(editor);
+  wireInspector(editor, {
+    openAbilityEditor: (id) => openAbilityEditor({ project: editor.project, touch: () => editor.touch(), openModal }, id),
+  });
   const chat = wireChat(editor);
   const prevSelection = editor.onSelection;
   editor.onSelection = () => {
@@ -1440,6 +1449,40 @@ async function main(): Promise<void> {
     projectHasSecrets: () => {
       const raw = JSON.parse(editor.exportJson()) as Record<string, unknown>;
       return ['origin', 'github', 'token', 'pat', 'secrets', 'apiKey', 'api_key'].filter((k) => k in raw);
+    },
+    openAbilities: (id?: string) =>
+      openAbilityEditor({ project: editor.project, touch: () => editor.touch(), openModal }, id),
+    createAbility: (name: string) => {
+      const a = createAbility(editor.project, name);
+      editor.touch();
+      return a.id;
+    },
+    setAbility: (id: string, patch: Record<string, unknown>) => {
+      const a = editor.project.db?.abilities?.find((x) => x.id === id);
+      if (!a) return false;
+      Object.assign(a, patch);
+      editor.touch();
+      return true;
+    },
+    grantAbility: (entity: string, id: string, on: boolean) => {
+      const ok = grantTo(editor.project, entity, id, on);
+      if (ok) editor.touch();
+      return ok;
+    },
+    abilitiesOf: (entity: string) => editor.entityByName(entity)?.abilities ?? [],
+    abilityIds: () => (editor.project.db?.abilities ?? []).map((a) => a.id),
+    setSkillTreeDb: (id: string, tree: unknown) => {
+      editor.project.db ??= { items: [] };
+      editor.project.db.skills ??= {};
+      editor.project.db.skills[id] = tree;
+      editor.touch();
+    },
+    setActorSkillTree: (entity: string, treeId: string) => {
+      const d = editor.entityByName(entity);
+      if (!d) return false;
+      d.skillTree = treeId;
+      editor.touch();
+      return true;
     },
     assetList: () => assetList(editor.project),
     assetBytes: () => assetBytes(editor.project),

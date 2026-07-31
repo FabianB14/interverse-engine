@@ -29,7 +29,7 @@ import { fetchChainBalance } from '@interverse/platform';
 import { drawOutfit } from './cosmetics.js';
 import { drawIcon } from './icons.js';
 import { defaultControls, defaultEntity } from './model.js';
-import type { EntityDef, EntityKind, EventAction, EventDef, ProjectDef, SceneDef, TapSound } from './model.js';
+import type { AbilityDef, EntityDef, EntityKind, EventAction, EventDef, ProjectDef, SceneDef, TapSound } from './model.js';
 import { SkillTree } from './skills.js';
 import type { SkillTreeDef } from './skills.js';
 import type { StudioNet } from './net.js';
@@ -1341,12 +1341,140 @@ export class PlayScene extends Scene {
     }
     this.updateBossBar();
     this.tickProjectiles(dt);
+    this.tickPlayerShots(dt);
   }
 
   // ---------------------------------------------------------- projectiles
 
   private projectiles: Projectile[] = [];
+  /** Shots the PLAYER fired (ranged abilities) — they hurt mobs, not us. */
+  private playerShots: Projectile[] = [];
   private shotsFiredTotal = 0;
+
+  /** The skill tree, created on first use (same instance the api hands out). */
+  private skillTreeLazy(): SkillTree {
+    this.skillsTree ??= new SkillTree(this, this.project.name, () => this.game.viewWidth, () => this.game.viewHeight);
+    return this.skillsTree;
+  }
+
+  /** Which ability (if any) a skill node hands out when invested in. */
+  private grantOf(tree: unknown, nodeId: string): string | null {
+    const branches = (tree as { branches?: { nodes?: { id?: string; grants?: string }[]; action?: { id?: string; grants?: string } }[] }).branches ?? [];
+    const nodes = (tree as { nodes?: { id?: string; grants?: string }[] }).nodes ?? [];
+    for (const n of nodes) if (n.id === nodeId && n.grants) return n.grants;
+    for (const b of branches) {
+      if (b.action?.id === nodeId && b.action.grants) return b.action.grants;
+      for (const n of b.nodes ?? []) if (n.id === nodeId && n.grants) return n.grants;
+    }
+    return null;
+  }
+
+  /** Look an ability up in the project database. */
+  private abilityDef(id: string): AbilityDef | undefined {
+    return this.project.db?.abilities?.find((a) => a.id === id || a.name === id);
+  }
+
+  /** Give an actor's abilities to the player: a button each, wired to the
+   *  effect its author chose. Also opens its skill tree, if it has one. */
+  private grantAbilities(def: EntityDef): void {
+    for (const id of def.abilities ?? []) this.grantAbility(id);
+    const treeId = def.skillTree;
+    const raw = treeId ? this.project.db?.skills?.[treeId] : null;
+    if (raw) {
+      this.skillTreeLazy().define(raw);
+      // A node can hand out an ability when it is invested in.
+      this.skillTreeLazy().onUnlock((nodeId) => {
+        const grant = this.grantOf(raw, nodeId);
+        if (grant) this.grantAbility(grant);
+      });
+      // Anything already unlocked from a previous session applies now.
+      for (const nodeId of this.skillTreeLazy().unlockedIds()) {
+        const grant = this.grantOf(raw, nodeId);
+        if (grant) this.grantAbility(grant);
+      }
+    }
+  }
+
+  /** One ability -> one on-screen button running its native effect. */
+  grantAbility(id: string): boolean {
+    const a = this.abilityDef(id);
+    if (!a) return false;
+    if (this.abilityStates.some((x) => x.name === a.name)) return false;
+    const opts: { icon?: string; cooldown?: number; key?: string } = { cooldown: a.cooldown };
+    if (a.icon) opts.icon = a.icon;
+    if (a.key) opts.key = a.key;
+    this.addAbility(a.name, opts, () => this.runAbility(a));
+    return true;
+  }
+
+  /** Perform an ability's effect. These are the verbs an author picks from
+   *  in the ability editor, so each one has to work with no code at all. */
+  private runAbility(a: AbilityDef): void {
+    const me = this.players[0]?.entity;
+    if (a.sfx) playSound(a.sfx);
+    if (a.vfx && me) this.spawnVfx(a.vfx as VfxPreset, me.x, me.y);
+    switch (a.effect) {
+      case 'melee':
+        this.meleeAttack(a.radius, a.power);
+        break;
+      case 'ranged':
+        if (me) this.firePlayerShot(me, a);
+        break;
+      case 'heal':
+        if (this.heartsMax) {
+          this.heartsVal = Math.min(this.heartsMax, this.heartsVal + a.power);
+          this.refreshHearts();
+        } else {
+          this.enableHearts(Math.max(1, a.power));
+        }
+        break;
+      case 'dash':
+        if (me) {
+          // Dash the way the character is facing, clamped to the board.
+          const dir = me.scale.x < 0 ? -1 : 1;
+          me.x = Math.max(20, Math.min(this.sceneDef.worldW - 20, me.x + dir * a.power));
+        }
+        break;
+      case 'spawn':
+        if (me) this.spawnDef(defaultEntity(a.spawn, me.x + 60, me.y));
+        break;
+      case 'custom':
+        if (a.script.trim()) {
+          try {
+            (new Function('api', a.script) as (api: ScriptApi) => void)(this.makeApi());
+          } catch (err) {
+            this.onScriptError(err);
+          }
+        }
+        break;
+    }
+  }
+
+  /** The player's own projectile — mirrors the mob one, aimed at the
+   *  nearest enemy so a phone player never has to aim. */
+  private firePlayerShot(me: Entity, a: AbilityDef): void {
+    let target: Entity | null = null;
+    let best = Infinity;
+    for (const m of this.mobStates.values()) {
+      if (m.e.destroyed) continue;
+      const d = Math.hypot(m.e.x - me.x, m.e.y - me.y);
+      if (d < best) {
+        best = d;
+        target = m.e;
+      }
+    }
+    const dirX = target ? target.x - me.x : me.scale.x < 0 ? -1 : 1;
+    const dirY = target ? target.y - me.y : 0;
+    const d = Math.hypot(dirX, dirY) || 1;
+    const e = new Entity();
+    e.addChild(
+      new Graphics().circle(0, 0, 14).fill({ color: 0xffd166, alpha: 0.3 }).circle(0, 0, 8).fill(0xfff1b8),
+    );
+    e.position.set(me.x, me.y - 10);
+    this.add(e, this.world);
+    const speed = Math.max(120, a.radius);
+    this.playerShots.push({ e, vx: (dirX / d) * speed, vy: (dirY / d) * speed, ttl: 2.4, damage: a.power });
+  }
 
   private fireProjectile(m: MobState, at: Entity): void {
     const e = new Entity();
@@ -1402,6 +1530,37 @@ export class PlayScene extends Scene {
       if (out || hit) {
         this.remove(p.e);
         this.projectiles.splice(i, 1);
+      }
+    }
+  }
+
+  /** The player's shots: same motion, but they look for mobs to hit. */
+  private tickPlayerShots(dt: number): void {
+    if (!this.playerShots.length) return;
+    for (let i = this.playerShots.length - 1; i >= 0; i--) {
+      const p = this.playerShots[i]!;
+      if (p.e.destroyed) {
+        this.playerShots.splice(i, 1);
+        continue;
+      }
+      p.e.x += p.vx * dt;
+      p.e.y += p.vy * dt;
+      p.e.zIndex = p.e.y;
+      p.ttl -= dt;
+      let hit = false;
+      for (const m of [...this.mobStates.values()]) {
+        if (m.e.destroyed) continue;
+        if (Math.hypot(m.e.x - p.e.x, m.e.y - p.e.y) < m.def.radius + 16) {
+          this.damageMob(m, p.damage, p.e);
+          hit = true;
+          break;
+        }
+      }
+      const out =
+        p.ttl <= 0 || p.e.x < -40 || p.e.x > this.sceneDef.worldW + 40 || p.e.y < -40 || p.e.y > this.sceneDef.worldH + 40;
+      if (out || hit) {
+        this.remove(p.e);
+        this.playerShots.splice(i, 1);
       }
     }
   }
@@ -1731,6 +1890,9 @@ export class PlayScene extends Scene {
           }
         }
         if (this.mobStates.size && !this.heartsMax) this.enableHearts(3);
+        // ⚡ Abilities the actor OWNS become buttons here — no api.ability()
+        // call needed, which is the whole point of authoring them per actor.
+        if (pdef) this.grantAbilities(pdef);
         this.camera?.follow(e);
         if (!this.joystick) {
           this.joystick = new VirtualJoystick({ radius: 90 });
