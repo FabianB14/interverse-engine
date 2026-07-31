@@ -260,7 +260,15 @@ open it.
 **Wire authoring**: drag from a node's ◉ port onto another node and the
 logic writes itself — **actor → level** adds a 🚪 door action;
 **actor → actor** invents a switch, makes the source set it, and gates
-the target's events on it. A chest-opens-door quest is one drag.
+the target's events on it. A chest-opens-door quest is one drag. Levels
+can be a wire source too, not just a destination.
+
+**Drag off into empty space** and you get a **search box** instead
+(Unreal Blueprints' move): type a few letters and pick what should
+happen — any ⚡ action, a new trigger, a **new level with the door to it
+already written**, or a new actor placed where you dropped. Arrow keys
+and Enter work; Esc cancels and changes nothing. The list is
+scope-aware, so a level is never offered "remove this".
 
 The bottom panel itself minimizes with the **▾** button in the tab bar
 when you want the full canvas.

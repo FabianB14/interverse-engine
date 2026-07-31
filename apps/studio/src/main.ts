@@ -1083,6 +1083,14 @@ async function main(): Promise<void> {
     setOutfit: (name: string, opts: { hat?: string; held?: string }) =>
       editor.getPlayScene()?.setOutfit(name, opts),
     outfitOf: (name: string) => editor.getPlayScene()?.outfitOf(name) ?? null,
+    flowDropOff: (nodeId: string) => flow.dropOff(nodeId),
+    paletteQuery: (q: string) => flow.palette()?.setQuery(q) ?? [],
+    paletteVisible: () => flow.palette()?.visible() ?? [],
+    paletteMove: (d: number) => flow.palette()?.move(d) ?? null,
+    paletteHighlighted: () => flow.palette()?.highlighted() ?? null,
+    paletteCommit: (id?: string) => flow.palette()?.commit(id) ?? false,
+    paletteClose: () => flow.palette()?.close(),
+    flowNodeIds: () => editor.project.scenes.flatMap((sc) => [`lvl:${sc.id}`, ...sc.entities.map((e) => `ent:${e.id}`)]),
     flowLink: (fromName: string, toName: string) => {
       let fromId = '';
       let toId = '';

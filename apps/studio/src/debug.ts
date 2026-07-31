@@ -98,6 +98,14 @@ export interface StudioDebug {
   vfxCount: () => number;
   setOutfit: (name: string, opts: { hat?: string; held?: string }) => void;
   outfitOf: (name: string) => { hat: string; held: string } | null;
+  flowDropOff: (nodeId: string) => boolean;
+  paletteQuery: (q: string) => string[];
+  paletteVisible: () => string[];
+  paletteMove: (d: number) => string | null;
+  paletteHighlighted: () => string | null;
+  paletteCommit: (id?: string) => boolean;
+  paletteClose: () => void;
+  flowNodeIds: () => string[];
   flowLink: (fromName: string, toName: string) => boolean;
   setDbItems: (items: unknown) => void;
   setLocales: (locales: unknown) => void;

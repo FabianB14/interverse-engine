@@ -8,10 +8,19 @@
  */
 import type { StudioEditor } from './editor.js';
 import { TRIG_ICON, actionLabel, knownSwitches } from './cmds.js';
+import { applyDrop, dropEntries, openDropPalette, targetOf } from './dropoff.js';
+import type { PaletteHandle } from './dropoff.js';
 import type { EventDef } from './model.js';
 
-export function wireFlow(editor: StudioEditor): { render: () => void; nodeCount: () => number; link: (fromId: string, toId: string) => boolean } {
+export function wireFlow(editor: StudioEditor): {
+  render: () => void;
+  nodeCount: () => number;
+  link: (fromId: string, toId: string) => boolean;
+  dropOff: (fromId: string) => boolean;
+  palette: () => PaletteHandle | null;
+} {
   const canvas = document.getElementById('flow-canvas')!;
+  let palette: PaletteHandle | null = null;
   /** Remembered drag positions (per node id, session-only). */
   const pos = new Map<string, { x: number; y: number }>();
   let count = 0;
@@ -103,7 +112,16 @@ export function wireFlow(editor: StudioEditor): { render: () => void; nodeCount:
           line.remove();
           const targetEl = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.flow-node');
           const target = nodes.find((nd) => nd.el === targetEl);
-          if (target && target.id !== id) link(id, target.id);
+          if (target && target.id !== id) {
+            link(id, target.id);
+          } else if (!targetEl) {
+            // Blueprints' move: dropped on nothing, so offer to CREATE
+            // something already wired to where the drag started.
+            dropAt(id, { x: ev.clientX, y: ev.clientY }, {
+              x: ev.clientX - cRect.left + canvas.scrollLeft,
+              y: ev.clientY - cRect.top + canvas.scrollTop,
+            });
+          }
         };
         window.addEventListener('pointermove', move);
         window.addEventListener('pointerup', up);
@@ -258,5 +276,33 @@ export function wireFlow(editor: StudioEditor): { render: () => void; nodeCount:
     return true;
   };
 
-  return { render, nodeCount: () => count, link };
+  /** Open the search palette at a drop point and apply what is chosen. */
+  const dropAt = (fromId: string, screen: { x: number; y: number }, world: { x: number; y: number }): void => {
+    const target = targetOf(editor.project, fromId);
+    if (!target) return;
+    palette = openDropPalette({
+      entries: dropEntries(target.scope),
+      at: { x: Math.min(screen.x, window.innerWidth - 300), y: Math.min(screen.y, window.innerHeight - 300) },
+      onPick: (entryId) => {
+        if (applyDrop(editor.project, fromId, entryId, world)) {
+          editor.touch();
+          render();
+        }
+      },
+      onClose: () => {
+        palette = null;
+      },
+    });
+  };
+
+  return {
+    render,
+    nodeCount: () => count,
+    link,
+    dropOff: (fromId: string) => {
+      dropAt(fromId, { x: 200, y: 200 }, { x: 360, y: 640 });
+      return palette !== null;
+    },
+    palette: () => palette,
+  };
 }

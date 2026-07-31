@@ -491,6 +491,31 @@ const dbOk =
 await page.evaluate(() => window.__studio.stop());
 await sleep(150);
 
+// DRAG-OFF SEARCH: drag a ⛓ Flow port into empty canvas, type, and the
+// thing you pick arrives already wired to where you dragged from.
+await page.evaluate(() => window.__studio.loadTemplate('topdown'));
+await sleep(300);
+const nodeIds = await page.evaluate(() => window.__studio.flowNodeIds());
+const dropOpened = await page.evaluate((id) => window.__studio.flowDropOff(id), nodeIds[0]);
+const dropAll = await page.evaluate(() => window.__studio.paletteVisible());
+const dropCoin = await page.evaluate(() => window.__studio.paletteQuery('coin'));
+const dropHigh = await page.evaluate(() => window.__studio.paletteHighlighted());
+await page.evaluate(() => window.__studio.paletteMove(1));
+const dropMoved = await page.evaluate(() => window.__studio.paletteHighlighted());
+await page.evaluate(() => window.__studio.paletteClose());
+const dropClosedEmpty = await page.evaluate(() => window.__studio.paletteVisible());
+// Commit one for real: a new level plus the door that reaches it.
+const scenesBefore = await page.evaluate(() => window.__studio.sceneCount());
+await page.evaluate((id) => window.__studio.flowDropOff(id), nodeIds[0]);
+await page.evaluate(() => window.__studio.paletteCommit('lvl:new'));
+const scenesAfter = await page.evaluate(() => window.__studio.sceneCount());
+const lvlEvAfter = await page.evaluate(() => window.__studio.levelEventCount());
+await page.screenshot({ path: `${outDir}/st-20-dropoff.png` });
+const dropOk =
+  dropOpened === true && dropAll.length > 20 && dropCoin[0] === 'act:coins' &&
+  dropHigh === 'act:coins' && dropMoved !== dropHigh && dropClosedEmpty.length === 0 &&
+  scenesAfter === scenesBefore + 1 && lvlEvAfter > 0;
+
 // PROCEDURAL GAME MAKER: parameters in, a complete PLAYABLE game out —
 // and what comes out has to survive Play, not merely validate on paper.
 const genProblems = await page.evaluate(() =>
@@ -811,7 +836,7 @@ const ok =
   placeOk && editOk && storyOk && levelsOk && playOk && stopOk && exportOk && importOk &&
   templatesOk && skillsOk && scoreOk && tilesOk && cameraOk && frameOk && combatOk && rangedOk &&
   patrolOk && chatOk && coinsOk && persistOk && libOk && eventsOk && genOk && uiOk && dbOk &&
-  questOk && levelEvOk && apiOk && keysOk && controlsOk && skillsBranchOk && gameGenOk && netOk &&
+  questOk && levelEvOk && apiOk && keysOk && controlsOk && skillsBranchOk && gameGenOk && dropOk && netOk &&
   errors.length === 0;
 console.log(
   JSON.stringify(
@@ -837,6 +862,7 @@ console.log(
       controlsOk, defRight, reboundRight, rx0, rxOldKey, rxNewKey, addedCustom, killBuiltin, killCustom, conflicts,
       skillsBranchOk, brN, skOpen, layout, rank3, crossBranch, sameBranch, spentBrawl, refunded, afterRespec,
       gameGenOk, genProblems, genName, genScenes, genFirst, genPlays, genVisible, genMobs, genLive, cozyMobs,
+      dropOk, dropOpened, dropN: dropAll.length, dropCoin0: dropCoin[0], dropHigh, dropMoved, scenesBefore, scenesAfter, lvlEvAfter,
       netOk, playersA, playersB, remotesB, moveOk, remotePosB, stateB,
       errors: errors.slice(0, 6),
     },
