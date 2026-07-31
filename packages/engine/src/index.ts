@@ -75,3 +75,18 @@ export {
   brawlerClass, levelFromXp, playerTint, statsFor, xpForLevel, xpToReach,
 } from './brawler/roster.js';
 export type { BrawlerClass, Stats, Upgrades } from './brawler/roster.js';
+export {
+  PARTY_TETHER, REVIVE_HEARTS, REVIVE_RANGE, REVIVE_SECS,
+  emptyMember, inReviveRange, partyCenter, partyHpScale, partyLimit, partyWiped,
+  pickTarget, reviveProgress, standing, tetheredX,
+} from './brawler/coop.js';
+export type { PartyMember } from './brawler/coop.js';
+
+// 🛰 Host authority (§4.11) — who is allowed to decide what in a shared
+// world, and how the machines that are not deciding stay smooth.
+export {
+  BUFFER_STALE_MS, INTERP_DELAY_MS, LOST_AFTER_MS, RECONNECT_DELAYS_MS, SLOW_AFTER_MS,
+  SNAP_DISTANCE, SnapshotBuffer, encodeWorld, goneFrom, isFresh, linkState, reconnectDelay,
+  roleOf, shouldSnap, simulates, smoothTo,
+} from './net/authority.js';
+export type { HitRequest, LinkState, MobSnap, NetRole, ShotSnap, WorldSnap } from './net/authority.js';

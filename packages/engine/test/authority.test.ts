@@ -3,7 +3,7 @@ import {
   LOST_AFTER_MS, RECONNECT_DELAYS_MS, SLOW_AFTER_MS, SNAP_DISTANCE, encodeWorld, goneFrom,
   BUFFER_STALE_MS, INTERP_DELAY_MS, SnapshotBuffer,
   isFresh, linkState, reconnectDelay, roleOf, shouldSnap, simulates, smoothTo,
-} from '../src/authority.js';
+} from '../src/index.js';
 
 describe('who simulates', () => {
   it('reads the role off the session', () => {

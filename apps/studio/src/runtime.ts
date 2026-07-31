@@ -41,10 +41,10 @@ import {
   suggestSlot, summarize, unlockedLevels, withSlot,
 } from './slots.js';
 import type { SlotInfo } from './slots.js';
-import { SnapshotBuffer, encodeWorld, goneFrom, roleOf, shouldSnap, simulates, smoothTo } from './authority.js';
+import { SnapshotBuffer, encodeWorld, goneFrom, roleOf, shouldSnap, simulates, smoothTo } from '@interverse/engine';
 import { FIELD_REFRESH_SECS, flowField, lineOfSight, nextStep, withinChaseRange } from './pathing.js';
 import type { PathGrid } from './pathing.js';
-import type { NetRole } from './authority.js';
+import type { NetRole } from '@interverse/engine';
 import {
   CHARGE_SPEED, CHARGE_TIME, SLAM_TIME, attackDuration, attackShots, slamHits, slamRadius, windupFor,
 } from './attacks.js';

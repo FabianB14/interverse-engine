@@ -19,7 +19,11 @@ export class MenuScene extends Scene {
   private blurb!: Text;
   private stats!: Text;
 
-  constructor(private readonly onStart: () => void) {
+  constructor(
+    private readonly onStart: () => void,
+    private readonly onHost?: () => void,
+    private readonly onJoin?: () => void,
+  ) {
     super();
   }
 
@@ -107,11 +111,28 @@ export class MenuScene extends Scene {
     this.stats.position.set(W / 2, H * 0.66 + 62);
     this.stage.addChild(this.blurb, this.stats);
 
+    // Solo is the wide button in the middle because it is what most taps
+    // want; co-op sits either side of it, close enough to be obvious and
+    // far enough not to be hit by accident.
     const go = new UIButton('▶ START', {
-      width: Math.min(360, W - 80), fill: 0x8affc1, onTap: () => this.start(),
+      width: Math.min(300, W - 340), fill: 0x8affc1, onTap: () => this.start(),
     });
     go.position.set(W / 2, H * 0.86);
     this.add(go);
+    if (this.onHost) {
+      const hostBtn = new UIButton('🤝 CO-OP', {
+        width: 176, height: 74, fontSize: 20, fill: 0xffd166, onTap: () => this.leave(this.onHost!),
+      });
+      hostBtn.position.set(W / 2 - Math.min(300, W - 340) / 2 - 100, H * 0.86);
+      this.add(hostBtn);
+    }
+    if (this.onJoin) {
+      const joinBtn = new UIButton('🔑 JOIN', {
+        width: 176, height: 74, fontSize: 20, fill: 0xffd166, onTap: () => this.leave(this.onJoin!),
+      });
+      joinBtn.position.set(W / 2 + Math.min(300, W - 340) / 2 + 100, H * 0.86);
+      this.add(joinBtn);
+    }
     this.refresh();
   }
 
@@ -139,10 +160,16 @@ export class MenuScene extends Scene {
   }
 
   private start(): void {
+    this.leave(this.onStart);
+  }
+
+  /** Every way out of this screen banks the class you picked first — the
+   *  select screen is the only place that decision is made. */
+  private leave(go: () => void): void {
     const cls = BRAWLER_CLASSES[this.picked]!;
     saveRun({ ...loadRun(), classId: cls.id });
     audio.chime();
-    this.onStart();
+    go();
   }
 
   // ------------------------------------------------- headless test hooks

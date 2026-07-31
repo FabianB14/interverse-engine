@@ -11,8 +11,8 @@
  */
 import { host as netHost, join as netJoin } from '@interverse/net';
 import type { Session } from '@interverse/net';
-import { isFresh, linkState, reconnectDelay } from './authority.js';
-import type { HitRequest, LinkState, WorldSnap } from './authority.js';
+import { isFresh, linkState, reconnectDelay } from '@interverse/engine';
+import type { HitRequest, LinkState, WorldSnap } from '@interverse/engine';
 
 const DEFAULT_RELAY_URL = 'wss://interverse-engine.onrender.com';
 const RELAY_KEY = 'interverse-relay-url';

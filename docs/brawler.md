@@ -118,6 +118,47 @@ Progression is three blunt knobs. A brawler's growth is felt through bigger
 numbers, not new systems, and three is enough to make fifteen stages of it
 readable.
 
+## Co-op
+
+```ts
+import {
+  partyHpScale, pickTarget, partyWiped, standing,
+  reviveProgress, inReviveRange, REVIVE_SECS, REVIVE_HEARTS,
+  partyCenter, tetheredX,
+} from '@interverse/engine';
+```
+
+Four players in one fight turns every question in a brawler into a harder
+one, and the kit answers all of them the same blunt way — with one owner per
+decision, so two machines can never hold different opinions:
+
+- **The host owns the world.** Enemies, waves, gates and enemy health. The
+  general machinery is in `net/authority.ts` (snapshot buffers, interpolation,
+  reconnect); this module is the part specific to a party of fighters.
+- **Each player owns their own body.** Where you are, and whether you got
+  hit. A round-trip before you feel your own hit is the one delay nobody
+  forgives — so a joiner's swing is sent as a *request* (`{x, y, dir, reach,
+  damage}`), and the host re-runs the reach test against its own enemy
+  positions before granting it. Sending the swing rather than the damage is
+  what stops a modified client from deleting a boss.
+- **The gate opens for everyone at once**, and the stage is lost only when
+  the last player goes down.
+
+That last rule is the whole difference between co-op and four people playing
+alone next to each other: a downed friend is a problem you can solve.
+
+| Piece | Rule |
+| --- | --- |
+| `reviveProgress` | fills over `REVIVE_SECS` while a friend stands within `REVIVE_RANGE`, and **decays** rather than resetting when they are knocked away |
+| `REVIVE_HEARTS` | you come back on 2, not full — a rescue is a second chance, not a reset |
+| `partyWiped` | true only when *everyone* is down |
+| `pickTarget` | enemies go for the nearest **standing** player, never a body |
+| `partyHpScale` | `1 + (n-1) * 0.6` — sublinear, so four players is faster than one but not four times faster |
+| `tetheredX` | a runner is *stopped* at `PARTY_TETHER` from the party centre, never dragged back — being teleported is worse than being stopped |
+
+The revive is run by the downed player's own machine, so the ring you watch
+fill is the ring that decides, with no round-trip in between.
+
 ## Blob Crashers
 
 `games/crashers` is the worked example: fifteen stages in five acts, each act
@@ -135,5 +176,13 @@ Five enemy archetypes, each asking a different question:
 | Shaman | target priority (it heals the others) |
 | Howler | spacing |
 
+Co-op is folded into the same `FightScene` rather than forked into a second
+one, on the principle that solo is a party of one who happens to be the host:
+everything gated on `simulating` is host-only work, and the rest runs
+identically whether there are four phones in the room or none. From the menu,
+**CO-OP** opens a room and **JOIN** takes a four-letter code — install-free,
+per spec §8.3.
+
 Run it with `pnpm dev:crashers`, and `pnpm verify:crashers` plays a stage end
-to end headlessly.
+to end headlessly — then opens two more browsers that host and join a room to
+check the authority split (snapshots down, hit requests up) and the revive.
