@@ -28,8 +28,8 @@ import { DialogueBox, UIButton } from '@interverse/ui';
 import { fetchChainBalance } from '@interverse/platform';
 import { drawOutfit } from './cosmetics.js';
 import { drawIcon } from './icons.js';
-import { defaultControls, defaultEntity } from './model.js';
-import type { AbilityDef, EntityDef, EntityKind, EventAction, EventDef, ProjectDef, SceneDef, TapSound } from './model.js';
+import { defaultControls, defaultEntity, defaultHud, hudPos } from './model.js';
+import type { AbilityDef, EntityDef, EntityKind, EventAction, EventDef, HudPart, ProjectDef, SceneDef, TapSound } from './model.js';
 import { SkillTree } from './skills.js';
 import type { SkillTreeDef } from './skills.js';
 import type { StudioNet } from './net.js';
@@ -673,6 +673,7 @@ export class PlayScene extends Scene {
       });
     }
     this.refreshCoinHud(); // shows the wallet if this game has banked coins
+    this.layoutHud();
     this.centerWorld();
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
@@ -719,7 +720,7 @@ export class PlayScene extends Scene {
   protected override onResize(w: number, h: number): void {
     this.camera?.setViewSize(w, h);
     this.scoreText?.position.set(w - 16, 12);
-    this.joystick?.position.set(150, h - 170);
+    this.layoutHud();
     this.box?.position.set((w - 656) / 2, h - 330);
     this.layoutAbilities();
     this.layoutLevelHud();
@@ -803,7 +804,6 @@ export class PlayScene extends Scene {
         style: { fontFamily: 'system-ui, sans-serif', fontSize: 26, fontWeight: '800', fill: 0xffd166 },
       });
       // stacks under the hearts (which sit under the Verium chip if shown)
-      this.coinText.position.set(16, (this.project.interverse ? 54 : 12) + (this.heartsMax > 0 ? 42 : 0));
       this.stage.addChild(this.coinText);
     }
     this.coinText.text = `🪙 ${total}`;
@@ -886,7 +886,6 @@ export class PlayScene extends Scene {
           fill: 0xff6f91,
         },
       });
-      this.heartsText.position.set(16, this.project.interverse ? 54 : 12);
       this.stage.addChild(this.heartsText);
     }
     this.refreshHearts();
@@ -1070,11 +1069,15 @@ export class PlayScene extends Scene {
   }
 
   private layoutAbilities(): void {
-    const W = this.game.viewWidth;
-    const H = this.game.viewHeight;
-    this.abilityStates.forEach((a, i) =>
-      a.root.position.set(W - 84 - i * (ABILITY_R * 2 + 22), H - 96),
-    );
+    const spot = this.hudSpot('abilities');
+    // The cluster stacks INWARD from its anchor, so a left-anchored cluster
+    // grows right and a right-anchored one grows left.
+    const dir = spot.x > this.game.viewWidth / 2 ? -1 : 1;
+    this.abilityStates.forEach((a, i) => {
+      a.root.position.set(spot.x + dir * i * (ABILITY_R * 2 + 22) * spot.scale, spot.y);
+      a.root.scale.set(spot.scale);
+      a.root.visible = spot.show;
+    });
   }
 
   fireAbility(name: string): boolean {
@@ -1136,9 +1139,7 @@ export class PlayScene extends Scene {
   }
 
   private layoutLevelHud(): void {
-    const cx = this.game.viewWidth / 2;
-    this.levelText?.position.set(cx, 10);
-    this.xpBarG?.position.set(cx - 70, 44);
+    this.layoutHud();
   }
 
   private xpNeed(): number {
@@ -1810,6 +1811,50 @@ export class PlayScene extends Scene {
     }
   }
 
+  /** 🎛 Where a HUD part goes, honouring the project's layout, the current
+   *  viewport and the safe-area insets. One resolver, so a part can never
+   *  half-respect the layout. */
+  private hudSpot(part: HudPart): { x: number; y: number; scale: number; show: boolean } {
+    const hud = this.project.hud ?? defaultHud();
+    const el = hud.parts[part];
+    const p = hudPos(el, this.game.viewWidth, this.game.viewHeight, hud.safeTop, hud.safeBottom);
+    return { ...p, scale: el.scale, show: el.show };
+  }
+
+  /** Re-place every HUD piece — on enter, on resize, and after a live edit. */
+  layoutHud(): void {
+    const put = (obj: { position: { set: (x: number, y: number) => void }; scale: { set: (n: number) => void }; visible: boolean } | null, part: HudPart): void => {
+      if (!obj) return;
+      const s2 = this.hudSpot(part);
+      obj.position.set(s2.x, s2.y);
+      obj.scale.set(s2.scale);
+      obj.visible = s2.show;
+    };
+    put(this.heartsText, 'hearts');
+    put(this.scoreText, 'score');
+    put(this.coinText, 'coins');
+    put(this.levelText, 'level');
+    if (this.xpBarG) {
+      const s2 = this.hudSpot('level');
+      this.xpBarG.position.set(s2.x - 70, s2.y + 28);
+      this.xpBarG.scale.set(s2.scale);
+      this.xpBarG.visible = s2.show;
+    }
+    const joy = this.hudSpot('joystick');
+    if (this.joystick) {
+      this.joystick.position.set(joy.x, joy.y);
+      this.joystick.scale.set(joy.scale);
+      this.joystick.visible = joy.show;
+    }
+    this.layoutAbilities();
+  }
+
+  /** Headless hook: where a HUD piece actually ended up on screen. */
+  hudScreenPos(part: HudPart): { x: number; y: number; visible: boolean } {
+    const spot = this.hudSpot(part);
+    return { x: spot.x, y: spot.y, visible: spot.show };
+  }
+
   /** Is any key bound to this action currently down? */
   private held(actionId: string): boolean {
     const keys = this.binds.get(actionId);
@@ -1860,7 +1905,6 @@ export class PlayScene extends Scene {
       },
     });
     this.scoreText.anchor.set(1, 0);
-    this.scoreText.position.set(this.game.viewWidth - 16, 12);
     this.stage.addChild(this.scoreText);
   }
 
@@ -1908,8 +1952,8 @@ export class PlayScene extends Scene {
         this.camera?.follow(e);
         if (!this.joystick) {
           this.joystick = new VirtualJoystick({ radius: 90 });
-          this.joystick.position.set(150, this.game.viewHeight - 170);
           this.add(this.joystick);
+          this.layoutHud();
         }
         return e;
       },

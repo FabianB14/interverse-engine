@@ -623,6 +623,67 @@ const gameGenOk =
   genPlays > 0 && genVisible === genPlays && genOver === false &&
   genMobs > 0 && genLive > genMobs && cozyMobs === 0;
 
+// UNDO / REDO: an edit can be taken back, and taken back again.
+await page.evaluate(() => window.__studio.loadTemplate('topdown'));
+await sleep(300);
+const undoBefore = await page.evaluate(() => window.__studio.entityCount());
+await page.evaluate(() => window.__studio.addEntity('crate', 200, 300));
+await page.evaluate(() => window.__studio.addEntity('crate', 260, 300));
+const undoAdded = await page.evaluate(() => window.__studio.entityCount());
+const canUndo = await page.evaluate(() => window.__studio.historyState().canUndo);
+const undoWhat = await page.evaluate(() => window.__studio.historyState().undoLabel);
+await page.evaluate(() => window.__studio.undo());
+const afterUndo1 = await page.evaluate(() => window.__studio.entityCount());
+await page.evaluate(() => window.__studio.undo());
+const afterUndo2 = await page.evaluate(() => window.__studio.entityCount());
+await page.evaluate(() => window.__studio.redo());
+const afterRedo = await page.evaluate(() => window.__studio.entityCount());
+// A property edit is undoable too, and coalesces into ONE step.
+await page.evaluate(() => window.__studio.select('Hero'));
+await page.evaluate(() => window.__studio.setProp('x', 500));
+await sleep(700);
+await page.evaluate(() => window.__studio.setProp('x', 501));
+await page.evaluate(() => window.__studio.setProp('x', 502));
+await page.evaluate(() => window.__studio.undo());
+const undoHeroX = await page.evaluate(() => window.__studio.getEntity('Hero').x);
+// Ctrl+Z from the canvas drives the editor.
+await page.evaluate(() => window.__studio.addEntity('crate', 300, 300));
+const beforeKey = await page.evaluate(() => window.__studio.entityCount());
+await page.keyboard.press('Control+z');
+await sleep(200);
+const afterKey = await page.evaluate(() => window.__studio.entityCount());
+const undoOk =
+  undoBefore > 0 && undoAdded === undoBefore + 2 && canUndo === true && undoWhat === 'add actor' &&
+  afterUndo1 === undoBefore + 1 && afterUndo2 === undoBefore && afterRedo === undoBefore + 1 &&
+  undoHeroX === 500 && afterKey === beforeKey - 1;
+
+// HUD LAYOUT: a piece moved in the editor lands there in the running game,
+// and safe areas push it clear of a notch.
+await page.evaluate(() => window.__studio.loadTemplate('action'));
+await sleep(300);
+const hudDefault = await page.evaluate(() => window.__studio.hudNow());
+const moved = await page.evaluate(() => window.__studio.hudMove('hearts', 700, 1200));
+await page.evaluate(() => window.__studio.hudSet('score', { show: false }));
+await page.evaluate(() => window.__studio.play());
+await sleep(800);
+const heartsAt = await page.evaluate(() => window.__studio.hudScreenPos('hearts'));
+const scoreAt = await page.evaluate(() => window.__studio.hudScreenPos('score'));
+await page.evaluate(() => window.__studio.hudSafe(60, 40));
+await sleep(200);
+const heartsSafe = await page.evaluate(() => window.__studio.hudScreenPos('hearts'));
+await page.screenshot({ path: `${outDir}/st-25-hud.png` });
+await page.evaluate(() => window.__studio.stop());
+await sleep(150);
+await page.evaluate(() => window.__studio.openHud());
+await sleep(250);
+await page.screenshot({ path: `${outDir}/st-26-hud-editor.png` });
+await page.keyboard.press('Escape');
+await sleep(150);
+const hudOk =
+  hudDefault === null && moved.anchor === 'bottom-right' &&
+  heartsAt.x > 400 && heartsAt.y > 400 && scoreAt.visible === false &&
+  heartsSafe.y === heartsAt.y - 40;
+
 // MENUS: the ⚙ settings and ⏸ pause screens exist, pause the game, and are
 // reachable from a no-code button action.
 await page.evaluate(() => window.__studio.loadTemplate('hushfall'));
@@ -1000,7 +1061,7 @@ const ok =
   placeOk && editOk && storyOk && levelsOk && playOk && stopOk && exportOk && importOk &&
   templatesOk && skillsOk && scoreOk && tilesOk && cameraOk && frameOk && combatOk && rangedOk &&
   patrolOk && chatOk && coinsOk && persistOk && libOk && eventsOk && genOk && uiOk && dbOk &&
-  questOk && levelEvOk && apiOk && keysOk && controlsOk && skillsBranchOk && gameGenOk && dropOk && artOk && originOk && abilityOk && menuOk && netOk &&
+  questOk && levelEvOk && apiOk && keysOk && controlsOk && skillsBranchOk && gameGenOk && dropOk && artOk && originOk && abilityOk && menuOk && undoOk && hudOk && netOk &&
   errors.length === 0;
 console.log(
   JSON.stringify(
@@ -1024,6 +1085,8 @@ console.log(
       apiOk, apiN: apiAll.length, apiHit0: apiHit[0], inserted, scriptErr,
       keysOk, kx0, kxD, kxL, ky0, kyS,
       controlsOk, defRight, reboundRight, rx0, rxOldKey, rxNewKey, addedCustom, killBuiltin, killCustom, conflicts,
+      undoOk, undoBefore, undoAdded, undoWhat, afterUndo1, afterUndo2, afterRedo, undoHeroX, beforeKey, afterKey,
+      hudOk, moved, heartsAt, scoreAt, heartsSafe,
       menuOk, pauseOpen, pausedMove, settingsOpen, menuClosed, resumed, gameTemplates,
       abilityOk, abId, granted, heroAbilities, abCount, mobsBefore, mobsAfter, beforeUnlock, afterUnlock,
       skillsBranchOk, brN, skOpen, layout, rank3, crossBranch, sameBranch, spentBrawl, refunded, afterRespec,

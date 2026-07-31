@@ -51,6 +51,20 @@ edit is the real engine, live — press **▶ Play** at any moment.
 - Your project **autosaves** on this device. **Export** downloads a
   `.interverse.json` you can back up, share, or publish (see §7).
 
+## 1½ · ↶ Undo and redo
+
+Every edit can be taken back: **↶ / ↷** in the toolbar, or **Ctrl/⌘+Z** and
+**Ctrl/⌘+Shift+Z**. Hovering the buttons tells you *what* will be taken
+back ("Undo move", "Undo add actor") rather than just "undo".
+
+A drag counts as one step, not one per pixel — continuous edits (moving,
+dragging a slider, typing in a field) collapse while you are doing them.
+Discrete actions do not: clicking "add" twice is two things you did, so it
+takes two undos. Loading a template is itself undoable.
+
+Ctrl+Z inside the Code window belongs to the Code window, so you never
+lose a line of script to an editor undo.
+
 ## 2 · Build the scene
 
 The left panel starts with the **🌲 Hierarchy** — every level and its
@@ -122,6 +136,29 @@ like every classic mobile RPG.
 
 The engine renders with **WebGPU/WebGL** (PixiJS) — hardware-accelerated on
 phones and desktops alike.
+
+## 3⅛ · 🎛 HUD layout
+
+**🎛 HUD** in the toolbar is where the on-screen furniture lives — hearts,
+score, coins, the level bar, the ability buttons and the joystick.
+
+Each piece has an **anchor** (which corner) and a distance from it, rather
+than a fixed position. That is what makes one layout work on a portrait
+phone, a rotated phone and a tablet: "16 from the top-left" means the same
+thing on all of them, where "x: 16, y: 12" does not.
+
+- **Drag a piece** on the phone preview. It snaps to the nearest corner and
+  remembers the distance inward.
+- **Tick** to show or hide a piece — a game with no combat does not need
+  hearts.
+- **Size** each piece independently (a bigger joystick for small hands).
+- **Safe areas** keep everything clear of a notch and the home bar; the
+  striped bands show where the hardware will cover the screen. 44–60 is
+  typical. The ability cluster also grows *inward* from its anchor, so
+  moving it to the left corner makes it stack rightward.
+
+Edits apply immediately while Play is running, so you can nudge the HUD
+with the game live.
 
 ## 3¼ · ⚡ Abilities — the buttons your players tap
 

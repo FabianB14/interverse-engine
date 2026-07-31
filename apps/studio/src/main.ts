@@ -5,6 +5,8 @@ import { wireChat } from './chat.js';
 import { wireFlow } from './flow.js';
 import { wireCodePane } from './codepane.js';
 import { wireControls } from './controls.js';
+import { isEditorUndoTarget } from './history.js';
+import { ensureHud, moveHudPart, openHudEditor } from './hud.js';
 import { createAbility, grantTo, openAbilityEditor } from './abilities.js';
 import {
   ASSET_BUDGET, assetBytes, assetList, assetUsers, assignAsset, deleteAsset,
@@ -108,6 +110,43 @@ async function main(): Promise<void> {
     editor.setFramePreview(frameCycle[editor.framePreview]);
     frameBtn.textContent = frameLabels[editor.framePreview];
   };
+  // ------------------------------------------------------- ↶ undo / redo
+  const undoBtn = $<HTMLButtonElement>('btn-undo');
+  const redoBtn = $<HTMLButtonElement>('btn-redo');
+  const refreshHistory = (): void => {
+    const h = editor.historyState();
+    undoBtn.disabled = !h.canUndo;
+    redoBtn.disabled = !h.canRedo;
+    undoBtn.style.opacity = h.canUndo ? '1' : '0.4';
+    redoBtn.style.opacity = h.canRedo ? '1' : '0.4';
+    // Say WHAT will be taken back, not just "undo".
+    undoBtn.title = h.canUndo ? `Undo ${h.undoLabel} (Ctrl+Z)` : 'Nothing to undo';
+    redoBtn.title = h.canRedo ? `Redo ${h.redoLabel} (Ctrl+Shift+Z)` : 'Nothing to redo';
+  };
+  undoBtn.onclick = () => {
+    editor.undo();
+    refreshHistory();
+  };
+  redoBtn.onclick = () => {
+    editor.redo();
+    refreshHistory();
+  };
+  editor.onHistory = refreshHistory;
+  refreshHistory();
+  window.addEventListener('keydown', (e) => {
+    if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'z') {
+      if (!((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y')) return;
+    }
+    // A textarea or text input has its own undo stack; stealing Ctrl+Z there
+    // would make the Code window unusable.
+    if (!isEditorUndoTarget(document.activeElement)) return;
+    e.preventDefault();
+    const redo = e.shiftKey || e.key.toLowerCase() === 'y';
+    if (redo) editor.redo();
+    else editor.undo();
+    refreshHistory();
+  });
+
   playBtn.onclick = () => (editor.playing ? editor.stop() : editor.play());
   window.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
@@ -427,6 +466,19 @@ async function main(): Promise<void> {
       if (focusId) showSlicer(focusId);
     });
   $('btn-assets').onclick = () => openAssets();
+  const hudHost = {
+    get project() {
+      return editor.project;
+    },
+    touch: () => {
+      editor.editLabel = 'HUD layout';
+      editor.touch();
+    },
+    openModal,
+    // Edits show up immediately when Play is running.
+    relayout: () => editor.getPlayScene()?.layoutHud(),
+  };
+  $('btn-hud').onclick = () => openHudEditor(hudHost);
 
   /** 📍 Where this project lives — connect a repo, or keep it on device. */
   const openWhere = (): void =>
@@ -1450,6 +1502,33 @@ async function main(): Promise<void> {
       const raw = JSON.parse(editor.exportJson()) as Record<string, unknown>;
       return ['origin', 'github', 'token', 'pat', 'secrets', 'apiKey', 'api_key'].filter((k) => k in raw);
     },
+    openHud: () => openHudEditor(hudHost),
+    hudNow: () => editor.project.hud ?? null,
+    hudMove: (part: string, x: number, y: number) => {
+      const el = moveHudPart(editor.project, part as Parameters<typeof moveHudPart>[1], x, y);
+      editor.editLabel = 'HUD layout';
+      editor.touch();
+      editor.getPlayScene()?.layoutHud();
+      return el;
+    },
+    hudSet: (part: string, patch: Record<string, unknown>) => {
+      const hud = ensureHud(editor.project);
+      Object.assign(hud.parts[part as Parameters<typeof moveHudPart>[1]], patch);
+      editor.touch();
+      editor.getPlayScene()?.layoutHud();
+    },
+    hudSafe: (top: number, bottom: number) => {
+      const hud = ensureHud(editor.project);
+      hud.safeTop = top;
+      hud.safeBottom = bottom;
+      editor.touch();
+      editor.getPlayScene()?.layoutHud();
+    },
+    hudScreenPos: (part: string) => editor.getPlayScene()?.hudScreenPos(part as Parameters<typeof moveHudPart>[1]) ?? null,
+    undo: () => editor.undo(),
+    redo: () => editor.redo(),
+    historyState: () => editor.historyState(),
+    historyDepth: () => editor.historyDepth(),
     playSolo: () => editor.playSolo(),
     menuVisible: () => editor.getPlayScene()?.menuVisible() ?? false,
     gamePaused: () => editor.getPlayScene()?.titlePaused ?? false,

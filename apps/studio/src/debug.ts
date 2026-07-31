@@ -74,6 +74,16 @@ export interface StudioDebug {
   whereText: () => string;
   syncState: () => string;
   projectHasSecrets: () => string[];
+  openHud: () => void;
+  hudNow: () => unknown;
+  hudMove: (part: string, x: number, y: number) => { anchor: string; dx: number; dy: number };
+  hudSet: (part: string, patch: Record<string, unknown>) => void;
+  hudSafe: (top: number, bottom: number) => void;
+  hudScreenPos: (part: string) => { x: number; y: number; visible: boolean } | null;
+  undo: () => boolean;
+  redo: () => boolean;
+  historyState: () => { canUndo: boolean; canRedo: boolean; undoLabel: string; redoLabel: string };
+  historyDepth: () => { past: number; future: number };
   playSolo: () => void;
   menuVisible: () => boolean;
   gamePaused: () => boolean;

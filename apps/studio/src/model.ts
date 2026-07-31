@@ -277,6 +277,84 @@ export function defaultControls(): ControlsDef {
   };
 }
 
+/** Where a HUD piece sits. Anchors instead of coordinates, because a phone
+ *  in portrait and a tablet in landscape are different sizes and "16px from
+ *  the top-left" is the only thing that means the same in both. */
+export type HudAnchor = 'top-left' | 'top-center' | 'top-right' | 'bottom-left' | 'bottom-center' | 'bottom-right';
+
+export interface HudElement {
+  anchor: HudAnchor;
+  /** Offset from that corner, in design units, always pointing INWARD. */
+  dx: number;
+  dy: number;
+  scale: number;
+  show: boolean;
+}
+
+export type HudPart = 'hearts' | 'score' | 'coins' | 'level' | 'abilities' | 'joystick';
+
+export const HUD_PARTS: readonly HudPart[] = ['hearts', 'score', 'coins', 'level', 'abilities', 'joystick'];
+
+export interface HudDef {
+  parts: Record<HudPart, HudElement>;
+  /** Keep-out band for notches and home indicators, in design units. */
+  safeTop: number;
+  safeBottom: number;
+}
+
+/** The layout the engine has always drawn, now written down. A snapshot
+ *  test pins these so a stray edit cannot silently move every game's HUD. */
+export function defaultHud(): HudDef {
+  const el = (anchor: HudAnchor, dx: number, dy: number): HudElement => ({ anchor, dx, dy, scale: 1, show: true });
+  return {
+    parts: {
+      hearts: el('top-left', 16, 12),
+      score: el('top-right', 16, 12),
+      coins: el('top-left', 16, 54),
+      level: el('top-center', 0, 16),
+      abilities: el('bottom-right', 84, 96),
+      joystick: el('bottom-left', 150, 170),
+    },
+    safeTop: 0,
+    safeBottom: 0,
+  };
+}
+
+/** Resolve an element to a screen position for a given viewport. */
+export function hudPos(el: HudElement, W: number, H: number, safeTop = 0, safeBottom = 0): { x: number; y: number } {
+  const top = el.anchor.startsWith('top');
+  const y = top ? safeTop + el.dy : H - safeBottom - el.dy;
+  let x = el.dx;
+  if (el.anchor.endsWith('center')) x = W / 2 + el.dx;
+  else if (el.anchor.endsWith('right')) x = W - el.dx;
+  return { x, y };
+}
+
+export function normalizeHud(input: unknown): HudDef {
+  const base = defaultHud();
+  const raw = input && typeof input === 'object' ? (input as Partial<HudDef>) : {};
+  const parts = (raw.parts ?? {}) as Partial<Record<HudPart, Partial<HudElement>>>;
+  const anchors: readonly HudAnchor[] = ['top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right'];
+  for (const key of HUD_PARTS) {
+    const got = parts[key];
+    if (!got || typeof got !== 'object') continue;
+    const cur = base.parts[key];
+    if (got.anchor && anchors.includes(got.anchor)) cur.anchor = got.anchor;
+    if (Number.isFinite(Number(got.dx))) cur.dx = Number(got.dx);
+    if (Number.isFinite(Number(got.dy))) cur.dy = Number(got.dy);
+    if (Number.isFinite(Number(got.scale))) cur.scale = Math.max(0.4, Math.min(2.5, Number(got.scale)));
+    if (typeof got.show === 'boolean') cur.show = got.show;
+  }
+  base.safeTop = Math.max(0, Math.min(200, Number(raw.safeTop) || 0));
+  base.safeBottom = Math.max(0, Math.min(200, Number(raw.safeBottom) || 0));
+  return base;
+}
+
+/** True when the HUD is untouched, so it can be left out of the file. */
+export function isDefaultHud(h: HudDef): boolean {
+  return JSON.stringify(h) === JSON.stringify(defaultHud());
+}
+
 export interface ProjectDef {
   version: 1;
   name: string;
@@ -290,6 +368,8 @@ export interface ProjectDef {
   scenes: SceneDef[];
   /** Imported images as data URLs, keyed by asset id. */
   assets: Record<string, string>;
+  /** 🎛 HUD layout (absent = the engine defaults). */
+  hud?: HudDef;
   /** 🎮 Key + on-screen button bindings (absent = engine defaults). */
   controls?: ControlsDef;
   /** 🗄 Content database (items today; more tables to come). */
@@ -530,6 +610,10 @@ export function parseProject(json: string): ProjectDef {
   // 🎮 Controls: repair to a table that always has every builtin action, so
   // the movement loop can never find itself with no binding for "left".
   p.controls = normalizeControls(p.controls);
+  // 🎛 HUD: absent when untouched, like level events and ability tables.
+  const hud = normalizeHud(p.hud);
+  if (isDefaultHud(hud)) delete p.hud;
+  else p.hud = hud;
   // Content database + locales: normalize to well-formed shapes.
   const db = p.db && typeof p.db === 'object' ? p.db : { items: [] };
   db.items = (Array.isArray(db.items) ? db.items : []).filter(

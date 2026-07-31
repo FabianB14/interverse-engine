@@ -4,6 +4,7 @@
  * play mode, and persistence. Panels (inspector, code, story, chat) talk to
  * the world through this class.
  */
+import { History } from './history.js';
 import { Container, Graphics, Text } from 'pixi.js';
 import { Scene, createGame, darken, lighten } from '@interverse/engine';
 import type { Game } from '@interverse/engine';
@@ -202,6 +203,9 @@ export class StudioEditor {
 
   /** Panels subscribe to refresh themselves. */
   onChanged: () => void = () => {};
+  /** Fired when the undo/redo buttons need refreshing. */
+  onHistory: () => void = () => {};
+  readonly history = new History();
   onSelection: () => void = () => {};
   onPlayState: () => void = () => {};
   onScriptError: (err: unknown) => void = () => {};
@@ -233,6 +237,8 @@ export class StudioEditor {
       scene: new BootScene(),
     });
     this.openEditScene();
+    // Baseline for undo: the state before the author touches anything.
+    this.history.reset(this.exportJson());
 
     // Drag-to-move + tile painting plumbing (design coords from the world
     // transform).
@@ -245,6 +251,7 @@ export class StudioEditor {
       }
       if (!this.drag) return;
       const p = this.toDesign(ev.clientX, ev.clientY);
+      this.editLabel = 'move';
       this.drag.def.x = Math.round(p.x - this.drag.dx);
       this.drag.def.y = Math.round(p.y - this.drag.dy);
       const v = this.editScene?.views.get(this.drag.def.id);
@@ -357,12 +364,14 @@ export class StudioEditor {
 
   /** 🎲 Procedural generation into this level's paint layer. */
   generateTiles(kind: GeneratorKind): void {
+    this.editLabel = 'generate tiles';
     this.scene.tiles = generateRows(kind, colsFor(this.scene.worldW), rowsFor(this.scene.worldH));
     this.editScene?.refreshTiles();
     this.touch();
   }
 
   setTile(col: number, row: number, ch: string): void {
+    this.editLabel = 'paint';
     this.scene.tiles ??= emptyRows(colsFor(this.scene.worldW), rowsFor(this.scene.worldH));
     setTileChar(this.scene.tiles, col, row, ch);
     this.editScene?.refreshTiles();
@@ -400,6 +409,7 @@ export class StudioEditor {
   }
 
   addScene(name: string): SceneDef {
+    this.editLabel = 'add level';
     const s = defaultScene(name || `Level ${this.project.scenes.length + 1}`);
     this.project.scenes.push(s);
     this.switchScene(s.id);
@@ -502,6 +512,7 @@ export class StudioEditor {
   // -------------------------------------------------------------- editing
 
   addEntity(kind: EntityKind, x: number, y: number): EntityDef {
+    this.editLabel = 'add actor';
     const def = defaultEntity(kind, x, y);
     // Unique, friendly name: blob, blob 2, blob 3...
     const names = new Set(this.scene.entities.map((e) => e.name));
@@ -517,6 +528,7 @@ export class StudioEditor {
   }
 
   removeEntity(id: string): void {
+    this.editLabel = 'delete actor';
     const i = this.scene.entities.findIndex((e) => e.id === id);
     if (i < 0) return;
     this.scene.entities.splice(i, 1);
@@ -526,6 +538,7 @@ export class StudioEditor {
   }
 
   updateEntity(def: EntityDef): void {
+    this.editLabel = 'edit actor';
     this.editScene?.syncView(def);
     this.refreshRing();
     this.touch();
@@ -590,10 +603,56 @@ export class StudioEditor {
 
   // ---------------------------------------------------------- persistence
 
+  /** Label for the next recorded change — set it right before a touch() to
+   *  say what the undo button should offer ('move', 'rename', 'paint'…). */
+  editLabel = 'edit';
+
   touch(): void {
+    this.history.record(this.exportJson(), this.editLabel);
+    this.onHistory();
     this.onChanged();
     clearTimeout(this.saveTimer);
     this.saveTimer = window.setTimeout(() => this.saveNow(), 400);
+  }
+
+  /** Run an edit under a label, so undo describes it properly. */
+  edit(label: string, fn: () => void): void {
+    const was = this.editLabel;
+    this.editLabel = label;
+    try {
+      fn();
+    } finally {
+      this.editLabel = was;
+    }
+  }
+
+  undo(): boolean {
+    const json = this.history.undo();
+    if (json === null) return false;
+    this.history.apply(() => this.importJson(json));
+    this.onHistory();
+    return true;
+  }
+
+  redo(): boolean {
+    const json = this.history.redo();
+    if (json === null) return false;
+    this.history.apply(() => this.importJson(json));
+    this.onHistory();
+    return true;
+  }
+
+  historyState(): { canUndo: boolean; canRedo: boolean; undoLabel: string; redoLabel: string } {
+    return {
+      canUndo: this.history.canUndo(),
+      canRedo: this.history.canRedo(),
+      undoLabel: this.history.undoLabel(),
+      redoLabel: this.history.redoLabel(),
+    };
+  }
+
+  historyDepth(): { past: number; future: number } {
+    return this.history.depth();
   }
 
   saveNow(): void {
@@ -655,12 +714,19 @@ export class StudioEditor {
     this.sceneId = this.project.startScene;
     this.selectedId = null;
     this.openEditScene();
+    // Loading a template or a file is a big step you should be able to take
+    // back — but a restore driven BY undo must not record itself.
+    if (!this.history.isApplying) {
+      this.history.record(this.exportJson(), this.editLabel === 'edit' ? 'load project' : this.editLabel);
+      this.onHistory();
+    }
     this.onChanged();
     this.onSelection();
     this.saveNow();
   }
 
   addAsset(dataUrl: string): string {
+    this.editLabel = 'import art';
     const id = freshId('a');
     this.project.assets[id] = dataUrl;
     this.touch();
