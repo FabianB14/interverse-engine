@@ -4,6 +4,7 @@ import { wireInspector } from './inspector.js';
 import { wireChat } from './chat.js';
 import { wireFlow } from './flow.js';
 import { wireCodePane } from './codepane.js';
+import { wireControls } from './controls.js';
 import { STARTER_SCRIPT } from './apidocs.js';
 import { PALETTE } from './palette.js';
 import { TEMPLATES } from './templates.js';
@@ -157,6 +158,10 @@ async function main(): Promise<void> {
         editor.playSolo();
       };
     });
+
+  // ------------------------------------------------------- 🎮 controls
+  const controlsUi = wireControls(() => editor.project, () => editor.touch(), openModal);
+  $('btn-controls').onclick = () => controlsUi.open();
 
   // ------------------------------------------------- templates ("✚ New")
   const openTemplates = (): void =>
@@ -705,15 +710,22 @@ async function main(): Promise<void> {
     for (const item of group.items) {
       const btn = document.createElement('div');
       btn.className = 'pal-item';
-      btn.draggable = true;
       btn.innerHTML = `<span class="em">${item.emoji}</span>${item.label}`;
+      // Some palette entries open a screen instead of placing an actor.
+      if (item.opens === 'controls') {
+        btn.addEventListener('click', () => controlsUi.open());
+        palEntities.appendChild(btn);
+        continue;
+      }
+      const kind = item.kind!;
+      btn.draggable = true;
       btn.addEventListener('dragstart', (e) => {
-        e.dataTransfer?.setData('text/interverse-kind', item.kind);
+        e.dataTransfer?.setData('text/interverse-kind', kind);
       });
       // Click also places (center of the design space) — friendlier on touch.
       btn.addEventListener('click', () => {
-        if (item.kind === 'image') placeImage(360, 640);
-        else editor.addEntity(item.kind, 360, 640);
+        if (kind === 'image') placeImage(360, 640);
+        else editor.addEntity(kind, 360, 640);
       });
       palEntities.appendChild(btn);
     }
@@ -950,6 +962,17 @@ async function main(): Promise<void> {
       d.events = events as typeof d.events;
       editor.touch();
       return true;
+    },
+    bindKey: (action: string, key: string) => controlsUi.bind(action, key),
+    unbindKey: (action: string, key: string) => controlsUi.unbind(action, key),
+    keysOf: (action: string) => controlsUi.keysOf(action),
+    addAction: (id: string) => controlsUi.addAction(id),
+    removeAction: (id: string) => controlsUi.removeAction(id),
+    keyConflicts: () => controlsUi.conflicts(),
+    resetControls: () => controlsUi.reset(),
+    getPlayPos: (name: string) => {
+      const e = editor.getPlayScene()?.entityByName(name);
+      return e ? { x: e.x, y: e.y } : { x: 0, y: 0 };
     },
     apiSearch: (q: string) => codePane.search(q),
     apiInsert: (name: string) => codePane.insert(name),

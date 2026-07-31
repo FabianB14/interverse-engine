@@ -1,12 +1,21 @@
 import type { EntityKind } from './model.js';
 
 export interface PaletteItem {
-  kind: EntityKind;
+  /** Placeable actor kinds. Omitted for items that open a screen instead. */
+  kind?: EntityKind;
+  /** Screen this item opens rather than placing anything. */
+  opens?: 'controls';
   label: string;
   emoji: string;
 }
 
 export const PALETTE: { title: string; items: PaletteItem[] }[] = [
+  {
+    // The palette is where people look for "things I can add", and a
+    // control IS a thing you add — so binds get a door here too.
+    title: 'Controls',
+    items: [{ opens: 'controls', label: 'Key & button binds', emoji: '🎮' }],
+  },
   {
     title: 'Characters',
     items: [

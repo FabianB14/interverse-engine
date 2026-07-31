@@ -177,6 +177,49 @@ export interface ItemDef {
   n: number;
 }
 
+/** 🎮 One named thing the player can do. Keys and the on-screen button are
+ *  two BINDINGS of the same action, which is what lets a phone player and a
+ *  keyboard player share one game — the Unity/Godot input-map idea, shrunk
+ *  to something a kid can fill in. */
+export interface ActionDef {
+  /** 'move-left' … 'interact' for builtins; an ability's name otherwise. */
+  id: string;
+  label: string;
+  /** Lowercased `e.key` values. Several keys may drive one action. */
+  keys: string[];
+  /** Draw an on-screen button (steering uses the joystick instead). */
+  button: boolean;
+  /** Built-in icon id, or '@assetId' for imported art. */
+  icon: string;
+  /** Builtins cannot be deleted — a game with no "move left" is broken. */
+  builtin: boolean;
+}
+
+export interface ControlsDef {
+  actions: ActionDef[];
+  /** How phones steer. */
+  touch: 'joystick' | 'dpad';
+}
+
+export const BUILTIN_ACTIONS = ['move-left', 'move-right', 'move-up', 'move-down', 'jump', 'interact'] as const;
+
+/** The keys the engine has always used, now written down instead of baked
+ *  into the movement loop. A unit test pins these against a snapshot so a
+ *  typo can never quietly rebind everyone's arrow keys. */
+export function defaultControls(): ControlsDef {
+  return {
+    touch: 'joystick',
+    actions: [
+      { id: 'move-left', label: '⬅ Move left', keys: ['arrowleft', 'a'], button: false, icon: 'boot', builtin: true },
+      { id: 'move-right', label: '➡ Move right', keys: ['arrowright', 'd'], button: false, icon: 'boot', builtin: true },
+      { id: 'move-up', label: '⬆ Move up', keys: ['arrowup', 'w'], button: false, icon: 'boot', builtin: true },
+      { id: 'move-down', label: '⬇ Move down', keys: ['arrowdown', 's'], button: false, icon: 'boot', builtin: true },
+      { id: 'jump', label: '⤴ Jump', keys: [' '], button: true, icon: 'boot', builtin: true },
+      { id: 'interact', label: '🤝 Talk / use', keys: ['e', 'enter'], button: false, icon: 'star', builtin: true },
+    ],
+  };
+}
+
 export interface ProjectDef {
   version: 1;
   name: string;
@@ -190,6 +233,8 @@ export interface ProjectDef {
   scenes: SceneDef[];
   /** Imported images as data URLs, keyed by asset id. */
   assets: Record<string, string>;
+  /** 🎮 Key + on-screen button bindings (absent = engine defaults). */
+  controls?: ControlsDef;
   /** 🗄 Content database (items today; more tables to come). */
   db?: { items: ItemDef[] };
   /** 🌐 Localization: language -> key -> text; strings starting with @key
@@ -336,6 +381,39 @@ export function normalizeEvents(input: unknown, scope: 'entity' | 'level'): Even
   return events;
 }
 
+/** Merge a stored control table over the defaults: every builtin survives
+ *  (with its stored keys), custom actions are kept if they are well formed,
+ *  and junk is dropped. */
+export function normalizeControls(input: unknown): ControlsDef {
+  const base = defaultControls();
+  const raw = input && typeof input === 'object' ? (input as Partial<ControlsDef>) : {};
+  const stored = Array.isArray(raw.actions) ? raw.actions : [];
+  const clean = (a: unknown): ActionDef | null => {
+    if (!a || typeof a !== 'object') return null;
+    const d = a as Partial<ActionDef>;
+    if (typeof d.id !== 'string' || !d.id) return null;
+    return {
+      id: d.id,
+      label: typeof d.label === 'string' && d.label ? d.label : d.id,
+      keys: (Array.isArray(d.keys) ? d.keys : []).filter((k): k is string => typeof k === 'string' && k.length > 0).map((k) => k.toLowerCase()),
+      button: !!d.button,
+      icon: typeof d.icon === 'string' && d.icon ? d.icon : 'star',
+      builtin: BUILTIN_ACTIONS.includes(d.id as (typeof BUILTIN_ACTIONS)[number]),
+    };
+  };
+  const byId = new Map(base.actions.map((a) => [a.id, a]));
+  for (const a of stored) {
+    const c = clean(a);
+    if (c) byId.set(c.id, c);
+  }
+  // Builtins keep their canonical order, then customs in stored order.
+  const actions = [
+    ...BUILTIN_ACTIONS.map((id) => byId.get(id)!),
+    ...[...byId.values()].filter((a) => !a.builtin),
+  ];
+  return { touch: raw.touch === 'dpad' ? 'dpad' : 'joystick', actions };
+}
+
 /** Parse + minimally repair an imported project. Throws on hopeless input. */
 export function parseProject(json: string): ProjectDef {
   const p = JSON.parse(json) as ProjectDef;
@@ -382,6 +460,9 @@ export function parseProject(json: string): ProjectDef {
     else delete s.events;
   }
   if (!p.scenes.some((s) => s.id === p.startScene)) p.startScene = p.scenes[0]!.id;
+  // 🎮 Controls: repair to a table that always has every builtin action, so
+  // the movement loop can never find itself with no binding for "left".
+  p.controls = normalizeControls(p.controls);
   // Content database + locales: normalize to well-formed shapes.
   const db = p.db && typeof p.db === 'object' ? p.db : { items: [] };
   db.items = (Array.isArray(db.items) ? db.items : []).filter(

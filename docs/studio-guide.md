@@ -91,6 +91,29 @@ like every classic mobile RPG.
 The engine renders with **WebGPU/WebGL** (PixiJS) — hardware-accelerated on
 phones and desktops alike.
 
+## 3¼ · 🎮 Controls — key and button binds
+
+**🎮 Controls** in the toolbar (also the first item in the left palette)
+is where every control lives. Each one has a NAME, and keys and the
+on-screen button are two bindings of that same name — which is how one
+game serves both a phone player and a keyboard player.
+
+- Six controls exist from the start: **move left / right / up / down**,
+  **jump**, and **talk / use**. Their defaults are the keys the engine has
+  always used (arrows + WASD, Space to jump, E or Enter to interact) —
+  now editable rather than baked in.
+- **Click a keycap and press a key** to rebind it. Esc cancels, Backspace
+  clears. **+ key** binds a second key to the same control, so ← and A can
+  both mean left.
+- If two controls share a key you get a ⚠ warning rather than a silent
+  steal — sometimes sharing is what you want.
+- **+ Add an action** makes a new named control (Dash, Block, Shout).
+  Tick **on-screen button** and phone players get a real button for it.
+- **Touch steering** picks between a 🕹 joystick and ✜ d-pad buttons.
+- From code, `api.ability('Dash', { icon: 'boot', key: 'q' }, fn)` still
+  works — and if a control with that name exists in the table, the table
+  wins, so a player can rebind an ability the author hard-coded.
+
 ## 3½ · Paint the world (Tiles)
 
 Hit **🗺 Tiles** in the toolbar and the palette becomes a paintbox: grass,

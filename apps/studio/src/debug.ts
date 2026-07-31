@@ -68,6 +68,14 @@ export interface StudioDebug {
   chatBridged: () => boolean;
   coinsNow: () => number;
   setEvents: (name: string, events: unknown) => boolean;
+  bindKey: (action: string, key: string) => boolean;
+  unbindKey: (action: string, key: string) => boolean;
+  keysOf: (action: string) => string[];
+  addAction: (id: string) => boolean;
+  removeAction: (id: string) => boolean;
+  keyConflicts: () => string[];
+  resetControls: () => void;
+  getPlayPos: (name: string) => { x: number; y: number };
   apiSearch: (q: string) => string[];
   apiInsert: (name: string) => boolean;
   codeText: () => string;

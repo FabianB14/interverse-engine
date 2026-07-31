@@ -491,6 +491,65 @@ const dbOk =
 await page.evaluate(() => window.__studio.stop());
 await sleep(150);
 
+// KEYBOARD: real key presses must move the hero. Nothing in this playtest
+// pressed a key before, so a movement regression could ship green.
+await page.evaluate(() => window.__studio.loadTemplate('topdown'));
+await sleep(300);
+await page.evaluate(() => window.__studio.play());
+await sleep(700);
+const kx0 = await page.evaluate(() => window.__studio.getPlayPos('Hero').x);
+await page.keyboard.down('d');
+await sleep(450);
+await page.keyboard.up('d');
+const kxD = await page.evaluate(() => window.__studio.getPlayPos('Hero').x);
+await page.keyboard.down('ArrowLeft');
+await sleep(450);
+await page.keyboard.up('ArrowLeft');
+const kxL = await page.evaluate(() => window.__studio.getPlayPos('Hero').x);
+const ky0 = await page.evaluate(() => window.__studio.getPlayPos('Hero').y);
+await page.keyboard.down('s');
+await sleep(400);
+await page.keyboard.up('s');
+const kyS = await page.evaluate(() => window.__studio.getPlayPos('Hero').y);
+const keysOk = kxD > kx0 + 20 && kxL < kxD - 20 && kyS > ky0 + 20;
+await page.evaluate(() => window.__studio.stop());
+await sleep(150);
+
+// CONTROLS: rebinding must actually change what the keyboard does. This is
+// the whole point of the feature — data, not literals in the update loop.
+await page.evaluate(() => window.__studio.resetControls());
+const defRight = await page.evaluate(() => window.__studio.keysOf('move-right'));
+// Bind J to move-right, and drop the defaults so only J can drive it.
+await page.evaluate(() => window.__studio.bindKey('move-right', 'j'));
+await page.evaluate(() => window.__studio.unbindKey('move-right', 'd'));
+await page.evaluate(() => window.__studio.unbindKey('move-right', 'arrowright'));
+const reboundRight = await page.evaluate(() => window.__studio.keysOf('move-right'));
+await page.evaluate(() => window.__studio.play());
+await sleep(700);
+const rx0 = await page.evaluate(() => window.__studio.getPlayPos('Hero').x);
+await page.keyboard.down('d');
+await sleep(350);
+await page.keyboard.up('d');
+const rxOldKey = await page.evaluate(() => window.__studio.getPlayPos('Hero').x);
+await page.keyboard.down('j');
+await sleep(350);
+await page.keyboard.up('j');
+const rxNewKey = await page.evaluate(() => window.__studio.getPlayPos('Hero').x);
+await page.evaluate(() => window.__studio.stop());
+await sleep(150);
+// Custom actions, deletion rules, and conflict reporting.
+const addedCustom = await page.evaluate(() => window.__studio.addAction('Dash'));
+const killBuiltin = await page.evaluate(() => window.__studio.removeAction('move-left'));
+const killCustom = await page.evaluate(() => window.__studio.removeAction('Dash'));
+await page.evaluate(() => window.__studio.bindKey('interact', 'a'));
+const conflicts = await page.evaluate(() => window.__studio.keyConflicts());
+await page.evaluate(() => window.__studio.resetControls());
+const controlsOk =
+  defRight.join(',') === 'arrowright,d' && reboundRight.join(',') === 'j' &&
+  rxOldKey === rx0 && rxNewKey > rx0 + 20 &&
+  addedCustom === true && killBuiltin === false && killCustom === true &&
+  conflicts.includes('a');
+
 // SCRIPTING PALETTE: the 🔍 command dock finds api calls, inserts working
 // code at the cursor, and script failures render in the panel (not alert()).
 const apiAll = await page.evaluate(() => window.__studio.apiSearch(''));
@@ -670,7 +729,7 @@ const ok =
   placeOk && editOk && storyOk && levelsOk && playOk && stopOk && exportOk && importOk &&
   templatesOk && skillsOk && scoreOk && tilesOk && cameraOk && frameOk && combatOk && rangedOk &&
   patrolOk && chatOk && coinsOk && persistOk && libOk && eventsOk && genOk && uiOk && dbOk &&
-  questOk && levelEvOk && apiOk && netOk &&
+  questOk && levelEvOk && apiOk && keysOk && controlsOk && netOk &&
   errors.length === 0;
 console.log(
   JSON.stringify(
@@ -692,6 +751,8 @@ console.log(
       questOk, qScene0, qShop, qVar1, qStillVillage, qVar2, qScene2,
       levelEvOk, lvlEvN, lvlMusic, lvlTicks, lvlTap, lvlMobs, lvlEarly, lvlCleared,
       apiOk, apiN: apiAll.length, apiHit0: apiHit[0], inserted, scriptErr,
+      keysOk, kx0, kxD, kxL, ky0, kyS,
+      controlsOk, defRight, reboundRight, rx0, rxOldKey, rxNewKey, addedCustom, killBuiltin, killCustom, conflicts,
       netOk, playersA, playersB, remotesB, moveOk, remotePosB, stateB,
       errors: errors.slice(0, 6),
     },

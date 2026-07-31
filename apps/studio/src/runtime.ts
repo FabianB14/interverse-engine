@@ -28,7 +28,7 @@ import { DialogueBox, UIButton } from '@interverse/ui';
 import { fetchChainBalance } from '@interverse/platform';
 import { drawOutfit } from './cosmetics.js';
 import { drawIcon } from './icons.js';
-import { defaultEntity } from './model.js';
+import { defaultControls, defaultEntity } from './model.js';
 import type { EntityDef, EntityKind, EventAction, EventDef, ProjectDef, SceneDef, TapSound } from './model.js';
 import { SkillTree } from './skills.js';
 import type { SkillTreeDef } from './skills.js';
@@ -492,7 +492,10 @@ interface Projectile {
 
 interface AbilityState {
   name: string;
-  key: string;
+  /** Every key bound to it — the project's 🎮 Controls table wins over the
+   *  `key` passed in code, so a player can rebind an ability the author
+   *  hard-coded. */
+  keys: string[];
   cooldown: number;
   remaining: number;
   cb: () => void;
@@ -532,6 +535,8 @@ export class PlayScene extends Scene {
   private mobStates = new Map<string, MobState>();
   /** ⚡ Level 'tap' events — fired by tapping empty ground. */
   private levelTaps: (() => void)[] = [];
+  /** 🎮 action id -> the keys bound to it, from project.controls. */
+  private binds = new Map<string, string[]>();
   private defeatCbs: ((name: string) => void)[] = [];
   private abilityStates: AbilityState[] = [];
   private heartsMax = 0;
@@ -553,7 +558,8 @@ export class PlayScene extends Scene {
   private varsMap = new Map<string, number>();
   private onKeyDown = (e: KeyboardEvent): void => {
     this.keys.add(e.key.toLowerCase());
-    const a = this.abilityStates.find((x) => x.key && x.key === e.key.toLowerCase());
+    const pressed = e.key.toLowerCase();
+    const a = this.abilityStates.find((x) => x.keys.includes(pressed));
     if (a) this.fireAbility(a.name);
   };
   private onKeyUp = (e: KeyboardEvent): void => {
@@ -622,6 +628,7 @@ export class PlayScene extends Scene {
     // Game space lives in `world`; the camera pans it when the level is
     // bigger than one screen. HUD/UI stays on the stage (screen space).
     setLocaleTable(this.project.locales);
+    this.binds = new Map((this.project.controls ?? defaultControls()).actions.map((a) => [a.id, a.keys]));
     this.stage.addChildAt(this.world, 0);
     const bg = new Graphics()
       .rect(0, 0, this.sceneDef.worldW, this.sceneDef.worldH)
@@ -1027,9 +1034,11 @@ export class PlayScene extends Scene {
     }
     const overlay = new Graphics();
     root.addChild(overlay);
-    if (opts.key) {
+    // The key hint on the button shows whatever is actually bound now.
+    const boundKeys = this.binds.get(name) ?? (opts.key ? [opts.key.toLowerCase()] : []);
+    if (boundKeys.length) {
       const k = new Text({
-        text: opts.key.toUpperCase(),
+        text: (boundKeys[0] === ' ' ? 'SPACE' : boundKeys[0]!).toUpperCase(),
         style: {
           fontFamily: 'system-ui, sans-serif',
           fontSize: 17,
@@ -1047,7 +1056,7 @@ export class PlayScene extends Scene {
     this.stage.addChild(root);
     this.abilityStates.push({
       name,
-      key: (opts.key ?? '').toLowerCase(),
+      keys: this.binds.get(name) ?? (opts.key ? [opts.key.toLowerCase()] : []),
       cooldown: Math.max(0.1, opts.cooldown ?? 0.5),
       remaining: 0,
       cb,
@@ -1628,6 +1637,19 @@ export class PlayScene extends Scene {
           break;
       }
     }
+  }
+
+  /** Is any key bound to this action currently down? */
+  private held(actionId: string): boolean {
+    const keys = this.binds.get(actionId);
+    if (!keys) return false;
+    for (const k of keys) if (this.keys.has(k)) return true;
+    return false;
+  }
+
+  /** Headless hook: look up a live entity by name. */
+  entityByName(name: string): Entity | undefined {
+    return this.byName.get(name);
   }
 
   /** Headless hook: fire the level's 'tap anywhere' events. */
@@ -2324,10 +2346,11 @@ export class PlayScene extends Scene {
       const brawlerJump = depth && this.sceneDef.gravity;
       let kx = 0;
       let ky = 0;
-      if (this.keys.has('arrowleft') || this.keys.has('a')) kx -= 1;
-      if (this.keys.has('arrowright') || this.keys.has('d')) kx += 1;
-      if (this.keys.has('arrowup') || this.keys.has('w') || (!brawlerJump && this.keys.has(' '))) ky -= 1;
-      if (this.keys.has('arrowdown') || this.keys.has('s')) ky += 1;
+      if (this.held('move-left')) kx -= 1;
+      if (this.held('move-right')) kx += 1;
+      // In platformer gravity, "jump" is also "up" — one key, both meanings.
+      if (this.held('move-up') || (!brawlerJump && this.held('jump'))) ky -= 1;
+      if (this.held('move-down')) ky += 1;
       const jx = this.joystick?.value.x ?? 0;
       const jy = this.joystick?.value.y ?? 0;
       const mx = kx || jx;
@@ -2375,7 +2398,7 @@ export class PlayScene extends Scene {
           }
         }
         if (brawlerJump) {
-          if (this.keys.has(' ')) this.tryJump();
+          if (this.held('jump')) this.tryJump();
           this.tickJump(dt);
         }
       }
