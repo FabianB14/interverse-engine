@@ -1062,6 +1062,49 @@ await page.evaluate(() => window.__studio.stop());
 await sleep(200);
 const terrainOk = narrowest >= 2 && mobInWall === 0;
 
+// 🧭 PATHFINDING: a wall right across the level with one gap on the left.
+// A straight-line chaser can only press into it; a pathing one goes round.
+await page.evaluate(() => window.__studio.loadTemplate('blank'));
+await sleep(400);
+await page.evaluate(() => {
+  // Row 16 is y 640. Wall from col 4 rightwards; the gap is cols 0-3.
+  for (let c = 4; c < 18; c++) window.__studio.setTile(c, 16, 'k');
+  window.__studio.select('Hero');
+  window.__studio.setProp('x', 620);
+  window.__studio.setProp('y', 380);
+});
+const pathMob = await page.evaluate(() => {
+  const n = window.__studio.addEntity('mob', 620, 900);
+  window.__studio.select(n);
+  window.__studio.setProp('moveSpeed', 200);
+  window.__studio.setProp('hp', 999);
+  return n;
+});
+await page.evaluate(() => {
+  window.__studio.setScript("api.player('Hero', 0); api.hearts(99);");
+  window.__studio.play();
+});
+await sleep(900);
+const pathStart = await page.evaluate((n) => window.__studio.getPlayPos(n), pathMob);
+let pathCrossed = false;
+let pathClosest = Infinity;
+let pathWentLeft = false;
+for (let i = 0; i < 60; i++) {
+  await sleep(250);
+  const pos = await page.evaluate((n) => window.__studio.getPlayPos(n), pathMob);
+  const hero = await page.evaluate(() => window.__studio.getPlayPos('Hero'));
+  pathClosest = Math.min(pathClosest, Math.hypot(pos.x - hero.x, pos.y - hero.y));
+  // Heading for the gap means going AWAY from the player first.
+  if (pos.x < 200) pathWentLeft = true;
+  if (pos.y < 640) pathCrossed = true;
+  if (pathCrossed && pathClosest < 80) break;
+}
+await page.screenshot({ path: `${outDir}/st-39-pathing.png` });
+await page.evaluate(() => window.__studio.stop());
+await sleep(200);
+const pathOk =
+  pathStart.y > 640 && pathWentLeft && pathCrossed && pathClosest < 80;
+
 // ▾ FOLDING PANEL: every heading collapses, and remembers it.
 await page.evaluate(() => window.__studio.loadTemplate('quest'));
 await sleep(500);
@@ -1690,7 +1733,7 @@ const ok =
   placeOk && editOk && storyOk && levelsOk && playOk && stopOk && exportOk && importOk &&
   templatesOk && skillsOk && scoreOk && tilesOk && cameraOk && frameOk && combatOk && rangedOk &&
   patrolOk && chatOk && coinsOk && persistOk && libOk && eventsOk && genOk && uiOk && dbOk &&
-  questOk && levelEvOk && apiOk && keysOk && controlsOk && skillsBranchOk && gameGenOk && dropOk && artOk && originOk && abilityOk && menuOk && undoOk && hudOk && dialogueOk && platformOk && multiOk && ringOk && toolbarOk && attackOk && layersOk && netOk && authorityOk && slotsOk && terrainOk && foldOk &&
+  questOk && levelEvOk && apiOk && keysOk && controlsOk && skillsBranchOk && gameGenOk && dropOk && artOk && originOk && abilityOk && menuOk && undoOk && hudOk && dialogueOk && platformOk && multiOk && ringOk && toolbarOk && attackOk && layersOk && netOk && authorityOk && slotsOk && terrainOk && pathOk && foldOk &&
   errors.length === 0;
 console.log(
   JSON.stringify(
@@ -1735,6 +1778,7 @@ console.log(
       authorityOk, roleA, roleB, authMobs, authMobName, authHostPos, authJoinPos, authAgree,
       hpBefore, hpAfter, joinerSawHp, mobsBeforeJunk, mobsAfterJunk, linkB,
       terrainOk, narrowest, mobInWall,
+      pathOk, pathStart, pathWentLeft, pathCrossed, pathClosest,
       foldOk, foldRows0, foldRows1, foldRows2, foldRows3, foldState, foldKept,
       slotsOk, slotFresh, slotAfterEnter, slotLevel, slotUnlocked1, slotUnlocked2, slotTwo,
       slotBackAgain, slotErased, slotCarried,

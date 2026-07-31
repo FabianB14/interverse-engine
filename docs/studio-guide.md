@@ -660,6 +660,24 @@ the player's: an enemy that snags on a corner looks broken, while one that
 hugs walls slightly tightly does not. An enemy mid-🐗 charge that runs into
 a wall stops charging rather than grinding along it.
 
+### 🧭 Finding their way round
+
+🏃 Chase and 🛡 Guard enemies **path around walls**. With a clear line to
+the player they steer straight at them; with something in the way they
+route around it — including heading *away* from the player first, if that
+is where the door is.
+
+There is nothing to switch on and nothing to author: paint terrain and
+enemies use it. It works on hand-painted levels and generated ones alike.
+
+The engine does this with one shared **flow field** — a single sweep out
+from the player labels every reachable tile, and every chaser walks
+downhill. A dozen enemies cost the same as one, which is what keeps it
+affordable at 60fps on a phone. Enemies never cut the diagonal between two
+wall corners (they would not fit), and an enemy with no route at all — a
+player standing somewhere it cannot reach — falls back to walking toward
+them, rather than standing still looking broken.
+
 ### ⚔ How an enemy attacks
 
 Pick a pattern on any 👾 monster or 👹 boss, and set **Attack every (secs)**:

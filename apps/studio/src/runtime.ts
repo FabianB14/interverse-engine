@@ -21,6 +21,7 @@ import {
   lighten,
   makeTappable,
   moveWithCollision,
+  solidAt,
   verium,
 } from '@interverse/engine';
 import type { DialogueData, Game, MusicTrackId, SaveStore, TileMapData, VfxPreset } from '@interverse/engine';
@@ -41,6 +42,8 @@ import {
 } from './slots.js';
 import type { SlotInfo } from './slots.js';
 import { SnapshotBuffer, encodeWorld, goneFrom, roleOf, shouldSnap, simulates, smoothTo } from './authority.js';
+import { FIELD_REFRESH_SECS, flowField, lineOfSight, nextStep, withinChaseRange } from './pathing.js';
+import type { PathGrid } from './pathing.js';
 import type { NetRole } from './authority.js';
 import {
   CHARGE_SPEED, CHARGE_TIME, SLAM_TIME, attackDuration, attackShots, slamHits, slamRadius, windupFor,
@@ -1538,6 +1541,76 @@ export class PlayScene extends Scene {
   // --------------------------------------------------------------- mob AI
 
   /**
+   * 🧭 Which way an enemy should head to reach the player.
+   *
+   * With a clear line, straight at them — following a grid when you can see
+   * your target looks like a robot on rails. Otherwise, downhill along the
+   * shared flow field, which is the only way to get around a wall.
+   *
+   * If the field has nothing to say (no tiles painted, the player standing
+   * somewhere unreachable, the enemy itself stuck inside terrain) this falls
+   * back to the direct heading. Pressing into a wall is bad; standing
+   * completely still because the map is odd is worse.
+   */
+  private steerToPlayer(m: MobState, me: Entity): { x: number; y: number } {
+    const direct = (): { x: number; y: number } => {
+      const d = Math.hypot(me.x - m.e.x, me.y - m.e.y) || 1;
+      return { x: (me.x - m.e.x) / d, y: (me.y - m.e.y) / d };
+    };
+    const grid = this.pathGrid();
+    if (!grid) return direct();
+    const ts = this.tileMap!.tileSize;
+    const mc = Math.floor(m.e.x / ts);
+    const mr = Math.floor(m.e.y / ts);
+    const pc = Math.floor(me.x / ts);
+    const pr = Math.floor(me.y / ts);
+    if (lineOfSight(grid, mc, mr, pc, pr)) return direct();
+    const field = this.pathTo(grid, pc, pr);
+    if (!withinChaseRange(field, grid, mc, mr)) return direct();
+    const step = nextStep(grid, field, mc, mr);
+    if (!step) return direct();
+    // Aim at the middle of the next tile, so an enemy leaving a doorway does
+    // not clip the frame on the way out.
+    const tx = (step.col + 0.5) * ts;
+    const ty = (step.row + 0.5) * ts;
+    const d = Math.hypot(tx - m.e.x, ty - m.e.y) || 1;
+    return { x: (tx - m.e.x) / d, y: (ty - m.e.y) / d };
+  }
+
+  private pathGrid(): PathGrid | null {
+    const map = this.tileMap;
+    if (!map) return null;
+    this.grid ??= {
+      cols: map.width,
+      rows: map.height,
+      solid: (c, r) => solidAt(map, c, r),
+    };
+    return this.grid.cols ? this.grid : null;
+  }
+
+  /**
+   * The flow field to a tile, rebuilt at most a few times a second and
+   * shared by every enemy in the level. One sweep for the whole cast is what
+   * makes this affordable; a path per enemy per frame would not be.
+   */
+  private pathTo(grid: PathGrid, col: number, row: number): Int32Array {
+    if (this.field && this.fieldAge < FIELD_REFRESH_SECS && this.fieldCol === col && this.fieldRow === row) {
+      return this.field;
+    }
+    this.field = flowField(grid, col, row);
+    this.fieldCol = col;
+    this.fieldRow = row;
+    this.fieldAge = 0;
+    return this.field;
+  }
+
+  private grid: PathGrid | null = null;
+  private field: Int32Array | null = null;
+  private fieldCol = -1;
+  private fieldRow = -1;
+  private fieldAge = 0;
+
+  /**
    * Move an enemy, respecting painted walls.
    *
    * Enemies used to ignore terrain entirely — they only clamped to the world
@@ -1572,6 +1645,7 @@ export class PlayScene extends Scene {
   }
 
   private updateMobs(dt: number): void {
+    this.fieldAge += dt;
     if (this.hurtT > 0) this.hurtT = Math.max(0, this.hurtT - dt);
     const me = this.players[0]?.entity;
     if (me && !me.destroyed) me.alpha = this.hurtT > 0 ? 0.55 : 1;
@@ -1591,13 +1665,15 @@ export class PlayScene extends Scene {
       const b = m.def.behavior;
       const dMe = me && !me.destroyed ? Math.hypot(me.x - m.e.x, me.y - m.e.y) : Infinity;
       if (b === 'chase' && me && !me.destroyed && dMe > 6) {
-        vx = (me.x - m.e.x) / dMe;
-        vy = (me.y - m.e.y) / dMe;
+        const steer = this.steerToPlayer(m, me);
+        vx = steer.x;
+        vy = steer.y;
       } else if (b === 'guard') {
         const dHome = Math.hypot(m.e.x - m.homeX, m.e.y - m.homeY);
         if (me && !me.destroyed && dMe < 280 && dHome < 420 && dMe > 6) {
-          vx = (me.x - m.e.x) / dMe;
-          vy = (me.y - m.e.y) / dMe;
+          const steer = this.steerToPlayer(m, me);
+          vx = steer.x;
+          vy = steer.y;
         } else if (dHome > 12) {
           vx = (m.homeX - m.e.x) / dHome;
           vy = (m.homeY - m.e.y) / dHome;
