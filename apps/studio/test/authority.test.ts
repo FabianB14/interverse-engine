@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   LOST_AFTER_MS, RECONNECT_DELAYS_MS, SLOW_AFTER_MS, SNAP_DISTANCE, encodeWorld, goneFrom,
+  BUFFER_STALE_MS, INTERP_DELAY_MS, SnapshotBuffer,
   isFresh, linkState, reconnectDelay, roleOf, shouldSnap, simulates, smoothTo,
 } from '../src/authority.js';
 
@@ -129,5 +130,75 @@ describe('reconnecting', () => {
   it('gives up rather than retrying forever', () => {
     expect(reconnectDelay(0)).toBe(RECONNECT_DELAYS_MS[0]);
     expect(reconnectDelay(RECONNECT_DELAYS_MS.length)).toBeNull();
+  });
+});
+
+describe('⏱ interpolating between snapshots', () => {
+  const snap = (t, x) => ({ t, mobs: [{ n: 'A', x, y: 0, hp: 3 }], shots: [] });
+
+  it('holds the only thing it has', () => {
+    const buf = new SnapshotBuffer();
+    buf.push(snap(1, 100), 1000);
+    expect(buf.sample(1000).get('A')).toEqual({ x: 100, y: 0 });
+  });
+
+  /** The point of the delay: between two real snapshots there is always
+   *  something to interpolate, so motion is constant rather than lurching. */
+  it('renders the halfway point halfway between two snapshots', () => {
+    const buf = new SnapshotBuffer();
+    buf.push(snap(1, 0), 1000);
+    buf.push(snap(2, 100), 1100);
+    // Ask for 1050 (delay 120 from now=1170) — halfway between the pair.
+    expect(buf.sample(1170, 120).get('A')!.x).toBeCloseTo(50, 5);
+  });
+
+  it('never runs ahead of what it was told', () => {
+    const buf = new SnapshotBuffer();
+    buf.push(snap(1, 0), 1000);
+    buf.push(snap(2, 100), 1100);
+    for (let now = 1100; now < 1400; now += 10) {
+      const x = buf.sample(now, INTERP_DELAY_MS).get('A')!.x;
+      expect(x).toBeGreaterThanOrEqual(0);
+      expect(x).toBeLessThanOrEqual(100);
+    }
+  });
+
+  /** A dropped connection must not send a monster sailing off the map. */
+  it('holds the last pose when nothing arrives', () => {
+    const buf = new SnapshotBuffer();
+    buf.push(snap(1, 0), 1000);
+    buf.push(snap(2, 100), 1100);
+    expect(buf.sample(1100 + BUFFER_STALE_MS + 500).get('A')).toEqual({ x: 100, y: 0 });
+  });
+
+  it('refuses a packet that arrives out of order', () => {
+    const buf = new SnapshotBuffer();
+    expect(buf.push(snap(5, 0), 1000)).toBe(true);
+    expect(buf.push(snap(3, 999), 1010)).toBe(false);
+    expect(buf.latest().t).toBe(5);
+  });
+
+  /** Unbounded history would be a leak in a game that runs for an hour. */
+  it('keeps only enough history to cover a hiccup', () => {
+    const buf = new SnapshotBuffer();
+    for (let i = 1; i <= 40; i++) buf.push(snap(i, i), 1000 + i * 100);
+    expect(buf.size).toBeLessThanOrEqual(8);
+    expect(buf.latest().t).toBe(40);
+  });
+
+  it('shows something that only just appeared, rather than hiding it', () => {
+    const buf = new SnapshotBuffer();
+    buf.push({ t: 1, mobs: [], shots: [] }, 1000);
+    buf.push(snap(2, 70), 1100);
+    expect(buf.sample(1170, 120).get('A')).toEqual({ x: 70, y: 0 });
+  });
+
+  it('starts empty and can be emptied again', () => {
+    const buf = new SnapshotBuffer();
+    expect(buf.sample(0).size).toBe(0);
+    buf.push(snap(1, 0), 10);
+    buf.clear();
+    expect(buf.size).toBe(0);
+    expect(buf.latest()).toBeNull();
   });
 });

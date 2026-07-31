@@ -8,6 +8,9 @@ import { wireControls } from './controls.js';
 import { isEditorUndoTarget } from './history.js';
 import { isEditorClipboardTarget, withinMarquee } from './clipboard.js';
 import { wireToolbar } from './toolbar.js';
+import {
+  FOLDS_KEY, foldArrow, foldId, isFolded, loadFolds, pruneFolds, saveFolds, toggleFold,
+} from './folds.js';
 import { ensureHud, moveHudPart, openHudEditor } from './hud.js';
 import { createAbility, grantTo, openAbilityEditor } from './abilities.js';
 import {
@@ -1086,6 +1089,46 @@ async function main(): Promise<void> {
   palTiles.style.display = 'none';
   left.append(hier, palEntities, palTiles);
 
+  // ▾ Folding: which headings are closed, remembered across reloads.
+  let folded = loadFolds(localStorage.getItem(FOLDS_KEY));
+  const persistFolds = (): void => {
+    try {
+      localStorage.setItem(FOLDS_KEY, saveFolds(folded));
+    } catch {
+      /* private mode — folding still works for this session */
+    }
+  };
+  /** A heading that folds the block under it. The body is built by the
+   *  caller and simply not shown when closed, so nothing has to know how to
+   *  undo itself. */
+  const foldSection = (
+    host: HTMLElement,
+    id: string,
+    title: string,
+    build: (body: HTMLElement) => void,
+  ): void => {
+    const closed = isFolded(folded, id);
+    const head = document.createElement('div');
+    head.className = 'pal-head';
+    head.style.cssText = 'cursor:pointer;user-select:none;display:flex;gap:6px;align-items:center';
+    head.title = closed ? 'Show' : 'Hide';
+    head.innerHTML = `<span style="width:10px;display:inline-block">${foldArrow(closed)}</span><span>${title}</span>`;
+    head.onclick = () => {
+      folded = toggleFold(folded, id);
+      persistFolds();
+      refreshPanels();
+    };
+    host.appendChild(head);
+    if (closed) return;
+    const body = document.createElement('div');
+    host.appendChild(body);
+    build(body);
+  };
+
+  /** Rebuild every folding panel. Declared before the sections that call it
+   *  and filled in once they all exist, because they fold each other. */
+  let refreshPanels = (): void => {};
+
   // 🌲 Hierarchy: every level and its actors as a tree — click to select.
   const KIND_EMOJI: Record<string, string> = {
     blob: '🙂', npc: '💬', mob: '👾', boss: '👹', crate: '📦', lantern: '🏮',
@@ -1093,41 +1136,65 @@ async function main(): Promise<void> {
   };
   const refreshHierarchy = (): void => {
     hier.innerHTML = '';
-    const head = document.createElement('div');
-    head.className = 'pal-head';
-    head.textContent = '🌲 Hierarchy';
-    hier.appendChild(head);
-    for (const scene of editor.project.scenes) {
-      const active = scene.id === editor.sceneId;
-      const row = document.createElement('div');
-      row.style.cssText = `cursor:pointer;font-weight:800;padding:2px 4px;border-radius:6px;${active ? 'color:var(--accent)' : 'color:var(--ink-soft)'}`;
-      row.textContent = `${active ? '▾' : '▸'} 🚪 ${scene.name}`;
-      row.onclick = () => editor.switchScene(scene.id);
-      hier.appendChild(row);
-      if (!active) continue;
-      for (const ent of scene.entities) {
-        const er = document.createElement('div');
-        const sel = editor.selectedIds.includes(ent.id);
-        er.style.cssText = `cursor:pointer;padding:1px 4px 1px 20px;border-radius:6px;font-size:13px;${sel ? 'background:var(--panel2);color:var(--accent)' : ''}`;
-        er.textContent = `${KIND_EMOJI[ent.kind] ?? '·'} ${ent.name}${ent.events.length ? ' ⚡' : ''}`;
-        // Ctrl/⌘-click adds one; shift-click takes the run between the last
-        // pick and this one, the way every file list works.
-        er.onclick = (e) => {
-          if (e.shiftKey && editor.selectedId) {
-            const ids = scene.entities.map((x) => x.id);
-            const from = ids.indexOf(editor.selectedId);
-            const to = ids.indexOf(ent.id);
-            if (from >= 0 && to >= 0) {
-              const [lo, hi] = from < to ? [from, to] : [to, from];
-              editor.selectMany([...editor.selectedIds, ...ids.slice(lo, hi + 1)]);
+    // Levels come and go; their fold state should not outlive them.
+    folded = pruneFolds(folded, editor.project.scenes.map((sc) => sc.id));
+    foldSection(hier, foldId.hierarchy(), '🌲 Hierarchy', (body) => {
+      for (const scene of editor.project.scenes) {
+        const active = scene.id === editor.sceneId;
+        const shut = isFolded(folded, foldId.level(scene.id));
+        const row = document.createElement('div');
+        row.style.cssText = `display:flex;gap:4px;align-items:center;font-weight:800;padding:2px 4px;border-radius:6px;${active ? 'color:var(--accent)' : 'color:var(--ink-soft)'}`;
+        // The arrow folds; the NAME opens the level. Before, the arrow only
+        // reported which level was open and clicking anywhere switched — so
+        // there was no way to see one level's actors while editing another.
+        const tw = document.createElement('span');
+        tw.textContent = foldArrow(shut);
+        tw.style.cssText = 'cursor:pointer;width:10px';
+        tw.title = shut ? 'Show actors' : 'Hide actors';
+        tw.onclick = (e) => {
+          e.stopPropagation();
+          folded = toggleFold(folded, foldId.level(scene.id));
+          persistFolds();
+          refreshHierarchy();
+        };
+        const name = document.createElement('span');
+        name.textContent = `🚪 ${scene.name}`;
+        name.style.cursor = 'pointer';
+        name.title = active ? 'This level' : 'Open this level';
+        name.onclick = () => editor.switchScene(scene.id);
+        row.append(tw, name);
+        body.appendChild(row);
+        if (shut) continue;
+        for (const ent of scene.entities) {
+          const er = document.createElement('div');
+          const sel = active && editor.selectedIds.includes(ent.id);
+          er.style.cssText = `cursor:pointer;padding:1px 4px 1px 24px;border-radius:6px;font-size:13px;${sel ? 'background:var(--panel2);color:var(--accent)' : ''}${active ? '' : ';opacity:0.65'}`;
+          er.textContent = `${KIND_EMOJI[ent.kind] ?? '·'} ${ent.name}${ent.events.length ? ' ⚡' : ''}`;
+          // Ctrl/⌘-click adds one; shift-click takes the run between the
+          // last pick and this one, the way every file list works.
+          er.onclick = (e) => {
+            // Clicking into a level you are not in should take you there.
+            if (!active) {
+              editor.switchScene(scene.id);
+              editor.select(ent.id);
               return;
             }
-          }
-          editor.select(ent.id, e.ctrlKey || e.metaKey);
-        };
-        hier.appendChild(er);
+            if (e.shiftKey && editor.selectedId) {
+              const ids = scene.entities.map((x) => x.id);
+              const from = ids.indexOf(editor.selectedId);
+              const to = ids.indexOf(ent.id);
+              if (from >= 0 && to >= 0) {
+                const [lo, hi] = from < to ? [from, to] : [to, from];
+                editor.selectMany([...editor.selectedIds, ...ids.slice(lo, hi + 1)]);
+                return;
+              }
+            }
+            editor.select(ent.id, e.ctrlKey || e.metaKey);
+          };
+          body.appendChild(er);
+        }
       }
-    }
+    });
     const spacer = document.createElement('div');
     spacer.style.height = '8px';
     hier.appendChild(spacer);
@@ -1147,10 +1214,6 @@ async function main(): Promise<void> {
   const buildTilePalette = (): void => {
     palTiles.innerHTML = '';
     // 🥞 Which layer the brush writes to, before what it writes.
-    const layerHead = document.createElement('div');
-    layerHead.className = 'pal-head';
-    layerHead.textContent = '🥞 Layer';
-    palTiles.appendChild(layerHead);
     const layerRow = document.createElement('div');
     layerRow.className = 'row';
     layerRow.style.cssText = 'gap:4px;margin-bottom:4px';
@@ -1176,12 +1239,10 @@ async function main(): Promise<void> {
       layerBtns.set(spec.id, b);
       layerRow.appendChild(b);
     }
-    palTiles.append(layerRow, layerHint);
+    foldSection(palTiles, foldId.tiles('layer'), '🥞 Layer', (b) => b.append(layerRow, layerHint));
     pickLayer(editor.paintLayer);
-    const head = document.createElement('div');
-    head.className = 'pal-head';
-    head.textContent = 'Paint terrain';
-    palTiles.appendChild(head);
+    const swatches = document.createElement('div');
+    foldSection(palTiles, foldId.tiles('paint'), 'Paint terrain', (b) => b.appendChild(swatches));
     const pick = (el: HTMLElement, ch: string): void => {
       editor.setTileMode(ch);
       activeSwatch?.style.removeProperty('border-color');
@@ -1287,34 +1348,44 @@ async function main(): Promise<void> {
     importImageFile(f, { x: 360, y: 640 });
   });
 
-  for (const group of PALETTE) {
-    const head = document.createElement('div');
-    head.className = 'pal-head';
-    head.textContent = group.title;
-    palEntities.appendChild(head);
-    for (const item of group.items) {
-      const btn = document.createElement('div');
-      btn.className = 'pal-item';
-      btn.innerHTML = `<span class="em">${item.emoji}</span>${item.label}`;
-      // Some palette entries open a screen instead of placing an actor.
-      if (item.opens === 'controls') {
-        btn.addEventListener('click', () => controlsUi.open());
-        palEntities.appendChild(btn);
-        continue;
-      }
-      const kind = item.kind!;
-      btn.draggable = true;
-      btn.addEventListener('dragstart', (e) => {
-        e.dataTransfer?.setData('text/interverse-kind', kind);
+  const buildPalette = (): void => {
+    palEntities.innerHTML = '';
+    for (const group of PALETTE) {
+      foldSection(palEntities, foldId.palette(group.title), group.title, (body) => {
+        for (const item of group.items) {
+          const btn = document.createElement('div');
+          btn.className = 'pal-item';
+          btn.innerHTML = `<span class="em">${item.emoji}</span>${item.label}`;
+          // Some palette entries open a screen instead of placing an actor.
+          if (item.opens === 'controls') {
+            btn.addEventListener('click', () => controlsUi.open());
+            body.appendChild(btn);
+            continue;
+          }
+          const kind = item.kind!;
+          btn.draggable = true;
+          btn.addEventListener('dragstart', (e) => {
+            e.dataTransfer?.setData('text/interverse-kind', kind);
+          });
+          // Click also places (center of design space) — friendlier on touch.
+          btn.addEventListener('click', () => {
+            if (kind === 'image') placeImage(360, 640);
+            else editor.addEntity(kind, 360, 640);
+          });
+          body.appendChild(btn);
+        }
       });
-      // Click also places (center of the design space) — friendlier on touch.
-      btn.addEventListener('click', () => {
-        if (kind === 'image') placeImage(360, 640);
-        else editor.addEntity(kind, 360, 640);
-      });
-      palEntities.appendChild(btn);
     }
-  }
+  };
+  buildPalette();
+
+  // Assigned once every panel builder exists — they fold each other, so the
+  // rebuild has to be able to reach all of them.
+  refreshPanels = (): void => {
+    refreshHierarchy();
+    buildPalette();
+    buildTilePalette();
+  };
 
   // Drop onto the canvas.
   center.addEventListener('dragover', (e) => {
@@ -1588,6 +1659,16 @@ async function main(): Promise<void> {
     netWorld: () => editor.net?.world() ?? null,
     netLink: () => editor.getPlayScene()?.linkNow() ?? 'live',
     netRequestHit: (name: string, dmg: number) => editor.net?.requestHit(name, dmg),
+    /** ▾ folding panel */
+    foldsNow: () => [...loadFolds(localStorage.getItem(FOLDS_KEY))],
+    foldToggle: (title: string) => {
+      const head = [...document.querySelectorAll('#left .pal-head')].find((h) =>
+        (h.textContent ?? '').includes(title),
+      );
+      (head as HTMLElement | undefined)?.click();
+      return !!head;
+    },
+    leftRowCount: () => document.querySelectorAll('#left .pal-item').length,
     setWorldSize: (w: number, h: number) => editor.setWorldSize(w, h),
     worldSize: () => editor.getPlayScene()?.worldSize() ?? { w: editor.scene.worldW, h: editor.scene.worldH },
     cameraX: () => editor.getPlayScene()?.cameraX() ?? 0,

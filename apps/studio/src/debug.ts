@@ -68,6 +68,10 @@ export interface StudioDebug {
   netWorld: () => { t: number; mobs: { n: string; x: number; y: number; hp: number }[]; shots: { x: number; y: number }[] } | null;
   netLink: () => string;
   netRequestHit: (name: string, dmg: number) => void;
+  /** ▾ folding panel */
+  foldsNow: () => string[];
+  foldToggle: (title: string) => boolean;
+  leftRowCount: () => number;
   setView: (v: 'top' | 'depth') => void;
   setGravity: (g: boolean) => void;
   setWorldSize: (w: number, h: number) => void;

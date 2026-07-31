@@ -40,7 +40,7 @@ import {
   suggestSlot, summarize, unlockedLevels, withSlot,
 } from './slots.js';
 import type { SlotInfo } from './slots.js';
-import { encodeWorld, goneFrom, roleOf, shouldSnap, simulates, smoothTo } from './authority.js';
+import { SnapshotBuffer, encodeWorld, goneFrom, roleOf, shouldSnap, simulates, smoothTo } from './authority.js';
 import type { NetRole } from './authority.js';
 import {
   CHARGE_SPEED, CHARGE_TIME, SLAM_TIME, attackDuration, attackShots, slamHits, slamRadius, windupFor,
@@ -786,7 +786,13 @@ export class PlayScene extends Scene {
         was = now;
         this.showLink(now);
       });
-      this.net.onLink((state) => this.showLink(state));
+      this.net.onLink((state) => {
+        // A rejoined session is a new connection: the buffered history is
+        // from before the drop, and interpolating out of it would drag every
+        // enemy back to where it was when the wifi died.
+        if (state === 'live') this.snaps.clear();
+        this.showLink(state);
+      });
       return;
     }
     this.net.onHit((req) => {
@@ -1531,6 +1537,34 @@ export class PlayScene extends Scene {
 
   // --------------------------------------------------------------- mob AI
 
+  /**
+   * Move an enemy, respecting painted walls.
+   *
+   * Enemies used to ignore terrain entirely — they only clamped to the world
+   * edges — so every monster in every level walked straight through rock,
+   * water and trees. It was least visible in open levels and unmissable in a
+   * generated maze, where enemies simply cut through the walls at the player.
+   *
+   * Their box is smaller than the player's: an enemy that snags on a corner
+   * looks broken, while one that hugs walls a little tightly does not.
+   */
+  private moveMob(m: MobState, dx: number, dy: number, W: number, H: number, minY: number): void {
+    if (this.tileMap) {
+      const r = Math.max(8, Math.min(18, m.def.radius * m.def.scale * 0.45));
+      const moved = moveWithCollision(this.tileMap, m.e.x, m.e.y, r, r, dx, dy);
+      // A charging enemy that has run into a wall has finished charging —
+      // otherwise it grinds along it for the rest of the dash.
+      if (m.dashT > 0 && Math.abs(moved.x - m.e.x) < Math.abs(dx) * 0.5 && Math.abs(moved.y - m.e.y) < Math.abs(dy) * 0.5) {
+        m.dashT = 0;
+      }
+      m.e.x = Math.max(20, Math.min(W - 20, moved.x));
+      m.e.y = Math.max(minY, Math.min(H - 20, moved.y));
+      return;
+    }
+    m.e.x = Math.max(20, Math.min(W - 20, m.e.x + dx));
+    m.e.y = Math.max(minY, Math.min(H - 20, m.e.y + dy));
+  }
+
   /** 🛰 solo / host / joiner. Everything that could disagree between two
    *  machines asks this before acting. */
   private get role(): NetRole {
@@ -1598,8 +1632,7 @@ export class PlayScene extends Scene {
       if (vx !== 0) this.face(m.e, vx);
       this.autoClip(m.def, vx || vy ? 'walk' : 'idle');
       if (vx || vy) {
-        m.e.x = Math.max(20, Math.min(W - 20, m.e.x + vx * speed * dt));
-        m.e.y = Math.max(minY, Math.min(H - 20, m.e.y + vy * speed * dt));
+        this.moveMob(m, vx * speed * dt, vy * speed * dt, W, H, minY);
       }
       this.tickAttack(m, me, dMe, dt);
       this.checkContact(m, me);
@@ -1929,22 +1962,30 @@ export class PlayScene extends Scene {
   private renderHostWorld(dt: number): void {
     const snap = this.net?.world();
     if (!snap) return;
-    const seen = new Set<string>();
+    // ⏱ Positions come from a moment in the PAST, interpolated between two
+    // things the host actually said — see authority.ts. Health and existence
+    // come from the newest snapshot: being told late that something died is
+    // fine, showing a stale health bar is not.
+    const now = Date.now();
+    this.snaps.push(snap, now);
+    const at = this.snaps.sample(now);
     for (const ms of snap.mobs) {
-      seen.add(ms.n);
       const m = this.mobStates.get(ms.n);
       if (!m || m.e.destroyed) continue;
-      const dx = ms.x - m.e.x;
-      const dy = ms.y - m.e.y;
+      const want = at.get(ms.n) ?? { x: ms.x, y: ms.y };
+      const dx = want.x - m.e.x;
+      const dy = want.y - m.e.y;
       if (shouldSnap(dx, dy)) {
         // Easing across half the map would read as walking through walls.
-        m.e.x = ms.x;
-        m.e.y = ms.y;
+        m.e.x = want.x;
+        m.e.y = want.y;
       } else {
-        m.e.x = smoothTo(m.e.x, ms.x, dt);
-        m.e.y = smoothTo(m.e.y, ms.y, dt);
+        // A short ease on top of the interpolation absorbs the seam when one
+        // pair of snapshots hands over to the next.
+        m.e.x = smoothTo(m.e.x, want.x, dt, 22);
+        m.e.y = smoothTo(m.e.y, want.y, dt, 22);
       }
-      if (dx) this.face(m.e, dx);
+      if (Math.abs(dx) > 0.5) this.face(m.e, dx);
       if (m.hp !== ms.hp) {
         m.hp = ms.hp;
         this.refreshMobBar(m);
@@ -1987,6 +2028,8 @@ export class PlayScene extends Scene {
   }
 
   private ghostShots: Entity[] = [];
+  /** ⏱ Recent worlds, so the renderer can look between two of them. */
+  private readonly snaps = new SnapshotBuffer();
 
   /** Host: describe the world for everyone else, ten times a second. */
   private publishWorld(dt: number): void {

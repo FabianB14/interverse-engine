@@ -23,9 +23,38 @@ const grid = (cols: number, rows: number, ch: string): string[][] =>
 
 const toRows = (g: string[][]): string[] => g.map((r) => r.join(''));
 
+/**
+ * The narrowest gap a generated level may leave, in tiles.
+ *
+ * Tiles are 40 design units and a character is drawn about 68 across, so a
+ * one-tile corridor is narrower than the person walking down it: the art
+ * visibly overlaps both walls and every corner snags. Two tiles is the
+ * smallest gap that a character fits through and looks like it fits through.
+ */
+export const MIN_GAP_TILES = 2;
+
+/** Blow a grid up by `n`, so every feature is at least `n` tiles across.
+ *  Scaling the whole map is the one widening that cannot break it: a maze
+ *  stays exactly as connected as it was, corridors and walls together. */
+function upscale(g: string[][], n: number, cols: number, rows: number): string[][] {
+  return Array.from({ length: rows }, (_, r) =>
+    Array.from({ length: cols }, (_, c) => g[Math.floor(r / n)]?.[Math.floor(c / n)] ?? g[0]![0]!),
+  );
+}
+
 /** Maze: rock walls + dirt paths, recursive backtracker on an odd lattice.
  *  Every floor cell is reachable from every other. */
 export function mazeRows(cols: number, rows: number, rng: Rng = Math.random): string[] {
+  // Carve at half size and blow it up, so corridors come out MIN_GAP_TILES
+  // wide instead of one. Widening a finished maze by knocking walls out
+  // would open shortcuts and could join two corridors into a room; scaling
+  // cannot, because it scales the walls too.
+  const cw = Math.max(3, Math.ceil(cols / MIN_GAP_TILES));
+  const rw = Math.max(3, Math.ceil(rows / MIN_GAP_TILES));
+  return toRows(upscale(carveMaze(cw, rw, rng), MIN_GAP_TILES, cols, rows));
+}
+
+function carveMaze(cols: number, rows: number, rng: Rng): string[][] {
   const g = grid(cols, rows, 'k');
   // carve on odd coordinates so walls stay 1 tile thick
   const cw = Math.max(1, Math.floor((cols - 1) / 2));
@@ -58,7 +87,7 @@ export function mazeRows(cols: number, rows: number, rng: Rng = Math.random): st
     g[1 + cy * 2 + dy!]![1 + cx * 2 + dx!] = 'd';
     stack.push([nx, ny]);
   }
-  return toRows(g);
+  return g;
 }
 
 /** Dungeon: brick walls, stone-floor rooms joined by L-corridors. */
@@ -76,12 +105,21 @@ export function dungeonRows(cols: number, rows: number, rng: Rng = Math.random):
     }
     rooms.push([Math.min(cols - 2, x + Math.floor(w / 2)), Math.min(rows - 2, y + Math.floor(h / 2))]);
   }
-  // connect each room to the previous with an L corridor
+  // Connect each room to the previous with an L corridor, MIN_GAP_TILES
+  // thick — the rooms were always wide enough, so the corridors between
+  // them were the only place a player could get wedged.
+  const floor = (c: number, r: number): void => {
+    if (r > 0 && r < rows - 1 && c > 0 && c < cols - 1) g[r]![c] = 'p';
+  };
   for (let i = 1; i < rooms.length; i++) {
     const [ax, ay] = rooms[i - 1]!;
     const [bx, by] = rooms[i]!;
-    for (let c = Math.min(ax, bx); c <= Math.max(ax, bx); c++) g[ay]![c] = 'p';
-    for (let r = Math.min(ay, by); r <= Math.max(ay, by); r++) g[r]![bx] = 'p';
+    for (let c = Math.min(ax, bx); c <= Math.max(ax, bx); c++) {
+      for (let t = 0; t < MIN_GAP_TILES; t++) floor(c, ay + t);
+    }
+    for (let r = Math.min(ay, by); r <= Math.max(ay, by) + MIN_GAP_TILES - 1; r++) {
+      for (let t = 0; t < MIN_GAP_TILES; t++) floor(bx + t, r);
+    }
   }
   return toRows(g);
 }
@@ -106,6 +144,9 @@ export function islandRows(cols: number, rows: number, rng: Rng = Math.random): 
       if (g[r]![c] === 'g' && rng() > 0.93) g[r]![c] = 't';
     }
   }
+  // A gap a character cannot fit through is a wall that does not look like
+  // one, so the coastline gets tidied before anyone has to walk it.
+  fixPinches(g, cols, rows, 's', 'w');
   // keep the very center walkable for spawns
   for (let r = Math.floor(cy) - 1; r <= Math.floor(cy) + 1; r++) {
     for (let c = Math.floor(cx) - 1; c <= Math.floor(cx) + 1; c++) {
@@ -113,6 +154,62 @@ export function islandRows(cols: number, rows: number, rng: Rng = Math.random): 
     }
   }
   return toRows(g);
+}
+
+/**
+ * Fix gaps narrower than MIN_GAP_TILES on an organic map.
+ *
+ * Only used where the layout came from noise (the island's coastline) — on
+ * a maze this would cut shortcuts, so mazes are widened by scaling instead.
+ *
+ * Two different problems wear the same disguise. A squeeze between two
+ * landmasses should be opened up; a one-tile spit of sand poking into the
+ * ocean cannot be opened up at all, and is better returned to the sea than
+ * left as a tile you can see but not stand on. So: widen what can be
+ * widened, and drown whatever is still too narrow afterwards.
+ */
+function fixPinches(g: string[][], cols: number, rows: number, fill: string, water: string): void {
+  const solid = (c: number, r: number): boolean => {
+    const ch = g[r]?.[c];
+    return ch === undefined || ch === 'w' || ch === 'k' || ch === 't' || ch === 'b';
+  };
+  /** Walkable tiles sitting in a run narrower than MIN_GAP_TILES. */
+  const narrow = (): [number, number][] => {
+    const out: [number, number][] = [];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (solid(c, r)) continue;
+        if ((solid(c - 1, r) && solid(c + 1, r)) || (solid(c, r - 1) && solid(c, r + 1))) {
+          out.push([c, r]);
+        }
+      }
+    }
+    return out;
+  };
+  // Both fixes create new neighbours to check, so this re-scans until the
+  // coastline settles rather than assuming one pass is enough. Bounded, so
+  // a pathological map cannot spin here.
+  for (let pass = 0; pass < 8; pass++) {
+    const found = narrow();
+    if (!found.length) return;
+    for (const [c, r] of found) {
+      if (solid(c, r)) continue; // already drowned this round
+      let widened = false;
+      for (const [dc, dr] of [[1, 0], [0, 1], [-1, 0], [0, -1]] as const) {
+        const nc = c + dc;
+        const nr = r + dr;
+        // Never open the outer ring — the island needs a coast.
+        if (nc <= 0 || nr <= 0 || nc >= cols - 1 || nr >= rows - 1) continue;
+        if (solid(nc, nr)) {
+          g[nr]![nc] = fill;
+          widened = true;
+          break;
+        }
+      }
+      // Nothing to open into: this is a one-tile spit, not a corridor.
+      if (!widened) g[r]![c] = water;
+    }
+  }
 }
 
 export type GeneratorKind = 'maze' | 'dungeon' | 'island';

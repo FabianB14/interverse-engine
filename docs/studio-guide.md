@@ -130,8 +130,19 @@ steals them from a field you are typing in.
 ## 2 · Build the scene
 
 The left panel starts with the **🌲 Hierarchy** — every level and its
-actors as a tree. Click a level to open it, click an actor to select it
-(⚡ marks actors with events). Below it, the palette adds new actors.
+actors as a tree. Click a level's **name** to open it, click an actor to
+select it (⚡ marks actors with events). Below it, the palette adds new
+actors.
+
+**Everything folds.** Click any heading — 🌲 Hierarchy, Characters,
+Enemies, Props, 🥞 Layer, 🎲 Generate — to collapse it, and the twisty
+beside a level folds its actor list. Folds are remembered between
+sessions, so the panel stays the shape you left it.
+
+The twisty and the name do different things on purpose: the arrow folds,
+the name opens the level. That means you can browse another level's actors
+without leaving the one you are editing — clicking one of them takes you
+there and selects it.
 
 - **Drag** items from the left palette onto the canvas (or click to place).
 - **Click** an entity to select it; **drag** it to move; edit everything else
@@ -308,6 +319,14 @@ shore, water, scattered trees). Generated tiles are ordinary paint —
 touch them up by hand afterwards. From code the same generators power
 endless games: `api.setTiles(api.gen.dungeon())` rebuilds the level
 live, collision included.
+
+Generated levels come out **walkable**: corridors are at least two tiles
+wide, because a tile is 40 units and a character is drawn about 68 across
+— a one-tile corridor is narrower than the person walking down it, so the
+art overlaps both walls and every corner snags. Mazes get there by being
+carved at half size and scaled up (which cannot open a shortcut), dungeon
+corridors are drawn two thick, and an island's coastline has its pinch
+points widened or returned to the sea.
 
 ### 🥞 Layers
 
@@ -635,6 +654,12 @@ are one system. `api.xp.add(n)` grants XP from quests; `api.level()` reads
 the current level. The **Blob Arena** template shows the whole loop:
 slimes with different AI, two mapped abilities, hearts, XP, and a boss.
 
+Enemies **collide with painted terrain** like players do — they cannot walk
+through rock, water or trees. Their collision box is a little smaller than
+the player's: an enemy that snags on a corner looks broken, while one that
+hugs walls slightly tightly does not. An enemy mid-🐗 charge that runs into
+a wall stops charging rather than grinding along it.
+
 ### ⚔ How an enemy attacks
 
 Pick a pattern on any 👾 monster or 👹 boss, and set **Attack every (secs)**:
@@ -909,6 +934,19 @@ So in a room:
 None of this needs wiring: tick Multiplayer and the roles sort themselves
 out. `api.net.isHost` tells you which side you are on if a game wants to
 do something different as host.
+
+**⏱ Smoothing.** Snapshots arrive ten times a second; frames are drawn
+sixty. Rather than chase the newest snapshot — which stalls between packets
+and lurches when one lands — a joiner renders about 120ms in the **past**,
+interpolating between two things the host actually said. That is one
+snapshot interval plus a margin: enough to always have a pair to work from,
+not enough to feel behind. Nothing you control is delayed by it.
+
+Interpolation runs on **local arrival times**, not the host's clock, because
+two devices' clocks can differ by any amount while the gaps between arrivals
+are always right. If snapshots stop coming, the last pose is held rather
+than extrapolated, so a dropped connection cannot send a monster sailing off
+the map.
 
 **If the connection drops**, a joiner shows `📶 catching up…` and then
 `🔌 reconnecting…` while it rejoins the same room code, backing off

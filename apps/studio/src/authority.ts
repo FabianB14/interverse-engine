@@ -141,3 +141,94 @@ export const RECONNECT_DELAYS_MS = [1000, 2000, 4000, 8000];
 export function reconnectDelay(attempt: number): number | null {
   return RECONNECT_DELAYS_MS[attempt] ?? null;
 }
+
+// ------------------------------------------------------ ⏱ lag compensation
+
+/**
+ * How far behind live the renderer runs, in ms.
+ *
+ * Easing toward the newest snapshot is smooth but always guessing: between
+ * packets there is nothing to ease toward, so motion stalls and then lurches
+ * when the next one lands. Rendering slightly in the PAST instead means
+ * there are always two real snapshots to interpolate between, so remote
+ * things move at a constant, correct speed.
+ *
+ * The cost is exactly this much extra latency on everything you do not
+ * control, which is why it is only a little more than one snapshot interval
+ * (100ms) — enough to always have a pair, not enough to feel behind.
+ */
+export const INTERP_DELAY_MS = 120;
+
+/** Nothing has arrived for this long: stop interpolating and hold, rather
+ *  than extrapolating a monster off into the distance. */
+export const BUFFER_STALE_MS = 1000;
+
+interface Held {
+  /** LOCAL arrival time. The host's clock is not ours and the difference
+   *  between two machines' clocks is unbounded — but the gaps between
+   *  arrivals are exactly what interpolation needs, and those are local. */
+  at: number;
+  snap: WorldSnap;
+}
+
+/**
+ * Keeps the last few world snapshots so the renderer can look up where
+ * something was a moment ago, between two things the host actually said.
+ */
+export class SnapshotBuffer {
+  private held: Held[] = [];
+
+  /** Ignores anything out of order — a late packet must not rewrite history. */
+  push(snap: WorldSnap, nowMs: number): boolean {
+    const last = this.held[this.held.length - 1];
+    if (last && !isFresh(snap, last.snap.t)) return false;
+    this.held.push({ at: nowMs, snap });
+    // Two is the minimum to interpolate between; a handful covers a hiccup.
+    while (this.held.length > 8) this.held.shift();
+    return true;
+  }
+
+  get size(): number {
+    return this.held.length;
+  }
+
+  latest(): WorldSnap | null {
+    return this.held[this.held.length - 1]?.snap ?? null;
+  }
+
+  /**
+   * The world as it was `INTERP_DELAY_MS` ago. Returns positions only —
+   * health and existence come from the newest snapshot, because being told
+   * late that something died is fine but being told a stale HP is not.
+   */
+  sample(nowMs: number, delayMs = INTERP_DELAY_MS): Map<string, { x: number; y: number }> {
+    const out = new Map<string, { x: number; y: number }>();
+    if (!this.held.length) return out;
+    const target = nowMs - delayMs;
+    const newest = this.held[this.held.length - 1]!;
+    // Nothing recent: hold the last known pose rather than extrapolating a
+    // monster off into the distance on a dropped connection.
+    if (nowMs - newest.at > BUFFER_STALE_MS || target >= newest.at) {
+      for (const m of newest.snap.mobs) out.set(m.n, { x: m.x, y: m.y });
+      return out;
+    }
+    // Find the pair bracketing the target time.
+    let b = 0;
+    while (b < this.held.length && this.held[b]!.at < target) b++;
+    const after = this.held[Math.min(b, this.held.length - 1)]!;
+    const before = this.held[Math.max(0, b - 1)]!;
+    const span = after.at - before.at;
+    const k = span > 0 ? Math.max(0, Math.min(1, (target - before.at) / span)) : 1;
+    const from = new Map(before.snap.mobs.map((m) => [m.n, m]));
+    for (const m of after.snap.mobs) {
+      const a = from.get(m.n);
+      // New since the earlier snapshot: it has no history to come from.
+      out.set(m.n, a ? { x: a.x + (m.x - a.x) * k, y: a.y + (m.y - a.y) * k } : { x: m.x, y: m.y });
+    }
+    return out;
+  }
+
+  clear(): void {
+    this.held = [];
+  }
+}

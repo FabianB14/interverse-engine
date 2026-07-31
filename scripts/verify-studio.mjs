@@ -1011,6 +1011,80 @@ const layersOk =
   layPlays === true && layOverPlays === true && layWalkedThrough > 200 &&
   layRound[0] === 'g' && layRound[1] === 'k';
 
+// 🧱 GENERATED LEVELS + MOB WALLS: a generated maze has to be walkable, and
+// enemies have to respect the walls the player does.
+await page.evaluate(() => window.__studio.loadTemplate('blank'));
+await sleep(400);
+await page.evaluate(() => window.__studio.genTiles('maze'));
+await sleep(300);
+const genRows = await page.evaluate(() => window.__studio.tileRows());
+const SOLID_CH = new Set(['w', 'k', 't', 'b']);
+// The narrowest walkable run anywhere: a one-tile corridor is narrower than
+// the character walking down it, which is what made mazes unplayable.
+let narrowest = Infinity;
+const scanRun = (get, len) => {
+  let run = 0;
+  for (let i = 0; i < len; i++) {
+    if (get(i)) run++;
+    else {
+      if (run) narrowest = Math.min(narrowest, run);
+      run = 0;
+    }
+  }
+  if (run) narrowest = Math.min(narrowest, run);
+};
+for (let r = 0; r < genRows.length; r++) {
+  scanRun((c) => !SOLID_CH.has(genRows[r][c] ?? '.'), genRows[0].length);
+}
+for (let c = 0; c < genRows[0].length; c++) {
+  scanRun((r) => !SOLID_CH.has(genRows[r]?.[c] ?? '.'), genRows.length);
+}
+// Drop a fast chaser across the maze and watch where it ends up.
+const wallMob = await page.evaluate(() => {
+  const n = window.__studio.addEntity('mob', 620, 1100);
+  window.__studio.select(n);
+  window.__studio.setProp('moveSpeed', 220);
+  return n;
+});
+await page.evaluate(() => {
+  window.__studio.setScript("api.player('Hero', 300);");
+  window.__studio.play();
+});
+await sleep(2500);
+let mobInWall = 0;
+for (let i = 0; i < 15; i++) {
+  const pos = await page.evaluate((n) => window.__studio.getPlayPos(n), wallMob);
+  if (SOLID_CH.has(genRows[Math.floor(pos.y / 40)]?.[Math.floor(pos.x / 40)] ?? '.')) mobInWall++;
+  await sleep(120);
+}
+await page.screenshot({ path: `${outDir}/st-37-maze.png` });
+await page.evaluate(() => window.__studio.stop());
+await sleep(200);
+const terrainOk = narrowest >= 2 && mobInWall === 0;
+
+// ▾ FOLDING PANEL: every heading collapses, and remembers it.
+await page.evaluate(() => window.__studio.loadTemplate('quest'));
+await sleep(500);
+const foldRows0 = await page.evaluate(() => window.__studio.leftRowCount());
+const foldHit = await page.evaluate(() => window.__studio.foldToggle('Props'));
+await sleep(250);
+const foldRows1 = await page.evaluate(() => window.__studio.leftRowCount());
+const foldState = await page.evaluate(() => window.__studio.foldsNow());
+await page.locator('#left').screenshot({ path: `${outDir}/st-38-folds.png` });
+// It has to survive a reload, or folding is just a fidget.
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForFunction(() => window.__studio?.ready?.() === true, null, { timeout: 30_000 });
+await sleep(600);
+const foldRows2 = await page.evaluate(() => window.__studio.leftRowCount());
+const foldKept = await page.evaluate(() => window.__studio.foldsNow());
+// And unfold again.
+await page.evaluate(() => window.__studio.foldToggle('Props'));
+await sleep(250);
+const foldRows3 = await page.evaluate(() => window.__studio.leftRowCount());
+const foldOk =
+  foldHit === true && foldRows1 < foldRows0 && foldState.length > 0 &&
+  foldRows2 === foldRows1 && foldKept.length === foldState.length && foldRows3 === foldRows0;
+
 // 💾 SAVE SLOTS: three separate runs, each remembering where it was.
 // The quest template has three levels, which is what makes "continue" and
 // "unlocked" mean anything.
@@ -1616,7 +1690,7 @@ const ok =
   placeOk && editOk && storyOk && levelsOk && playOk && stopOk && exportOk && importOk &&
   templatesOk && skillsOk && scoreOk && tilesOk && cameraOk && frameOk && combatOk && rangedOk &&
   patrolOk && chatOk && coinsOk && persistOk && libOk && eventsOk && genOk && uiOk && dbOk &&
-  questOk && levelEvOk && apiOk && keysOk && controlsOk && skillsBranchOk && gameGenOk && dropOk && artOk && originOk && abilityOk && menuOk && undoOk && hudOk && dialogueOk && platformOk && multiOk && ringOk && toolbarOk && attackOk && layersOk && netOk && authorityOk && slotsOk &&
+  questOk && levelEvOk && apiOk && keysOk && controlsOk && skillsBranchOk && gameGenOk && dropOk && artOk && originOk && abilityOk && menuOk && undoOk && hudOk && dialogueOk && platformOk && multiOk && ringOk && toolbarOk && attackOk && layersOk && netOk && authorityOk && slotsOk && terrainOk && foldOk &&
   errors.length === 0;
 console.log(
   JSON.stringify(
@@ -1660,6 +1734,8 @@ console.log(
       netOk, playersA, playersB, remotesB, moveOk, remotePosB, stateB,
       authorityOk, roleA, roleB, authMobs, authMobName, authHostPos, authJoinPos, authAgree,
       hpBefore, hpAfter, joinerSawHp, mobsBeforeJunk, mobsAfterJunk, linkB,
+      terrainOk, narrowest, mobInWall,
+      foldOk, foldRows0, foldRows1, foldRows2, foldRows3, foldState, foldKept,
       slotsOk, slotFresh, slotAfterEnter, slotLevel, slotUnlocked1, slotUnlocked2, slotTwo,
       slotBackAgain, slotErased, slotCarried,
       errors: errors.slice(0, 6),
