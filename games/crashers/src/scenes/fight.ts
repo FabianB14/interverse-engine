@@ -113,6 +113,9 @@ export class FightScene extends Scene {
   private nextShotId = 1;
   private runner!: WaveRunner;
   private limitX = 0;
+  /** Is the way ahead barred right now? The host reads it off the runner;
+   *  a joiner is told, because its own runner never advances. */
+  private gateShut = false;
   private gate = new Graphics();
   private heartsText!: Text;
   private partyText!: Text;
@@ -429,7 +432,10 @@ export class FightScene extends Scene {
     this.tickMates(step);
     this.syncNet(step);
     this.drawGate();
-    this.arrow.visible = !this.runner.finished && this.runner.progress.state === 'travelling';
+    // Both the gate and the arrow are read from gateShut rather than from the
+    // runner, because a joiner's runner never advances — it has no idea a
+    // wave was spawned or beaten.
+    this.arrow.visible = !this.gateShut && (this.simulating ? !this.runner.finished : true);
     if (this.simulating) this.checkOutcome();
   }
 
@@ -533,16 +539,14 @@ export class FightScene extends Scene {
       this.banner('CLEAR!');
     }
     this.limitX = this.runner.limitX;
+    this.gateShut = !this.runner.finished && this.runner.progress.state === 'fighting';
   }
 
   /** The gate is a wall, so it is drawn as one: a visible barrier exactly
    *  where the invisible limit is. A rule the player cannot see is a bug. */
   private drawGate(): void {
     this.gate.clear();
-    const closed = this.simulating
-      ? !this.runner.finished && this.runner.progress.state === 'fighting'
-      : this.limitX < this.def.length - 260;
-    if (!closed) return;
+    if (!this.gateShut) return;
     const x = this.limitX;
     const top = HORIZON_Y - 70;
     const h = GROUND_BOTTOM_Y - top;
@@ -829,6 +833,7 @@ export class FightScene extends Scene {
       type: 'snap', foes, shots,
       party: this.party_(),
       limitX: Math.round(this.limitX),
+      gate: this.gateShut,
     };
     if (this.lastBanner) {
       snap.banner = this.lastBanner;
@@ -839,6 +844,7 @@ export class FightScene extends Scene {
 
   private applySnap(msg: SnapMsg): void {
     this.limitX = msg.limitX;
+    this.gateShut = msg.gate;
     const seen = new Set<number>();
     for (const s of msg.foes) {
       seen.add(s.i);

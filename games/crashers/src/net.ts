@@ -115,6 +115,11 @@ export interface SnapMsg {
   party: PartyMember[];
   /** How far right anyone may walk — the gate, shared by all. */
   limitX: number;
+  /** Whether the gate is actually shut. limitX alone cannot say: it is the
+   *  next gate's position at all times, including while everyone is still
+   *  walking toward it, so a joiner reading limitX draws a wall that is not
+   *  there yet. */
+  gate: boolean;
   /** Wave banner to show, once. */
   banner?: string;
 }
