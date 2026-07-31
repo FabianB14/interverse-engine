@@ -82,6 +82,26 @@ export {
 } from './brawler/coop.js';
 export type { PartyMember } from './brawler/coop.js';
 
+// 🏃 Runner kit (§4.7) — the endless-runner pieces: a road drawn in
+// perspective, three lanes, jump/slide, swipes, and a fair track generator.
+export {
+  DEFAULT_PROJECTION, DRAW_DISTANCE, depthIndex, depthOf, fogAlpha, project, visible,
+} from './runner/perspective.js';
+export type { Projected, Projection } from './runner/perspective.js';
+export { LANE_COUNT, LANE_SNAP_SECS, LANE_WIDTH, LaneRider, clampLane, laneX } from './runner/lanes.js';
+export {
+  BUFFER_SECS, FAST_FALL, JUMP_HEIGHT, JUMP_SECS, SLIDE_SECS, RunnerMoves, speedAt,
+} from './runner/moves.js';
+export type { MoveState } from './runner/moves.js';
+export {
+  HAZARD_RULES, HIT_DEPTH, REACTION_SECS, TrackBuilder, collides, fairDistance, survives,
+} from './runner/track.js';
+export type { Hazard, HazardKind, Pickup, TrackOptions } from './runner/track.js';
+export { SWIPE_THRESHOLD, Swipe, swipeDir } from './input/swipe.js';
+export type { SwipeDir, SwipeOptions } from './input/swipe.js';
+export { rollingBlob, wrapAngle } from './art/roller.js';
+export type { RollingBlob, RollingBlobOptions } from './art/roller.js';
+
 // 🛰 Host authority (§4.11) — who is allowed to decide what in a shared
 // world, and how the machines that are not deciding stay smooth.
 export {
