@@ -531,6 +531,25 @@ When a script fails, the error appears **under the code** with a
 plain-language hint ("There is no *apu* here. Every command starts with
 api.") instead of a browser pop-up.
 
+## 7⅞ · 📍 Where your project lives
+
+Next to the project name the toolbar shows **where this game is saved** —
+`● on this device`, or `✓ owner/repo@branch` once you connect one. The dot
+means unsaved changes, the tick means saved. Click it to change any of it.
+
+- **💾 Save** writes back to wherever the project lives: a device slot, or
+  a commit to your repo. It is one button whatever the answer is.
+- **🐙 Connect a GitHub repo** — owner, repo, branch, path and a
+  fine-grained token. **📂 Open from repo** pulls the project in and links
+  it; **🔗 Link only** links the copy you already have open.
+- **✚ New → 📂 Open one you already have** does the same from the start
+  screen, alongside opening a `.interverse.json` file.
+
+Your token stays in this device's browser storage and **never enters the
+game file** — that is why the repo link is stored per device rather than
+inside the project (spec §8.4: no credentials ship with a game). The
+exported JSON is pure game data, safe to publish anywhere.
+
 ## 8 · Multiplayer blocks
 
 Tick **Multiplayer** in the toolbar and press ▶ Play — you get a lobby:

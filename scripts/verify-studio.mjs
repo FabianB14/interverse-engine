@@ -491,6 +491,31 @@ const dbOk =
 await page.evaluate(() => window.__studio.stop());
 await sleep(150);
 
+// PROJECT ORIGIN: a project remembers WHERE it lives, the toolbar says so,
+// and — the part that matters — the credential never enters the game file.
+await page.evaluate(() => window.__studio.loadTemplate('topdown'));
+await sleep(300);
+const whereBefore = await page.evaluate(() => window.__studio.whereText());
+const whereLabel = await page.evaluate(() =>
+  window.__studio.setOriginGitHub({ owner: 'fabian', repo: 'my-games', branch: 'main', path: 'g.json' }),
+);
+const whereAfter = await page.evaluate(() => window.__studio.whereText());
+const originKind = await page.evaluate(() => window.__studio.originNow().kind);
+// Editing must show as unsaved.
+await page.evaluate(() => window.__studio.addEntity('crate', 300, 300));
+await sleep(150);
+const syncDirty = await page.evaluate(() => window.__studio.syncState());
+// The exported game must carry no origin, token or key of any kind.
+const leaks = await page.evaluate(() => window.__studio.projectHasSecrets());
+const exportedJson = await page.evaluate(() => window.__studio.exportJson());
+await page.evaluate(() => window.__studio.setOriginDevice());
+const originDevice = await page.evaluate(() => window.__studio.originNow().kind);
+const originOk =
+  whereBefore.includes('device') && whereLabel === 'fabian/my-games@main' &&
+  whereAfter.includes('fabian/my-games') && originKind === 'github' &&
+  syncDirty === 'dirty' && leaks.length === 0 &&
+  !exportedJson.includes('my-games') && originDevice === 'device';
+
 // ART LIBRARY: imported pictures are listed, reusable across actors,
 // deletable without stranding anyone, and budget-counted.
 await page.evaluate(() => window.__studio.loadTemplate('topdown'));
@@ -880,7 +905,7 @@ const ok =
   placeOk && editOk && storyOk && levelsOk && playOk && stopOk && exportOk && importOk &&
   templatesOk && skillsOk && scoreOk && tilesOk && cameraOk && frameOk && combatOk && rangedOk &&
   patrolOk && chatOk && coinsOk && persistOk && libOk && eventsOk && genOk && uiOk && dbOk &&
-  questOk && levelEvOk && apiOk && keysOk && controlsOk && skillsBranchOk && gameGenOk && dropOk && artOk && netOk &&
+  questOk && levelEvOk && apiOk && keysOk && controlsOk && skillsBranchOk && gameGenOk && dropOk && artOk && originOk && netOk &&
   errors.length === 0;
 console.log(
   JSON.stringify(
@@ -906,6 +931,7 @@ console.log(
       controlsOk, defRight, reboundRight, rx0, rxOldKey, rxNewKey, addedCustom, killBuiltin, killCustom, conflicts,
       skillsBranchOk, brN, skOpen, layout, rank3, crossBranch, sameBranch, spentBrawl, refunded, afterRespec,
       gameGenOk, genProblems, genName, genScenes, genFirst, genPlays, genVisible, genMobs, genLive, cozyMobs,
+      originOk, whereBefore, whereLabel, whereAfter, originKind, syncDirty, leaks, originDevice,
       artOk, artId, artUnused, artAssigned, artBytes, artPlays, artCount, artCleared, artReject,
       dropOk, dropOpened, dropN: dropAll.length, dropCoin0: dropCoin[0], dropHigh, dropMoved, scenesBefore, scenesAfter, lvlEvAfter,
       netOk, playersA, playersB, remotesB, moveOk, remotePosB, stateB,

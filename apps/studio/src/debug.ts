@@ -68,6 +68,12 @@ export interface StudioDebug {
   chatBridged: () => boolean;
   coinsNow: () => number;
   setEvents: (name: string, events: unknown) => boolean;
+  originNow: () => unknown;
+  setOriginGitHub: (o: { owner: string; repo: string; branch: string; path: string }) => string;
+  setOriginDevice: () => void;
+  whereText: () => string;
+  syncState: () => string;
+  projectHasSecrets: () => string[];
   assetList: () => { id: string; bytes: number; users: number }[];
   assetBytes: () => number;
   importAsset: (dataUrl: string) => string;

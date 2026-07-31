@@ -16,6 +16,8 @@ import { genGame, validateGame } from './gengame.js';
 import type { GenParams } from './gengame.js';
 import { TILE_TYPES } from './tiles.js';
 import { pushToGitHub, registerInWorld, slugify, store as pubStore } from './publish.js';
+import { getOrigin, originLabel, readFromGitHub, setOrigin, stripSecrets, syncIcon } from './origin.js';
+import type { Origin, SyncState } from './origin.js';
 import type { EntityKind } from './model.js';
 import './debug.js';
 
@@ -165,6 +167,119 @@ async function main(): Promise<void> {
       };
     });
 
+  // ------------------------------------------------ 📍 where it lives
+  const whereEl = $<HTMLElement>('project-where');
+  let sync: SyncState = 'clean';
+  const markDirty = (): void => {
+    if (sync === 'clean') {
+      sync = 'dirty';
+      refreshWhere();
+    }
+  };
+  const refreshWhere = (): void => {
+    const o = getOrigin(editor.project);
+    whereEl.textContent = `${syncIcon(sync)} ${originLabel(o)}`;
+    whereEl.style.cssText = `font-size:11px;max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${
+      sync === 'error' || sync === 'conflict' ? 'color:#ff9aa9' : ''
+    }`;
+    whereEl.title = o
+      ? `This project is saved to ${originLabel(o)}. Click to change.`
+      : 'This project lives on this device only. Click to connect a folder or a GitHub repo.';
+  };
+
+  /** Write the project back to wherever it came from. */
+  const saveToOrigin = async (): Promise<string> => {
+    const o = getOrigin(editor.project);
+    stripSecrets(editor.project);
+    if (!o || o.kind === 'device') {
+      editor.saveToLibrary();
+      sync = 'clean';
+      refreshWhere();
+      return 'Saved on this device.';
+    }
+    if (o.kind === 'github') {
+      const token = localStorage.getItem(pubStore.ghToken) ?? '';
+      if (!token) {
+        sync = 'error';
+        refreshWhere();
+        return 'No GitHub token on this device — reconnect the repo.';
+      }
+      sync = 'saving';
+      refreshWhere();
+      try {
+        await pushToGitHub({ token, owner: o.owner, repo: o.repo, branch: o.branch, path: o.path }, editor.exportJson());
+        sync = 'clean';
+        refreshWhere();
+        return `Pushed to ${o.owner}/${o.repo}.`;
+      } catch (err) {
+        sync = 'error';
+        refreshWhere();
+        return `Could not push: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }
+    // Folder handles cannot be persisted across reloads without re-asking,
+    // so a folder-backed project falls back to the file picker.
+    editor.saveToLibrary();
+    sync = 'clean';
+    refreshWhere();
+    return 'Saved on this device (use 📤 Publish to write the folder again).';
+  };
+
+  /** Connect this project to a GitHub repo, and remember it. */
+  const connectGitHub = (root: HTMLElement, onDone: () => void): void => {
+    const box = document.createElement('div');
+    box.innerHTML = `<h3>🐙 Connect a GitHub repo</h3>
+      <p class="muted" style="font-size:12px">
+        The token stays on this device and never enters the game file (spec §8.4).
+      </p>
+      <div class="row"><input id="gh-o" placeholder="owner" style="flex:1" />
+        <input id="gh-r" placeholder="repo" style="flex:1" /></div>
+      <div class="row" style="margin-top:6px"><input id="gh-b" placeholder="branch" value="main" style="width:110px" />
+        <input id="gh-p" placeholder="path/to/game.interverse.json" style="flex:1" /></div>
+      <div class="row" style="margin-top:6px">
+        <input id="gh-t" type="password" placeholder="token" style="flex:1" />
+        <button class="btn primary" id="gh-open">📂 Open from repo</button>
+        <button class="btn" id="gh-link">🔗 Link only</button>
+      </div>
+      <div class="out" id="gh-out" style="display:none"></div>`;
+    root.appendChild(box);
+    const v = (id: string): string => box.querySelector<HTMLInputElement>(id)!.value.trim();
+    const out = box.querySelector<HTMLElement>('#gh-out')!;
+    const say = (m: string): void => {
+      out.style.display = 'block';
+      out.textContent = m;
+    };
+    box.querySelector<HTMLInputElement>('#gh-t')!.value = localStorage.getItem(pubStore.ghToken) ?? '';
+    const originOf = (): Extract<Origin, { kind: 'github' }> => ({
+      kind: 'github',
+      owner: v('#gh-o'),
+      repo: v('#gh-r'),
+      branch: v('#gh-b') || 'main',
+      path: v('#gh-p') || `${slugify(editor.project.name)}.interverse.json`,
+    });
+    box.querySelector<HTMLButtonElement>('#gh-link')!.onclick = () => {
+      localStorage.setItem(pubStore.ghToken, v('#gh-t'));
+      setOrigin(editor.project, originOf());
+      refreshWhere();
+      onDone();
+    };
+    box.querySelector<HTMLButtonElement>('#gh-open')!.onclick = () => {
+      const o = originOf();
+      const token = v('#gh-t');
+      localStorage.setItem(pubStore.ghToken, token);
+      say('Reading…');
+      void readFromGitHub(o, token)
+        .then((file) => {
+          editor.importJson(file.content);
+          setOrigin(editor.project, o);
+          sync = 'clean';
+          refreshWhere();
+          onDone();
+        })
+        .catch((err: unknown) => say(err instanceof Error ? err.message : String(err)));
+    };
+  };
+
   // --------------------------------------------------------- 🖼 assets
   /** The art library: what you have imported, who uses it, what it costs,
    *  and a slicer that shows the frame grid instead of asking you to
@@ -306,6 +421,35 @@ async function main(): Promise<void> {
     });
   $('btn-assets').onclick = () => openAssets();
 
+  /** 📍 Where this project lives — connect a repo, or keep it on device. */
+  const openWhere = (): void =>
+    openModal((root) => {
+      const o = getOrigin(editor.project);
+      root.innerHTML = `<h2>📍 Where "${editor.project.name}" lives</h2>
+        <p class="muted" style="font-size:12px">Currently: <b>${originLabel(o)}</b>.
+        💾 Save writes it back to wherever it lives.</p>
+        <div class="row" style="margin-bottom:8px">
+          <button class="btn" id="wh-device">💾 Just this device</button>
+          <button class="btn" id="wh-save">💾 Save now</button>
+          <span class="muted" id="wh-out" style="font-size:12px"></span>
+        </div>`;
+      const out = root.querySelector<HTMLElement>('#wh-out')!;
+      root.querySelector<HTMLButtonElement>('#wh-device')!.onclick = () => {
+        setOrigin(editor.project, { kind: 'device', slot: editor.project.name });
+        refreshWhere();
+        out.textContent = 'This project now lives on this device.';
+      };
+      root.querySelector<HTMLButtonElement>('#wh-save')!.onclick = () => {
+        void saveToOrigin().then((m) => {
+          out.textContent = m;
+        });
+      };
+      connectGitHub(root, () => closeModal());
+    });
+  whereEl.style.cursor = 'pointer';
+  whereEl.onclick = openWhere;
+  refreshWhere();
+
   // ------------------------------------------------------- 🎮 controls
   const controlsUi = wireControls(() => editor.project, () => editor.touch(), openModal);
   $('btn-controls').onclick = () => controlsUi.open();
@@ -352,7 +496,21 @@ async function main(): Promise<void> {
             <span class="muted" id="gen-out" style="font-size:12px"></span>
           </div>
         </div>
+        <div id="open-row" style="border:1px solid #35304d;border-radius:10px;padding:10px;margin-bottom:12px">
+          <b>📂 Open one you already have</b>
+          <div class="row" style="margin-top:6px">
+            <button class="btn" id="open-file">📄 From a file…</button>
+            <button class="btn" id="open-gh">🐙 From a GitHub repo…</button>
+          </div>
+          <div id="open-gh-box"></div>
+        </div>
         <div id="lib-row"></div><div class="tpl-grid"></div>`;
+      root.querySelector<HTMLButtonElement>('#open-file')!.onclick = () => $('file-import').click();
+      root.querySelector<HTMLButtonElement>('#open-gh')!.onclick = () => {
+        const host = root.querySelector<HTMLElement>('#open-gh-box')!;
+        host.innerHTML = '';
+        connectGitHub(host, () => closeModal());
+      };
       let genSeed = 1;
       const genOut = root.querySelector<HTMLElement>('#gen-out')!;
       const sel = (id: string): string => root.querySelector<HTMLSelectElement>(id)!.value;
@@ -540,10 +698,15 @@ async function main(): Promise<void> {
 
   // 💾 quick-save the whole game to My Games (named slot per project name).
   const saveBtn = $<HTMLButtonElement>('btn-save');
+  // 💾 Save writes back to wherever the project LIVES — device slot, or a
+  // commit to the connected repo — rather than always the device.
   saveBtn.onclick = () => {
-    editor.saveToLibrary();
-    saveBtn.textContent = '✓ Saved';
-    setTimeout(() => (saveBtn.textContent = '💾 Save'), 1200);
+    saveBtn.textContent = '⟳ Saving…';
+    void saveToOrigin().then((msg) => {
+      saveBtn.textContent = msg.startsWith('Could not') || msg.startsWith('No GitHub') ? '⚠ Failed' : '✓ Saved';
+      if (msg.startsWith('Could not') || msg.startsWith('No GitHub')) alert(msg);
+      setTimeout(() => (saveBtn.textContent = '💾 Save'), 1400);
+    });
   };
 
   // --------------------------------------------------- publish ("🌍")
@@ -1134,6 +1297,7 @@ async function main(): Promise<void> {
     refreshToolbar();
     refreshCode();
     refreshHierarchy();
+    markDirty();
   };
   editor.onPlayState = () => {
     refreshToolbar();
@@ -1260,6 +1424,22 @@ async function main(): Promise<void> {
       d.events = events as typeof d.events;
       editor.touch();
       return true;
+    },
+    originNow: () => getOrigin(editor.project),
+    setOriginGitHub: (o: { owner: string; repo: string; branch: string; path: string }) => {
+      setOrigin(editor.project, { kind: 'github', ...o });
+      refreshWhere();
+      return originLabel(getOrigin(editor.project));
+    },
+    setOriginDevice: () => {
+      setOrigin(editor.project, { kind: 'device', slot: editor.project.name });
+      refreshWhere();
+    },
+    whereText: () => whereEl.textContent ?? '',
+    syncState: () => sync,
+    projectHasSecrets: () => {
+      const raw = JSON.parse(editor.exportJson()) as Record<string, unknown>;
+      return ['origin', 'github', 'token', 'pat', 'secrets', 'apiKey', 'api_key'].filter((k) => k in raw);
     },
     assetList: () => assetList(editor.project),
     assetBytes: () => assetBytes(editor.project),
