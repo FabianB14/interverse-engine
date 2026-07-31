@@ -670,6 +670,43 @@ games between devices as files.)
 **The in-game save file** is for players: each game gets its own
 persistent storage that survives closing the browser.
 
+#### 💾 Three save slots
+
+`api.title()` shows a title screen listing **three separate runs**. Each
+one remembers *where* it was, not just that it happened:
+
+```
+Hero's Errand
+  ▶ Boss Lair      1. Boss Lair · 1 done · 12 🪙 · 4m   🗑
+  ✚ New game       2. Empty
+  ▶ Village        3. Village · 2m                      🗑
+```
+
+Tapping a run resumes **in the level it was in**. Tapping an empty slot
+starts a fresh game there — it cannot overwrite another run, because
+starting over means erasing that slot with its own 🗑 first.
+
+A slot records itself as you play: arriving in a level sets where
+▶ CONTINUE resumes, and finishing one adds to its progress. Nothing is
+claimed until a player actually picks a slot, so a title screen never
+shows a run nobody started.
+
+**Level progression** comes out of that record rather than being
+configured. A level is open if it is the first, if the player finished
+it, if they finished the one before it, or if it is where they are
+standing. In practice that means the game opens up as they get through
+it, while a level they never reached stays shut.
+
+```js
+api.save.levelDone()   // mark this level finished (the 🏆 Win block does this too)
+api.save.unlocked()    // ['Menu', 'Village', 'Cave'] — what they may replay
+api.save.slot()        // 1..3, which run this is
+```
+
+Each slot has its own `api.save` storage, coins, XP and skill unlocks, so
+two runs never see each other's progress. A game saved before slots
+existed is slot 1's run — nothing is lost.
+
 ```js
 api.save.set('quest', 'met-the-elder')  // any JSON-serializable value
 api.save.get('quest', '')               // read with a fallback
@@ -843,6 +880,41 @@ if (api.net) {
 The pattern for shared objects: when a player takes/changes something, set a
 state key; every client (including late joiners, who get a full state sync)
 applies it locally. Firefly Party's script is a worked example.
+
+### 🛰 Who decides what — host authority
+
+**The host runs the world; everyone else renders it.** That is not a
+tuning choice, it is the only arrangement that works: two machines running
+the same enemy AI roll different random numbers and start diverging on the
+first frame, so players end up fighting monsters in different places and
+killing things that are still alive next door.
+
+So in a room:
+
+- **Enemies** — moved, aimed and killed by the host only. Joiners receive
+  ten snapshots a second and ease everything toward them, which is why
+  monsters glide instead of teleporting. A jump bigger than a third of a
+  screen snaps instead, because easing that far reads as walking through
+  walls.
+- **Damage to enemies** — a joiner's hit is a *request*. The host applies
+  it and the new health comes back in the next snapshot. Your swing still
+  flashes immediately so it feels connected; what it cannot do is kill
+  something locally that nobody else agrees is dead.
+- **Your hearts, your shots** — local. Being hurt is about where *you*
+  are, and waiting for a round-trip to see your own attack leave your
+  hands is the one delay every player notices.
+- **Shared state** (`api.net.setState`) — host-authoritative already, and
+  unchanged.
+
+None of this needs wiring: tick Multiplayer and the roles sort themselves
+out. `api.net.isHost` tells you which side you are on if a game wants to
+do something different as host.
+
+**If the connection drops**, a joiner shows `📶 catching up…` and then
+`🔌 reconnecting…` while it rejoins the same room code, backing off
+between attempts. It says `🔌 lost the host` rather than freezing with no
+explanation — a host that leaves has taken the room with it, and there is
+nothing to rejoin.
 
 ## 9 · Publish — your repo, and the Interverse world
 

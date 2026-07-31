@@ -48,6 +48,26 @@ export interface StudioDebug {
   setTileMode: (ch: string | null) => void;
   playHasTiles: () => boolean;
   playHasOverTiles: () => boolean;
+  /** 💾 save slots */
+  saveSlots: () => {
+    slot: number;
+    used: boolean;
+    level: string;
+    completed: string[];
+    coins: number;
+    playedSecs: number;
+    updated: number;
+  }[];
+  slotNow: () => number;
+  slotPick: (n: number, fresh: boolean) => void;
+  slotErase: (n: number) => void;
+  levelDone: () => void;
+  unlockedLevels: () => string[];
+  /** 🛰 host authority */
+  netRole: () => string;
+  netWorld: () => { t: number; mobs: { n: string; x: number; y: number; hp: number }[]; shots: { x: number; y: number }[] } | null;
+  netLink: () => string;
+  netRequestHit: (name: string, dmg: number) => void;
   setView: (v: 'top' | 'depth') => void;
   setGravity: (g: boolean) => void;
   setWorldSize: (w: number, h: number) => void;

@@ -570,12 +570,18 @@ export class StudioEditor {
     this.openEditScene();
   }
 
+  /** Which 💾 save slot the current run belongs to. api.goto builds a whole
+   *  new PlayScene, so the slot has to live out here to survive a level
+   *  change — otherwise every doorway would drop you back into slot 1. */
+  private activeSlot = 1;
+
   private openPlayScene(def: SceneDef): void {
     this.editScene = null;
-    this.playScene = new PlayScene(
+    const scene = new PlayScene(
       this.project,
       def,
       (next) => {
+        this.activeSlot = scene.activeSlot;
         this.sceneId = next.id;
         this.openPlayScene(next);
         this.onChanged();
@@ -583,7 +589,17 @@ export class StudioEditor {
       (err) => this.onScriptError(err),
       this.net,
     );
-    this.game.scenes.replace(this.playScene);
+    scene.activeSlot = this.activeSlot;
+    // The relay URL and game tag live out here, so rejoining does too.
+    scene.onLinkLost = () => {
+      const relay = resolveRelayUrl();
+      if (relay && this.net) void this.net.reconnect(relay, this.gameTag());
+    };
+    scene.onSlotChange = (n) => {
+      this.activeSlot = n;
+    };
+    this.playScene = scene;
+    this.game.scenes.replace(scene);
   }
 
   playEntityCount(): number {

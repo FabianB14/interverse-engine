@@ -1011,6 +1011,69 @@ const layersOk =
   layPlays === true && layOverPlays === true && layWalkedThrough > 200 &&
   layRound[0] === 'g' && layRound[1] === 'k';
 
+// 💾 SAVE SLOTS: three separate runs, each remembering where it was.
+// The quest template has three levels, which is what makes "continue" and
+// "unlocked" mean anything.
+await page.evaluate(() => window.__studio.loadTemplate('quest'));
+await sleep(400);
+// Wipe any slots left over from an earlier block so this starts honest.
+await page.evaluate(() => window.__studio.play());
+await sleep(700);
+await page.evaluate(() => [1, 2, 3].forEach((n) => window.__studio.slotErase(n)));
+await page.evaluate(() => window.__studio.stop());
+await sleep(200);
+// With a title screen up, NOTHING may be claimed until the player chooses a
+// slot — otherwise every title screen shows a run nobody started.
+await page.evaluate(() => {
+  window.__studio.setScript("api.player('Hero', 300); api.title();");
+  window.__studio.play();
+});
+await waitFor(() => page.evaluate(() => window.__studio.titleVisible()), (v) => v === true);
+await sleep(600);
+const slotFresh = await page.evaluate(() => window.__studio.saveSlots().map((s) => s.used));
+// Choosing a slot is what starts recording into it.
+await page.evaluate(() => window.__studio.slotPick(1, true));
+await sleep(600);
+await page.evaluate(() => window.__studio.applyScriptNow("api.goto('Village')"));
+await sleep(900);
+const slotAfterEnter = await page.evaluate(() => window.__studio.saveSlots()[0]);
+const slotLevel = slotAfterEnter ? slotAfterEnter.level : '';
+// Progression: only the level you finished, plus the next one, are open.
+const slotUnlocked1 = await page.evaluate(() => window.__studio.unlockedLevels());
+await page.evaluate(() => window.__studio.levelDone());
+await sleep(400);
+const slotUnlocked2 = await page.evaluate(() => window.__studio.unlockedLevels());
+// A second slot is a separate run: starting it must not touch the first.
+await page.evaluate(() => window.__studio.slotPick(2, true));
+await sleep(900);
+const slotTwo = await page.evaluate(() => window.__studio.slotNow());
+const slotBackAgain = await page.evaluate(() => window.__studio.saveSlots()[0]);
+await page.screenshot({ path: `${outDir}/st-36-slots.png` });
+// Erasing one leaves the others alone.
+await page.evaluate(() => window.__studio.slotErase(1));
+await sleep(300);
+const slotErased = await page.evaluate(() => window.__studio.saveSlots().map((s) => s.used));
+// The slot survives a level change, which rebuilds the whole play scene.
+await page.evaluate(() => window.__studio.applyScriptNow("api.goto('Boss Lair')"));
+await sleep(900);
+const slotCarried = await page.evaluate(() => window.__studio.slotNow());
+await page.evaluate(() => window.__studio.stop());
+await sleep(200);
+const slotsOk =
+  // Merely opening the game must not claim a slot — until you pick one,
+  // every slot on the title screen still reads "Empty".
+  slotFresh.every((u) => u === false) &&
+  slotLevel === 'Village' &&
+  // Standing in Village opens Menu + Village, and nothing past them.
+  slotUnlocked1.join() === 'Menu,Village' &&
+  // Finishing Village opens the level after it.
+  slotUnlocked2.length === slotUnlocked1.length + 1 &&
+  slotTwo === 2 &&
+  // Slot 1 still holds its run after slot 2 was started.
+  !!slotBackAgain && slotBackAgain.used === true && slotBackAgain.level === 'Village' &&
+  slotErased[0] === false && slotErased[1] === true &&
+  slotCarried === 2;
+
 // SELECTION RING: the highlight has to sit ON the actor — after panning a
 // tall level (the ring used to live on the un-scrolling stage and drift off
 // entirely) and in a 2.5D level (where actors are scaled by depth).
@@ -1491,6 +1554,60 @@ await pageB.screenshot({ path: `${outDir}/st-6-mp.png` });
 await page.evaluate(() => window.__studio.stop());
 await pageB.evaluate(() => window.__studio.stop());
 
+// 🛰 HOST AUTHORITY: one machine runs the enemies, the other renders them.
+// The action template has mobs, so both sides load it and host/join again.
+await page.evaluate(() => window.__studio.loadTemplate('action'));
+await pageB.evaluate(() => window.__studio.loadTemplate('action'));
+await sleep(400);
+await page.evaluate(() => window.__studio.setMultiplayer(true));
+await pageB.evaluate(() => window.__studio.setMultiplayer(true));
+const authCode = await page.evaluate(() => window.__studio.netHost());
+await pageB.evaluate((c) => window.__studio.netJoin(c), authCode);
+await sleep(1800);
+const roleA = await page.evaluate(() => window.__studio.netRole());
+const roleB = await pageB.evaluate(() => window.__studio.netRole());
+// The host describes the world; the joiner receives it.
+const worldB = await waitFor(
+  () => pageB.evaluate(() => window.__studio.netWorld()),
+  (w) => !!w && w.mobs.length > 0,
+);
+const authMobs = worldB ? worldB.mobs.length : 0;
+const authMobName = worldB?.mobs[0]?.n ?? '';
+// Both sides agree on where that enemy is, without either simulating twice.
+const posOn = (pg, name) =>
+  pg.evaluate((n) => window.__studio.getPlayPos(n), name);
+await sleep(900);
+const authHostPos = await posOn(page, authMobName);
+const authJoinPos = await posOn(pageB, authMobName);
+const authAgree =
+  Math.abs(authHostPos.x - authJoinPos.x) < 90 && Math.abs(authHostPos.y - authJoinPos.y) < 90;
+// A joiner's hit is a REQUEST: the host applies it, and the new HP comes
+// back to the joiner in a snapshot rather than being invented locally.
+const hpBefore = await page.evaluate((n) => window.__studio.mobHp(n), authMobName);
+await pageB.evaluate((n) => window.__studio.netRequestHit(n, 1), authMobName);
+const hpAfter = await waitFor(
+  () => page.evaluate((n) => window.__studio.mobHp(n), authMobName),
+  (hp) => hp < hpBefore,
+);
+const hpSeenByJoiner = await waitFor(
+  () => pageB.evaluate(() => window.__studio.netWorld()),
+  (w) => !!w && (w.mobs.find((m) => m.n === authMobName)?.hp ?? 99) <= hpAfter,
+);
+const joinerSawHp = hpSeenByJoiner?.mobs.find((m) => m.n === authMobName)?.hp ?? -1;
+// A hit on an enemy that does not exist must change nothing at all.
+const mobsBeforeJunk = await page.evaluate(() => window.__studio.mobCount());
+await pageB.evaluate(() => window.__studio.netRequestHit('NoSuchMonster', 99));
+await sleep(400);
+const mobsAfterJunk = await page.evaluate(() => window.__studio.mobCount());
+const linkB = await pageB.evaluate(() => window.__studio.netLink());
+await pageB.screenshot({ path: `${outDir}/st-35-authority.png` });
+await page.evaluate(() => window.__studio.stop());
+await pageB.evaluate(() => window.__studio.stop());
+const authorityOk =
+  roleA === 'host' && roleB === 'joiner' && authMobs > 0 && !!authMobName &&
+  authAgree && hpBefore > 0 && hpAfter === hpBefore - 1 && joinerSawHp === hpAfter &&
+  mobsAfterJunk === mobsBeforeJunk && linkB === 'live';
+
 await browser.close();
 relay.kill();
 aiBridge.kill();
@@ -1499,7 +1616,7 @@ const ok =
   placeOk && editOk && storyOk && levelsOk && playOk && stopOk && exportOk && importOk &&
   templatesOk && skillsOk && scoreOk && tilesOk && cameraOk && frameOk && combatOk && rangedOk &&
   patrolOk && chatOk && coinsOk && persistOk && libOk && eventsOk && genOk && uiOk && dbOk &&
-  questOk && levelEvOk && apiOk && keysOk && controlsOk && skillsBranchOk && gameGenOk && dropOk && artOk && originOk && abilityOk && menuOk && undoOk && hudOk && dialogueOk && platformOk && multiOk && ringOk && toolbarOk && attackOk && layersOk && netOk &&
+  questOk && levelEvOk && apiOk && keysOk && controlsOk && skillsBranchOk && gameGenOk && dropOk && artOk && originOk && abilityOk && menuOk && undoOk && hudOk && dialogueOk && platformOk && multiOk && ringOk && toolbarOk && attackOk && layersOk && netOk && authorityOk && slotsOk &&
   errors.length === 0;
 console.log(
   JSON.stringify(
@@ -1541,6 +1658,10 @@ console.log(
       artOk, artId, artUnused, artModalClosed, artAssigned, artBytes, artPlays, artCount, artCleared, artReject,
       dropOk, dropOpened, dropN: dropAll.length, dropCoin0: dropCoin[0], dropHigh, dropMoved, scenesBefore, scenesAfter, lvlEvAfter,
       netOk, playersA, playersB, remotesB, moveOk, remotePosB, stateB,
+      authorityOk, roleA, roleB, authMobs, authMobName, authHostPos, authJoinPos, authAgree,
+      hpBefore, hpAfter, joinerSawHp, mobsBeforeJunk, mobsAfterJunk, linkB,
+      slotsOk, slotFresh, slotAfterEnter, slotLevel, slotUnlocked1, slotUnlocked2, slotTwo,
+      slotBackAgain, slotErased, slotCarried,
       errors: errors.slice(0, 6),
     },
     null,

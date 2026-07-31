@@ -36,6 +36,13 @@ import type { StudioNet } from './net.js';
 import { generateRows } from './gen.js';
 import { TILE_LAYERS, anyTiles, buildTileLayer, isPlatformChar } from './tiles.js';
 import {
+  SLOT_COUNT, completeLevel, emptySlot, enterLevel, normalizeSlots, slotIndexKey, slotKey,
+  suggestSlot, summarize, unlockedLevels, withSlot,
+} from './slots.js';
+import type { SlotInfo } from './slots.js';
+import { encodeWorld, goneFrom, roleOf, shouldSnap, simulates, smoothTo } from './authority.js';
+import type { NetRole } from './authority.js';
+import {
   CHARGE_SPEED, CHARGE_TIME, SLAM_TIME, attackDuration, attackShots, slamHits, slamRadius, windupFor,
 } from './attacks.js';
 
@@ -369,6 +376,13 @@ export interface ScriptApi {
     get: <T>(key: string, fallback: T) => T;
     remove: (key: string) => void;
     clear: () => void;
+    /** 💾 Mark this level finished in the current save slot. That is what
+     *  unlocks the next one and what ▶ CONTINUE resumes past. */
+    levelDone: () => void;
+    /** Which levels this slot may replay: everything finished, plus next. */
+    unlocked: () => string[];
+    /** The slot this run is in (1..3). */
+    slot: () => number;
   };
   /** Coins dropped by defeated mobs (picked up by walking over them);
    *  the balance persists in the game's save file. */
@@ -626,10 +640,15 @@ export class PlayScene extends Scene {
         this.remoteViews.set(r.id, v);
       }
       if (r.x > -9000) {
-        const k = Math.min(1, dt * 12);
         v.root.visible = true;
-        v.root.x += (r.x - v.root.x) * k;
-        v.root.y += (r.y - v.root.y) * k;
+        // Same smoothing the enemies get: positions arrive ten times a
+        // second, and `dt * rate` overshoots on a slow frame.
+        if (shouldSnap(r.x - v.root.x, r.y - v.root.y)) {
+          v.root.position.set(r.x, r.y);
+        } else {
+          v.root.x = smoothTo(v.root.x, r.x, dt);
+          v.root.y = smoothTo(v.root.y, r.y, dt);
+        }
       } else {
         v.root.visible = false; // joined but no position yet
       }
@@ -643,6 +662,16 @@ export class PlayScene extends Scene {
   }
 
   protected override onEnter(): void {
+    // Arriving somewhere is the thing worth resuming from, so it is written
+    // as it happens rather than at some tidy "save point" that may never
+    // come — a closed tab then costs the seconds since the last doorway.
+    //
+    // But not YET: the scene script has not run, so a title screen has not
+    // had its chance to appear. Writing here would mean merely opening the
+    // game claimed slot 1, and every title screen would show a run nobody
+    // had started. It lands on the first frame the player is actually
+    // playing instead.
+    this.pendingArrival = true;
     // Game space lives in `world`; the camera pans it when the level is
     // bigger than one screen. HUD/UI stays on the stage (screen space).
     setLocaleTable(this.project.locales);
@@ -699,6 +728,7 @@ export class PlayScene extends Scene {
     // Actors first (each firing its own 'start'), then the level's own
     // events, then the scene script — code always gets the last word.
     this.wireLevelEvents();
+    this.wireAuthority();
     if (this.levelTaps.length) {
       bg.eventMode = 'static';
       bg.on('pointertap', () => {
@@ -740,6 +770,67 @@ export class PlayScene extends Scene {
         this.onScriptError(err);
       }
     }
+  }
+
+  /** 🛰 Host: apply the damage joiners report. This is the only place a
+   *  joiner's swing turns into a real change, and it happens once, here. */
+  private wireAuthority(): void {
+    if (!this.net) return;
+    // Joiners: say something when the world stops arriving. A frozen screen
+    // with no explanation is the worst possible way to lose a connection.
+    if (this.role === 'joiner') {
+      let was: string = 'live';
+      this.updaters.push(() => {
+        const now = this.net!.link(Date.now());
+        if (now === was) return;
+        was = now;
+        this.showLink(now);
+      });
+      this.net.onLink((state) => this.showLink(state));
+      return;
+    }
+    this.net.onHit((req) => {
+      const m = this.mobStates.get(req.n);
+      // Sanity-check the request rather than trusting it: a stale swing at
+      // an enemy that is already down must not resurrect or double-count.
+      if (!m || m.e.destroyed || m.hp <= 0) return;
+      const dmg = Math.max(0, Math.min(99, Number(req.dmg) || 0));
+      if (dmg > 0) this.damageMob(m, dmg, this.players[0]?.entity);
+    });
+  }
+
+  /** A quiet line at the top of the screen: live says nothing, anything
+   *  else says what is happening and does not hide the game behind it. */
+  private showLink(state: string): void {
+    this.linkLabel?.destroy();
+    this.linkLabel = null;
+    if (state === 'live') return;
+    const text =
+      state === 'reconnecting'
+        ? '🔌 reconnecting…'
+        : state === 'lost'
+          ? '🔌 lost the host'
+          : '📶 catching up…';
+    const t = new Text({
+      text,
+      style: { fontFamily: 'system-ui, sans-serif', fontSize: 22, fontWeight: '700', fill: 0xffd166 },
+    });
+    t.anchor.set(0.5, 0);
+    t.position.set(this.game.viewWidth / 2, 10);
+    t.eventMode = 'none';
+    this.stage.addChild(t);
+    this.linkLabel = t;
+    // Losing the host is not something waiting fixes — try to rejoin.
+    if (state === 'lost') this.onLinkLost();
+  }
+
+  private linkLabel: Text | null = null;
+  /** Set by the editor, which owns the relay URL and the game tag. */
+  onLinkLost: () => void = () => {};
+
+  /** How the connection looks right now — for the HUD and for tests. */
+  linkNow(): string {
+    return this.net ? this.net.link(Date.now()) : 'live';
   }
 
   protected override onExit(): void {
@@ -814,13 +905,95 @@ export class PlayScene extends Scene {
 
   // ------------------------------------------------------------- saving
 
-  /** The game's save file — one namespace per project name, on-device. */
+  /** 💾 Which of the three save slots this run belongs to. Slot 1 uses the
+   *  original storage key, so a game saved before slots existed simply IS
+   *  slot 1 rather than being lost. Carried across scene changes by
+   *  PlayScene's constructor, since api.goto builds a whole new scene. */
+  activeSlot = 1;
+  /** Told when the player picks a different slot, so the editor can carry it
+   *  across the scene rebuild that api.goto performs. */
+  onSlotChange: (slot: number) => void = () => {};
+
+  private slug(): string {
+    return this.project.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'game';
+  }
+
+  /** The game's save file — one namespace per project name and slot. */
   private saveStore(): SaveStore {
-    if (!this.gameSave) {
-      const slug = this.project.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'game';
-      this.gameSave = createSave(`studio-game-${slug}`);
-    }
+    if (!this.gameSave) this.gameSave = createSave(slotKey(this.slug(), this.activeSlot));
     return this.gameSave;
+  }
+
+  /** The three slots as the title screen sees them. */
+  slots(): SlotInfo[] {
+    return normalizeSlots(createSave(slotIndexKey(this.slug())).get('slots', [] as unknown));
+  }
+
+  private writeSlot(info: SlotInfo): void {
+    const idx = createSave(slotIndexKey(this.slug()));
+    idx.set('slots', withSlot(this.slots(), info));
+  }
+
+  /** Fold this moment's progress into the active slot. Called whenever
+   *  something worth resuming from happens — arriving in a level, finishing
+   *  one — so a closed tab loses at most the seconds since the last one. */
+  private touchSlot(patch: (info: SlotInfo) => SlotInfo): void {
+    const now = this.nowMs();
+    const cur = this.slots().find((s) => s.slot === this.activeSlot) ?? emptySlot(this.activeSlot);
+    const withPlay: SlotInfo = {
+      ...cur,
+      coins: this.coinsGet(),
+      playedSecs: cur.playedSecs + Math.max(0, this.sessionSecs),
+      updated: now,
+    };
+    this.sessionSecs = 0;
+    this.writeSlot(patch(withPlay));
+  }
+
+  /** Seconds played since the last time the slot was written. */
+  private sessionSecs = 0;
+  /** This level has not been written into the slot yet — see onEnter. */
+  private pendingArrival = false;
+
+  private nowMs(): number {
+    return Date.now();
+  }
+
+  /** Levels finished, in project order — what progression is derived from. */
+  unlockedLevelNames(): string[] {
+    const info = this.slots().find((s) => s.slot === this.activeSlot) ?? emptySlot(this.activeSlot);
+    return unlockedLevels(info, this.project.scenes.map((sc) => sc.name));
+  }
+
+  /** Mark this level finished. Win screens and the 🏁 event call it. */
+  markLevelComplete(): void {
+    this.touchSlot((info) => completeLevel(info, this.sceneDef.name, this.nowMs()));
+  }
+
+  /** Start (or resume) a slot. Returns the level to open, if the slot
+   *  remembers one that still exists. */
+  useSlot(slot: number, fresh: boolean): string {
+    this.activeSlot = Math.max(1, Math.min(SLOT_COUNT, Math.floor(slot) || 1));
+    this.onSlotChange(this.activeSlot);
+    this.gameSave = null;
+    this.sessionSecs = 0;
+    if (fresh) {
+      this.wipeSave();
+      this.writeSlot(emptySlot(this.activeSlot));
+      return '';
+    }
+    const info = this.slots().find((s) => s.slot === this.activeSlot);
+    const level = info?.level ?? '';
+    return this.project.scenes.some((sc) => sc.name === level) ? level : '';
+  }
+
+  /** Throw a slot away. Deliberate and irreversible, so it is only ever
+   *  reached from an explicit 🗑 on the slot itself. */
+  eraseSlot(slot: number): void {
+    const n = Math.max(1, Math.min(SLOT_COUNT, Math.floor(slot) || 1));
+    createSave(slotKey(this.slug(), n)).clear();
+    this.writeSlot(emptySlot(n));
+    if (n === this.activeSlot) this.gameSave = null;
   }
 
   private coinsGet(): number {
@@ -970,6 +1143,34 @@ export class PlayScene extends Scene {
     if (frac > 0) m.bar.roundRect(-w / 2, 0, w * frac, 8, 4).fill(frac > 0.5 ? 0x8affc1 : 0xff6f91);
   }
 
+  /**
+   * 🛰 The one way damage reaches an enemy. On a joiner this is a REQUEST:
+   * the host applies it and the result comes back in the next snapshot. A
+   * joiner that subtracted HP locally would see a monster die that is still
+   * alive on everyone else's screen — the classic co-op desync.
+   */
+  private applyDamage(m: MobState, dmg: number, from?: Entity): void {
+    if (this.role === 'joiner') {
+      this.net?.requestHit(m.def.name, dmg);
+      // Local feedback only: a hit that visibly does nothing feels broken,
+      // and the flash costs nothing if the host disagrees.
+      this.flashMob(m);
+      return;
+    }
+    this.damageMob(m, dmg, from);
+  }
+
+  private flashMob(m: MobState): void {
+    if (m.e.destroyed) return;
+    m.e.alpha = 0.5;
+    let t = 0;
+    this.updaters.push((dt) => {
+      if (m.e.destroyed) return;
+      t += dt;
+      if (t >= 0.1) m.e.alpha = 1;
+    });
+  }
+
   private damageMob(m: MobState, dmg: number, from?: Entity): void {
     if (m.e.destroyed || m.hp <= 0) return;
     m.hp -= Math.max(1, dmg);
@@ -1034,7 +1235,7 @@ export class PlayScene extends Scene {
       if (m.e.destroyed) continue;
       if (Math.hypot(m.e.x - me.x, m.e.y - me.y) < radius + m.def.radius) {
         hits++;
-        this.damageMob(m, dmg, me);
+        this.applyDamage(m, dmg, me);
       }
     }
     if (hits) audio.pop(1.3);
@@ -1330,10 +1531,22 @@ export class PlayScene extends Scene {
 
   // --------------------------------------------------------------- mob AI
 
+  /** 🛰 solo / host / joiner. Everything that could disagree between two
+   *  machines asks this before acting. */
+  private get role(): NetRole {
+    return roleOf(this.net);
+  }
+
   private updateMobs(dt: number): void {
     if (this.hurtT > 0) this.hurtT = Math.max(0, this.hurtT - dt);
     const me = this.players[0]?.entity;
     if (me && !me.destroyed) me.alpha = this.hurtT > 0 ? 0.55 : 1;
+    // A joiner renders the host's world instead of inventing its own. Two
+    // machines running the same AI diverge on the first random number.
+    if (!simulates(this.role)) {
+      this.renderHostWorld(dt);
+      return;
+    }
     const W = this.sceneDef.worldW;
     const H = this.sceneDef.worldH;
     const minY = this.sceneDef.view === 'depth' ? DEPTH_MIN_Y : 20;
@@ -1389,18 +1602,12 @@ export class PlayScene extends Scene {
         m.e.y = Math.max(minY, Math.min(H - 20, m.e.y + vy * speed * dt));
       }
       this.tickAttack(m, me, dMe, dt);
-      // touching the player costs a heart (with i-frames + knockback);
-      // an airborne brawler-jump player sails safely over mobs
-      const airborne = (this.players[0]?.z ?? 0) > 30;
-      if (me && !me.destroyed && !airborne && this.heartsMax > 0 && this.hurtT <= 0) {
-        if (Math.hypot(me.x - m.e.x, me.y - m.e.y) < m.def.radius * m.def.scale + 30) {
-          this.hurtPlayer(m.def.damage, m.e);
-        }
-      }
+      this.checkContact(m, me);
     }
     this.updateBossBar();
     this.tickProjectiles(dt);
     this.tickPlayerShots(dt);
+    this.publishWorld(dt);
   }
 
   // ---------------------------------------------------------- projectiles
@@ -1699,6 +1906,103 @@ export class PlayScene extends Scene {
     return this.projectiles.length;
   }
 
+  /**
+   * Joiner: ease every enemy toward where the host last said it was, and
+   * remove anything the host stopped sending. Snapshots come ten times a
+   * second, so without the easing this is a slideshow.
+   */
+  /**
+   * Touching an enemy costs a heart (i-frames + knockback); an airborne
+   * brawler-jump player sails safely over. Hearts stay a LOCAL decision even
+   * in multiplayer — being hurt is about where *you* are, and asking the
+   * host would add a round-trip to the most latency-sensitive thing in the
+   * game. The enemy's position is the host's; the collision is yours.
+   */
+  private checkContact(m: MobState, me: Entity | undefined): void {
+    const airborne = (this.players[0]?.z ?? 0) > 30;
+    if (!me || me.destroyed || airborne || this.heartsMax <= 0 || this.hurtT > 0) return;
+    if (Math.hypot(me.x - m.e.x, me.y - m.e.y) < m.def.radius * m.def.scale + 30) {
+      this.hurtPlayer(m.def.damage, m.e);
+    }
+  }
+
+  private renderHostWorld(dt: number): void {
+    const snap = this.net?.world();
+    if (!snap) return;
+    const seen = new Set<string>();
+    for (const ms of snap.mobs) {
+      seen.add(ms.n);
+      const m = this.mobStates.get(ms.n);
+      if (!m || m.e.destroyed) continue;
+      const dx = ms.x - m.e.x;
+      const dy = ms.y - m.e.y;
+      if (shouldSnap(dx, dy)) {
+        // Easing across half the map would read as walking through walls.
+        m.e.x = ms.x;
+        m.e.y = ms.y;
+      } else {
+        m.e.x = smoothTo(m.e.x, ms.x, dt);
+        m.e.y = smoothTo(m.e.y, ms.y, dt);
+      }
+      if (dx) this.face(m.e, dx);
+      if (m.hp !== ms.hp) {
+        m.hp = ms.hp;
+        this.refreshMobBar(m);
+      }
+    }
+    // The host is the only thing that decides an enemy is gone.
+    for (const name of goneFrom([...this.mobStates.keys()], snap)) {
+      const m = this.mobStates.get(name);
+      if (m) this.defeatMob(m);
+    }
+    this.renderHostShots(snap.shots);
+    const me = this.players[0]?.entity;
+    for (const m of this.mobStates.values()) {
+      if (!m.e.destroyed) this.checkContact(m, me);
+    }
+    // Your own shots stay local: waiting for a round-trip to see your own
+    // attack leave your hands is the one delay a player always notices.
+    this.tickPlayerShots(dt);
+    this.updateBossBar();
+  }
+
+  /** Enemy shots are drawn from the host's list rather than simulated, so a
+   *  joiner is never hit by a bullet nobody else can see. */
+  private renderHostShots(shots: readonly { x: number; y: number }[]): void {
+    while (this.ghostShots.length > shots.length) {
+      const g = this.ghostShots.pop();
+      if (g && !g.destroyed) this.remove(g);
+    }
+    while (this.ghostShots.length < shots.length) {
+      const e = new Entity();
+      e.addChild(new Graphics().circle(0, 0, 16).fill({ color: 0xff6f91, alpha: 0.25 }).circle(0, 0, 9).fill(0xffb3c6));
+      this.add(e, this.world);
+      this.ghostShots.push(e);
+    }
+    shots.forEach((s, i) => {
+      const e = this.ghostShots[i]!;
+      e.position.set(s.x, s.y);
+      e.zIndex = s.y;
+    });
+  }
+
+  private ghostShots: Entity[] = [];
+
+  /** Host: describe the world for everyone else, ten times a second. */
+  private publishWorld(dt: number): void {
+    if (this.role !== 'host' || !this.net) return;
+    this.publishIn -= dt;
+    if (this.publishIn > 0) return;
+    this.publishIn = 0.1;
+    const mobs = [...this.mobStates.values()]
+      .filter((m) => !m.e.destroyed)
+      .map((m) => ({ name: m.def.name, x: m.e.x, y: m.e.y, hp: m.hp }));
+    const shots = this.projectiles.filter((p) => !p.e.destroyed).map((p) => ({ x: p.e.x, y: p.e.y }));
+    this.net.sendWorld(encodeWorld(Date.now(), mobs, shots));
+  }
+
+  private publishIn = 0;
+
   private tickProjectiles(dt: number): void {
     if (!this.projectiles.length) return;
     const me = this.players[0]?.entity;
@@ -1752,7 +2056,7 @@ export class PlayScene extends Scene {
       for (const m of [...this.mobStates.values()]) {
         if (m.e.destroyed) continue;
         if (Math.hypot(m.e.x - p.e.x, m.e.y - p.e.y) < m.def.radius + 16) {
-          this.damageMob(m, p.damage, p.e);
+          this.applyDamage(m, p.damage, p.e);
           hit = true;
           break;
         }
@@ -2006,7 +2310,7 @@ export class PlayScene extends Scene {
           if (a.text) this.switchesMap.set(a.text, false);
           break;
         case 'win':
-          this.endGame(a.text || 'YOU WIN! 🌟');
+          this.endGame(a.text || 'YOU WIN! 🌟', true);
           break;
         case 'lose':
           this.endGame(a.text || 'GAME OVER');
@@ -2436,7 +2740,7 @@ export class PlayScene extends Scene {
       meleeAttack: (radius = 120, dmg = 1) => this.meleeAttack(radius, dmg),
       hurt: (target, dmg) => {
         const m = this.mobStates.get(target);
-        if (m) this.damageMob(m, dmg, this.players[0]?.entity);
+        if (m) this.applyDamage(m, dmg, this.players[0]?.entity);
       },
       hpOf: (target) => this.mobStates.get(target)?.hp ?? 0,
       onDefeat: (cb) => this.defeatCbs.push(cb),
@@ -2465,6 +2769,9 @@ export class PlayScene extends Scene {
         get: (key, fallback) => this.saveStore().get(key, fallback),
         remove: (key) => this.saveStore().remove(key),
         clear: () => this.saveStore().clear(),
+        levelDone: () => this.markLevelComplete(),
+        unlocked: () => this.unlockedLevelNames(),
+        slot: () => this.activeSlot,
       },
       coins: {
         get: () => this.coinsGet(),
@@ -2828,22 +3135,42 @@ export class PlayScene extends Scene {
       sub.position.set(W / 2, H * 0.26 + 52);
       root.addChild(sub);
     }
-    const played = !!this.saveStore().get('__played', false);
-    let by = H * 0.44;
-    if (played) {
-      const cont = new UIButton('▶ CONTINUE', { fill: 0x8affc1, onTap: () => this.dismissTitle() });
-      cont.position.set(W / 2, by);
-      root.addChild(cont);
-      by += 110;
+    // 💾 One row per save slot. A slot that holds a run says where it is and
+    // resumes there; an empty one starts a new game. Nothing is ever
+    // overwritten by accident — starting over is a 🗑 on that slot first.
+    const slots = this.slots();
+    let by = H * 0.42;
+    for (const info of slots) {
+      const label = info.used ? `▶ ${info.level || 'Continue'}` : `✚ New game`;
+      const btn = new UIButton(label, {
+        ...(info.used ? { fill: 0x8affc1 } : {}),
+        onTap: () => this.pickSlot(info.slot, !info.used),
+      });
+      btn.position.set(W / 2 - (info.used ? 34 : 0), by);
+      root.addChild(btn);
+      const sub = new Text({
+        text: `${info.slot}. ${summarize(info)}`,
+        style: { fontFamily: 'system-ui, sans-serif', fontSize: 20, fontWeight: '600', fill: 0x9a97b8 },
+      });
+      sub.anchor.set(0.5, 0);
+      sub.position.set(W / 2, by + 44);
+      root.addChild(sub);
+      if (info.used) {
+        // Erasing is deliberate and irreversible, so it lives on the slot it
+        // destroys rather than sharing a button with "play".
+        const del = new UIButton('🗑', {
+          fill: 0x4a3550,
+          width: 84,
+          onTap: () => {
+            this.eraseSlot(info.slot);
+            this.rebuildTitle();
+          },
+        });
+        del.position.set(W / 2 + 168, by);
+        root.addChild(del);
+      }
+      by += 116;
     }
-    const fresh = new UIButton(played ? '✚ NEW GAME' : '▶ PLAY', {
-      onTap: () => {
-        if (played) this.wipeSave();
-        this.dismissTitle();
-      },
-    });
-    fresh.position.set(W / 2, by);
-    root.addChild(fresh);
     // volume bars: 5 notches each for music + sfx
     const bar = (label: string, bus: 'music' | 'sfx', y: number): void => {
       const t = new Text({
@@ -2874,8 +3201,15 @@ export class PlayScene extends Scene {
       });
       root.addChild(g);
     };
-    bar('🎵', 'music', H * 0.44 + (played ? 220 : 110));
-    bar('🔊', 'sfx', H * 0.44 + (played ? 270 : 160));
+    // Volumes sit under the slot list, wherever it happens to end.
+    bar('🎵', 'music', by + 12);
+    bar('🔊', 'sfx', by + 62);
+    // HUD pieces rebuild themselves (hearts on damage, the boss bar on
+    // resize) and re-adding them puts them ABOVE anything added earlier —
+    // so the title screen has to claim the top explicitly rather than rely
+    // on being the last thing added.
+    this.stage.sortableChildren = true;
+    root.zIndex = 5e8;
     this.add(root);
     this.titleRoot = root;
   }
@@ -3026,13 +3360,44 @@ export class PlayScene extends Scene {
 
   titlePick(kind: 'continue' | 'new'): void {
     if (!this.titleRoot) return;
-    if (kind === 'new') this.wipeSave();
-    this.dismissTitle();
+    // Kept for games (and tests) written before slots: act on whichever slot
+    // the player would land in anyway.
+    const slots = this.slots();
+    const pick = kind === 'continue' ? suggestSlot(slots) : (slots.find((s) => !s.used)?.slot ?? this.activeSlot);
+    this.pickSlot(pick, kind === 'new');
   }
 
-  private endGame(message: string): void {
+  /** Start or resume a slot from the title screen. */
+  pickSlot(slot: number, fresh: boolean): void {
+    const level = this.useSlot(slot, fresh);
+    this.dismissTitle();
+    // Whatever level we end up in belongs to the slot they just chose.
+    this.pendingArrival = true;
+    // Resuming somewhere else is a level change, so it goes through the same
+    // door api.goto uses rather than a second, subtly different path.
+    if (level && level !== this.sceneDef.name) {
+      const target = this.project.scenes.find((sc) => sc.name === level);
+      if (target) this.onGoto(target);
+    }
+  }
+
+  /** Redraw the slot list in place (after an erase). */
+  private rebuildTitle(): void {
+    if (!this.titleRoot) return;
+    this.titleRoot.destroy({ children: true });
+    this.titleRoot = null;
+    this.titlePaused = false;
+    this.showTitle();
+  }
+
+  /** `won` records the level as finished in the save slot. Only the 🏆 Win
+   *  block and api.save.levelDone() claim that: a generic "game over" might
+   *  be a defeat, and wrongly marking a level done would hand the player
+   *  progress they did not earn. */
+  private endGame(message: string, won = false): void {
     if (this.over) return;
     this.over = true;
+    if (won) this.markLevelComplete();
     {
       const W = this.game.viewWidth;
       const H = this.game.viewHeight;
@@ -3074,6 +3439,14 @@ export class PlayScene extends Scene {
   }
 
   protected override onUpdate(dt: number): void {
+    // Time in a title screen or a pause is not time played.
+    if (!this.titlePaused && !this.over) {
+      this.sessionSecs += dt;
+      if (this.pendingArrival) {
+        this.pendingArrival = false;
+        this.touchSlot((info) => enterLevel(info, this.sceneDef.name, this.nowMs()));
+      }
+    }
     if (this.scoreText) this.scoreText.text = String(this.scoreValue);
     // Player movement: arrows/WASD + the touch joystick, clamped to design.
     if (!this.over && !this.titlePaused) {

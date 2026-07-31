@@ -11,6 +11,8 @@
  */
 import { host as netHost, join as netJoin } from '@interverse/net';
 import type { Session } from '@interverse/net';
+import { isFresh, linkState, reconnectDelay } from './authority.js';
+import type { HitRequest, LinkState, WorldSnap } from './authority.js';
 
 const DEFAULT_RELAY_URL = 'wss://interverse-engine.onrender.com';
 const RELAY_KEY = 'interverse-relay-url';
@@ -79,7 +81,19 @@ interface UserMsg {
 interface StartMsg {
   t: 'start';
 }
-type Msg = PosMsg | SnapMsg | StateMsg | SyncMsg | UserMsg | StartMsg;
+/** 🛰 The host's picture of the world: enemies and their shots. */
+interface WorldMsg {
+  t: 'world';
+  w: WorldSnap;
+}
+/** A joiner asking the host to apply damage. Joiners never apply it
+ *  themselves — see authority.ts for why. */
+interface HitMsg {
+  t: 'hit';
+  n: string;
+  dmg: number;
+}
+type Msg = PosMsg | SnapMsg | StateMsg | SyncMsg | UserMsg | StartMsg | WorldMsg | HitMsg;
 
 export interface RemotePlayer {
   id: string;
@@ -97,8 +111,14 @@ export class StudioNet {
   private startCbs: (() => void)[] = [];
   private sendIn = 0;
   private unsub: (() => void)[] = [];
+  /** 🛰 Latest world the host described, and when it arrived. */
+  private lastWorld: WorldSnap | null = null;
+  private lastWorldT = 0;
+  private lastWorldAt = 0;
+  private worldCbs: ((w: WorldSnap) => void)[] = [];
+  private hitCbs: ((req: HitRequest) => void)[] = [];
 
-  private constructor(readonly session: Session) {
+  private constructor(public session: Session) {
     this.unsub.push(
       session.onMessage((from, data) => this.onNet(from, data as Msg)),
       session.onPlayerLeave((id) => {
@@ -207,16 +227,124 @@ export class StudioNet {
     this.msgCbs.push(cb);
   }
 
+  // ------------------------------------------------------ 🛰 world state
+
+  /** Host: publish the world. Nobody else may call this — a joiner that
+   *  broadcast its own idea of where the monsters are would be fighting the
+   *  host for control of the same objects. */
+  sendWorld(snap: WorldSnap): void {
+    if (!this.session.isHost) return;
+    this.lastWorld = snap;
+    this.session.broadcast({ t: 'world', w: snap } satisfies WorldMsg);
+  }
+
+  /** The last world the host described, or null if none has arrived. */
+  world(): WorldSnap | null {
+    return this.lastWorld;
+  }
+
+  onWorld(cb: (w: WorldSnap) => void): void {
+    this.worldCbs.push(cb);
+  }
+
+  /** Joiner: ask the host to apply damage. On the host this applies
+   *  directly, so the same call works either side and callers do not have
+   *  to branch on who they are. */
+  requestHit(n: string, dmg: number): void {
+    if (this.session.isHost) {
+      for (const cb of this.hitCbs) cb({ n, dmg });
+    } else {
+      this.session.send({ t: 'hit', n, dmg } satisfies HitMsg);
+    }
+  }
+
+  onHit(cb: (req: HitRequest) => void): void {
+    this.hitCbs.push(cb);
+  }
+
+  /** How the connection is doing, as the player would describe it. The host
+   *  is always live — it IS the world, so there is nothing to be behind. */
+  link(nowMs: number): LinkState {
+    if (this.session.isHost) return 'live';
+    if (!this.lastWorldAt) return 'live'; // nothing has started yet
+    return linkState(nowMs - this.lastWorldAt);
+  }
+
   /** Scene scripts re-register their callbacks each scene — drop the old. */
   resetSceneBindings(): void {
     this.stateCbs = [];
     this.msgCbs = [];
+    this.worldCbs = [];
+    this.hitCbs = [];
   }
 
   leave(): void {
+    this.reconnecting = false;
     for (const u of this.unsub) u();
     this.unsub = [];
     this.session.leave();
+  }
+
+  // -------------------------------------------------------- 🔌 reconnect
+
+  private reconnecting = false;
+  private linkCbs: ((state: LinkState | 'reconnecting') => void)[] = [];
+
+  onLink(cb: (state: LinkState | 'reconnecting') => void): void {
+    this.linkCbs.push(cb);
+  }
+
+  private tellLink(state: LinkState | 'reconnecting'): void {
+    for (const cb of this.linkCbs) cb(state);
+  }
+
+  /**
+   * Rejoin the same room after a drop, backing off between tries. A phone
+   * that loses wifi for three seconds should not lose the game — and if it
+   * really is gone, saying so beats a frozen screen that explains nothing.
+   *
+   * Only joiners can do this: the room lives on the host, so a host that
+   * drops has taken the game with it and there is nothing to rejoin.
+   */
+  async reconnect(relayUrl: string, gameTag: string): Promise<boolean> {
+    if (this.session.isHost || this.reconnecting) return false;
+    this.reconnecting = true;
+    this.tellLink('reconnecting');
+    const code = this.session.code;
+    for (let attempt = 0; ; attempt++) {
+      const wait = reconnectDelay(attempt);
+      if (wait === null) break;
+      await new Promise((r) => setTimeout(r, wait));
+      if (!this.reconnecting) return false; // they left while we were trying
+      try {
+        const fresh = await netJoin(code, playerName(), { url: relayUrl, game: gameTag });
+        for (const u of this.unsub) u();
+        this.unsub = [];
+        this.adopt(fresh);
+        this.reconnecting = false;
+        this.tellLink('live');
+        return true;
+      } catch {
+        /* still down — wait longer and try again */
+      }
+    }
+    this.reconnecting = false;
+    this.tellLink('lost');
+    return false;
+  }
+
+  /** Take over a fresh session in place, keeping every callback the scene
+   *  has already registered — the game must not have to rebuild itself. */
+  private adopt(session: Session): void {
+    this.session = session;
+    this.positions = {};
+    this.lastWorldT = 0;
+    this.unsub.push(
+      session.onMessage((from, data) => this.onNet(from, data as Msg)),
+      session.onPlayerLeave((id) => {
+        delete this.positions[id];
+      }),
+    );
   }
 
   private onNet(from: string, msg: Msg): void {
@@ -252,6 +380,21 @@ export class StudioNet {
         for (const cb of this.msgCbs) cb(sender, msg.data);
         break;
       }
+      case 'world':
+        // Out-of-order packets would drag the world backwards, visibly.
+        if (!this.session.isHost && isFresh(msg.w, this.lastWorldT)) {
+          this.lastWorld = msg.w;
+          this.lastWorldT = msg.w.t;
+          this.lastWorldAt = Date.now();
+          for (const cb of this.worldCbs) cb(msg.w);
+        }
+        break;
+      case 'hit':
+        // Only the host acts on these — it is the one keeping score.
+        if (this.session.isHost) {
+          for (const cb of this.hitCbs) cb({ n: msg.n, dmg: msg.dmg });
+        }
+        break;
       case 'start':
         this.started = true;
         for (const cb of this.startCbs) cb();
