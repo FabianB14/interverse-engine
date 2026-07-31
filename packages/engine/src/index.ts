@@ -56,3 +56,22 @@ export { createSave } from './save/save.js';
 export type { SaveStore } from './save/save.js';
 
 export { verium } from './economy/wallet.js';
+
+// 🥊 Brawler kit (§4.6) — the 2.5D beat-'em-up pieces: a ground plane with
+// depth, hits that feel like hits, wave gates, and a playable roster.
+export {
+  HORIZON_Y, GROUND_BOTTOM_Y, DEPTH_MIN_SCALE, LANE_TOLERANCE,
+  depthScale, depthZ, clampToGround, onGround, inSameLane, meleeConnects, airOffset,
+} from './brawler/depth.js';
+export {
+  COMBO_WINDOW, DEFAULT_COMBO, IFRAME_SECS, KNOCK_DRAG, MIN_TELEGRAPH,
+  Combo, HitStop, Invulnerable, Telegraph, decayKnock, hitStopFor, knockbackFrom,
+} from './brawler/combat.js';
+export type { ComboStep, Knock } from './brawler/combat.js';
+export { WaveRunner, spawnSpots } from './brawler/waves.js';
+export type { WaveSpec, WaveState, WaveProgress } from './brawler/waves.js';
+export {
+  BASE_HEARTS, BASE_REACH, BASE_SPEED, BRAWLER_CLASSES, NO_UPGRADES,
+  brawlerClass, levelFromXp, playerTint, statsFor, xpForLevel, xpToReach,
+} from './brawler/roster.js';
+export type { BrawlerClass, Stats, Upgrades } from './brawler/roster.js';

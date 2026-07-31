@@ -21,6 +21,7 @@ relay/                WebSocket relay server (deployed once on Render; serves AL
 games/hello           Blob Tap (arcade demo)      — dev port 5173
 games/room            Cozy Room (RPG/cozy demo)   — dev port 5174
 games/taps            Tap Party (party demo)      — dev port 5175
+games/crashers        Blob Crashers (15-stage brawler)  — dev port 5181
 games/_template       template consumed by /new-game — dev port 5180
 apps/studio           Interverse Studio (visual game maker) — dev port 5179;
                       projects are JSON (model.ts) run by runtime.ts; Tauri
@@ -43,6 +44,7 @@ scripts/              headless playtests + playtest launcher
 | `pnpm typecheck` / `lint` / `format` / `build` | quality gates — all must stay green                             |
 | `pnpm test`                                    | unit tests (vitest) — engine logic + studio model; keep green   |
 | `pnpm verify` / `verify:room` / `verify:net`   | headless playtests (Blob Tap, Cozy Room, 3-phone multiplayer)   |
+| `pnpm verify:crashers`                         | headless playtest for the 15-stage brawler                      |
 | `pnpm dev:studio` / `verify:studio`            | Interverse Studio (game-maker app) + its headless playtest      |
 | `pnpm ai`                                      | local AI bridge: Studio's AI Chat via Claude Code login (no key) |
 | `node scripts/playtest.mjs <game>`             | dev server + LAN URL + QR code for real phones                  |
@@ -76,7 +78,7 @@ net, audio-save-input) — read them before working in an area. Essentials:
 
 - TypeScript strict everywhere; `pnpm` workspaces; ESLint flat + Prettier.
 - Games live in `games/<name>` as `@interverse/<name>`, each with its own
-  vite port (next free: 5176+). Template port 5180 is reserved.
+  vite port (next free: 5182+). Template port 5180 is reserved.
 - Every game exposes a `window.__<name>` debug hook (see existing games)
   so headless playtests can drive it; add debug query params (`?round=`,
   `?host=1`, `?join=CODE`) rather than clicking through UIs in tests.

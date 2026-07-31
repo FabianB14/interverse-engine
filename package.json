@@ -2,7 +2,7 @@
   "name": "interverse-engine",
   "version": "0.0.0",
   "private": true,
-  "description": "Interverse Engine — an AI-native 2D game framework for mobile party games, cozy games, and 2D RPGs",
+  "description": "Interverse Engine \u2014 an AI-native 2D game framework for mobile party games, cozy games, and 2D RPGs",
   "type": "module",
   "packageManager": "pnpm@10.33.0",
   "engines": {
@@ -30,10 +30,12 @@
     "dev:hushfall": "pnpm --filter @interverse/hushfall dev",
     "verify:hushfall": "node scripts/verify-hushfall.mjs",
     "dev:studio": "pnpm --filter @interverse/studio dev",
+    "verify:crashers": "node scripts/verify-crashers.mjs",
     "verify:studio": "node scripts/verify-studio.mjs",
     "ai": "node scripts/ai-bridge.mjs",
     "test": "vitest run",
-    "build:site": "pnpm build && node scripts/assemble-site.mjs"
+    "build:site": "pnpm build && node scripts/assemble-site.mjs",
+    "dev:crashers": "pnpm --filter @interverse/crashers dev"
   },
   "devDependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.220",

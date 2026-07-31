@@ -19,6 +19,7 @@ const apps = [
   ['games/blobvale/dist', 'blobvale'],
   ['games/farm/dist', 'farm'],
   ['games/hushfall/dist', 'hushfall'],
+  ['games/crashers/dist', 'crashers'],
   ['apps/studio/dist', 'studio'],
 ];
 for (const [src, dest] of apps) {

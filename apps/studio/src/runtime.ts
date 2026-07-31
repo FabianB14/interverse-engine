@@ -1577,6 +1577,22 @@ export class PlayScene extends Scene {
     return { x: (tx - m.e.x) / d, y: (ty - m.e.y) / d };
   }
 
+  /** Is there a clear line between these two? Terrain only — the same
+   *  question the pathfinder asks, so "it attacked me" and "it could reach
+   *  me" never disagree. Levels with no painted terrain always see. */
+  private canSee(from: Entity, to: Entity): boolean {
+    const grid = this.pathGrid();
+    if (!grid) return true;
+    const ts = this.tileMap!.tileSize;
+    return lineOfSight(
+      grid,
+      Math.floor(from.x / ts),
+      Math.floor(from.y / ts),
+      Math.floor(to.x / ts),
+      Math.floor(to.y / ts),
+    );
+  }
+
   private pathGrid(): PathGrid | null {
     const map = this.tileMap;
     if (!map) return null;
@@ -1887,6 +1903,13 @@ export class PlayScene extends Scene {
     // Out of range, or busy: no point starting a wind-up nobody will see.
     if (!me || me.destroyed || dMe > 900) return;
     if (m.dashT > 0 || m.slamT >= 0 || m.queued.length) return;
+    // Nor through a wall. Now that enemies path around terrain they spend
+    // real time with something between them and the player, and an attack
+    // that telegraphs and then fires into a wall reads as a broken enemy —
+    // the player sees the wind-up, dodges nothing, and takes no hit.
+    // 🌊 Ground slam is the exception: it goes off around the enemy itself,
+    // so a wall in the way is part of the point.
+    if (pattern !== 'slam' && !this.canSee(m.e, me)) return;
     m.shootT -= dt;
     if (m.shootT > 0) return;
     m.shootT = m.def.shootEvery * (m.enraged ? 0.55 : 1) + attackDuration(pattern);
