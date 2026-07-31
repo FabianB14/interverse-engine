@@ -58,7 +58,22 @@ actors as a tree. Click a level to open it, click an actor to select it
 - **Click** an entity to select it; **drag** it to move; edit everything else
   in the right-hand **inspector** — position, scale, rotation, color, blob
   look, text, font size.
-- **Import image…** turns any PNG/JPG into an entity.
+- **Import image…** turns any PNG/JPG/WebP into an actor — or just **drop
+  the file onto the canvas**, which is what most people try first.
+- **🖼 Art** in the toolbar is the library of everything you have
+  imported: thumbnails, file size, how many actors use each one, a
+  🧹 button for art nothing points at, and a running total with a warning
+  past 2 MB (players download all of it). Deleting a picture blanks the
+  actors that used it rather than leaving them pointing at nothing.
+- **✂ Slice** opens the spritesheet slicer: it draws the **frame grid on
+  top of your picture** and updates live as you change the frame size, so
+  you can see when it lines up instead of guessing numbers. ✨ Guess
+  starts you somewhere sensible, and **Use this picture** applies it to
+  the actor you choose. Name frame ranges as 🎬 Clips in the inspector to
+  get `idle` / `walk` / `attack` animations.
+- "Models" here means 2D sprite art — the engine is 2D. Dropping a `.glb`
+  or `.fbx` tells you so and suggests rendering it to a spritesheet,
+  rather than failing silently.
 - The purple frame marks the world bounds. Like real mobile games, players
   see a WINDOW into it: a portrait phone shows a tall window, a rotated
   (landscape) phone or tablet shows a wide ~720-tall one — never a skinny

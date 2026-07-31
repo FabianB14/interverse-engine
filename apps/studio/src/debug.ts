@@ -68,6 +68,14 @@ export interface StudioDebug {
   chatBridged: () => boolean;
   coinsNow: () => number;
   setEvents: (name: string, events: unknown) => boolean;
+  assetList: () => { id: string; bytes: number; users: number }[];
+  assetBytes: () => number;
+  importAsset: (dataUrl: string) => string;
+  assignAsset: (entity: string, id: string) => boolean;
+  deleteAsset: (id: string) => number;
+  unusedAssets: () => string[];
+  importReject: (name: string, mime: string) => string | null;
+  openAssets: () => void;
   genGame: (params: unknown) => string[];
   skillBranchCount: () => number;
   skillRank: (id: string) => number;

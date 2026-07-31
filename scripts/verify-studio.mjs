@@ -491,6 +491,40 @@ const dbOk =
 await page.evaluate(() => window.__studio.stop());
 await sleep(150);
 
+// ART LIBRARY: imported pictures are listed, reusable across actors,
+// deletable without stranding anyone, and budget-counted.
+await page.evaluate(() => window.__studio.loadTemplate('topdown'));
+await sleep(300);
+const artId = await page.evaluate(() =>
+  window.__studio.importAsset('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='),
+);
+const artList0 = await page.evaluate(() => window.__studio.assetList());
+const artUnused = await page.evaluate(() => window.__studio.unusedAssets());
+const artAssigned = await page.evaluate((id) => window.__studio.assignAsset('Hero', id), artId);
+const artList1 = await page.evaluate(() => window.__studio.assetList());
+const artBytes = await page.evaluate(() => window.__studio.assetBytes());
+// The picture must actually render in Play, not merely be recorded.
+await page.evaluate(() => window.__studio.play());
+await sleep(800);
+const artPlays = await page.evaluate(() => window.__studio.playVisibleCount());
+const artCount = await page.evaluate(() => window.__studio.playEntityCount());
+await page.evaluate(() => window.__studio.stop());
+await sleep(150);
+// Deleting must blank the reference rather than leave a dangling id.
+const artCleared = await page.evaluate((id) => window.__studio.deleteAsset(id), artId);
+const heroAfter = await page.evaluate(() => window.__studio.getEntity('Hero'));
+// A 3D model gets an honest answer, not a silent failure.
+const artReject = await page.evaluate(() => window.__studio.importReject('hero.glb', ''));
+await page.evaluate(() => window.__studio.openAssets());
+await sleep(200);
+await page.screenshot({ path: `${outDir}/st-21-art.png` });
+await page.keyboard.press('Escape');
+const artOk =
+  artId.length > 0 && artList0.length === 1 && artUnused.length === 1 &&
+  artAssigned === true && artList1[0].users === 1 && artBytes > 0 &&
+  artPlays === artCount && artCleared === 1 && heroAfter.assetId === '' &&
+  /2D/.test(artReject);
+
 // DRAG-OFF SEARCH: drag a ⛓ Flow port into empty canvas, type, and the
 // thing you pick arrives already wired to where you dragged from.
 await page.evaluate(() => window.__studio.loadTemplate('topdown'));
@@ -846,7 +880,7 @@ const ok =
   placeOk && editOk && storyOk && levelsOk && playOk && stopOk && exportOk && importOk &&
   templatesOk && skillsOk && scoreOk && tilesOk && cameraOk && frameOk && combatOk && rangedOk &&
   patrolOk && chatOk && coinsOk && persistOk && libOk && eventsOk && genOk && uiOk && dbOk &&
-  questOk && levelEvOk && apiOk && keysOk && controlsOk && skillsBranchOk && gameGenOk && dropOk && netOk &&
+  questOk && levelEvOk && apiOk && keysOk && controlsOk && skillsBranchOk && gameGenOk && dropOk && artOk && netOk &&
   errors.length === 0;
 console.log(
   JSON.stringify(
@@ -872,6 +906,7 @@ console.log(
       controlsOk, defRight, reboundRight, rx0, rxOldKey, rxNewKey, addedCustom, killBuiltin, killCustom, conflicts,
       skillsBranchOk, brN, skOpen, layout, rank3, crossBranch, sameBranch, spentBrawl, refunded, afterRespec,
       gameGenOk, genProblems, genName, genScenes, genFirst, genPlays, genVisible, genMobs, genLive, cozyMobs,
+      artOk, artId, artUnused, artAssigned, artBytes, artPlays, artCount, artCleared, artReject,
       dropOk, dropOpened, dropN: dropAll.length, dropCoin0: dropCoin[0], dropHigh, dropMoved, scenesBefore, scenesAfter, lvlEvAfter,
       netOk, playersA, playersB, remotesB, moveOk, remotePosB, stateB,
       errors: errors.slice(0, 6),

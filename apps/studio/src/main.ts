@@ -5,6 +5,10 @@ import { wireChat } from './chat.js';
 import { wireFlow } from './flow.js';
 import { wireCodePane } from './codepane.js';
 import { wireControls } from './controls.js';
+import {
+  ASSET_BUDGET, assetBytes, assetList, assetUsers, assignAsset, deleteAsset,
+  formatBytes, frameCount, frameRect, guessFrameSize, importRejectReason, unusedAssets,
+} from './assets.js';
 import { STARTER_SCRIPT } from './apidocs.js';
 import { PALETTE } from './palette.js';
 import { TEMPLATES } from './templates.js';
@@ -160,6 +164,147 @@ async function main(): Promise<void> {
         editor.playSolo();
       };
     });
+
+  // --------------------------------------------------------- 🖼 assets
+  /** The art library: what you have imported, who uses it, what it costs,
+   *  and a slicer that shows the frame grid instead of asking you to
+   *  guess numbers. */
+  const openAssets = (focusId?: string): void =>
+    openModal((root) => {
+      const p = editor.project;
+      const list = assetList(p);
+      const total = assetBytes(p);
+      root.innerHTML = `<h2>🖼 Art — "${p.name}"</h2>
+        <p class="muted" style="font-size:12px">
+          Imported pictures live with the project. ${list.length} image${list.length === 1 ? '' : 's'},
+          ${formatBytes(total)}${total > ASSET_BUDGET ? ' — ⚠ over the 2 MB budget; players download all of it' : ''}
+        </p>
+        <div class="row" style="margin-bottom:10px">
+          <button class="btn primary" id="as-add">＋ Import a picture…</button>
+          <button class="btn" id="as-prune">🧹 Remove unused</button>
+        </div>
+        <div class="asset-grid" id="as-grid"></div>
+        <div id="as-slicer" style="margin-top:14px"></div>`;
+      const grid = root.querySelector<HTMLElement>('#as-grid')!;
+      if (!list.length) {
+        grid.innerHTML = '<p class="muted" style="font-size:12px">Nothing imported yet. A PNG spritesheet of your character is the usual first thing.</p>';
+      }
+      for (const a of list) {
+        const card = document.createElement('div');
+        card.className = `asset-card${a.users === 0 ? ' dead' : ''}`;
+        const img = document.createElement('img');
+        img.src = p.assets[a.id]!;
+        const cap = document.createElement('div');
+        cap.textContent = `${formatBytes(a.bytes)} · ${a.users} use${a.users === 1 ? '' : 's'}`;
+        cap.className = 'muted';
+        const use = document.createElement('button');
+        use.className = 'btn';
+        use.style.cssText = 'width:100%;margin-top:4px';
+        use.textContent = '✂ Slice';
+        use.onclick = () => showSlicer(a.id);
+        const kill = document.createElement('button');
+        kill.className = 'btn';
+        kill.style.cssText = 'width:100%;margin-top:3px';
+        kill.textContent = '🗑';
+        kill.title = a.users ? `Used by ${assetUsers(p, a.id).join(', ')}` : 'Not used by anything';
+        kill.onclick = () => {
+          const cleared = deleteAsset(p, a.id);
+          editor.touch();
+          openAssets();
+          if (cleared) alert(`Deleted. ${cleared} actor(s) lost their picture.`);
+        };
+        card.append(img, cap, use, kill);
+        grid.appendChild(card);
+      }
+      root.querySelector<HTMLButtonElement>('#as-add')!.onclick = () => placeImage(360, 640);
+      root.querySelector<HTMLButtonElement>('#as-prune')!.onclick = () => {
+        for (const id of unusedAssets(p)) deleteAsset(p, id);
+        editor.touch();
+        openAssets();
+      };
+
+      /** The slicer: the frame grid drawn ON the picture, live. */
+      const showSlicer = (id: string): void => {
+        const host = root.querySelector<HTMLElement>('#as-slicer')!;
+        const url = p.assets[id]!;
+        host.innerHTML = `<h3>✂ Slice "${id}" into frames</h3>
+          <div class="row" style="margin-bottom:6px">
+            <label class="muted">Frame</label>
+            <input type="number" id="sl-w" style="width:72px" />
+            <span class="muted">×</span>
+            <input type="number" id="sl-h" style="width:72px" />
+            <button class="btn" id="sl-guess">✨ Guess</button>
+            <span class="muted" id="sl-count"></span>
+          </div>
+          <div id="sheet-wrap"><img id="sl-img" alt="" /><canvas id="sheet-grid"></canvas></div>
+          <div class="row" style="margin-top:8px">
+            <label class="muted">Apply to</label>
+            <select id="sl-target"></select>
+            <button class="btn primary" id="sl-apply">Use this picture</button>
+          </div>`;
+        const img = host.querySelector<HTMLImageElement>('#sl-img')!;
+        const cv = host.querySelector<HTMLCanvasElement>('#sheet-grid')!;
+        const wIn = host.querySelector<HTMLInputElement>('#sl-w')!;
+        const hIn = host.querySelector<HTMLInputElement>('#sl-h')!;
+        const count = host.querySelector<HTMLElement>('#sl-count')!;
+        const target = host.querySelector<HTMLSelectElement>('#sl-target')!;
+        for (const e of editor.scene.entities) {
+          const o = document.createElement('option');
+          o.value = o.textContent = e.name;
+          if (editor.selected?.name === e.name) o.selected = true;
+          target.appendChild(o);
+        }
+        const drawGrid = (): void => {
+          const fw = Number(wIn.value) || 0;
+          const fh = Number(hIn.value) || 0;
+          cv.width = img.clientWidth;
+          cv.height = img.clientHeight;
+          const ctx = cv.getContext('2d');
+          if (!ctx) return;
+          ctx.clearRect(0, 0, cv.width, cv.height);
+          const n = frameCount(img.naturalWidth, img.naturalHeight, fw, fh);
+          count.textContent = n ? `${n} frames` : 'single image';
+          if (!n) return;
+          const sx = img.clientWidth / img.naturalWidth;
+          const sy = img.clientHeight / img.naturalHeight;
+          ctx.strokeStyle = '#8affc1';
+          ctx.lineWidth = 1;
+          for (let i = 0; i < n; i++) {
+            const r = frameRect(img.naturalWidth, img.naturalHeight, fw, fh, i);
+            if (r) ctx.strokeRect(r.x * sx + 0.5, r.y * sy + 0.5, r.w * sx - 1, r.h * sy - 1);
+          }
+        };
+        img.onload = () => {
+          const g = guessFrameSize(img.naturalWidth, img.naturalHeight);
+          wIn.value = String(g.frameW);
+          hIn.value = String(g.frameH);
+          drawGrid();
+        };
+        img.src = url;
+        wIn.oninput = drawGrid;
+        hIn.oninput = drawGrid;
+        host.querySelector<HTMLButtonElement>('#sl-guess')!.onclick = () => {
+          const g = guessFrameSize(img.naturalWidth, img.naturalHeight);
+          wIn.value = String(g.frameW);
+          hIn.value = String(g.frameH);
+          drawGrid();
+        };
+        host.querySelector<HTMLButtonElement>('#sl-apply')!.onclick = () => {
+          if (!assignAsset(p, target.value, id)) return;
+          const def = editor.entityByName(target.value);
+          if (def) {
+            def.frameW = Number(wIn.value) || 0;
+            def.frameH = Number(hIn.value) || 0;
+            if (def.frameW && !def.fps) def.fps = 8;
+            editor.updateEntity(def);
+          }
+          editor.touch();
+          closeModal();
+        };
+      };
+      if (focusId) showSlicer(focusId);
+    });
+  $('btn-assets').onclick = () => openAssets();
 
   // ------------------------------------------------------- 🎮 controls
   const controlsUi = wireControls(() => editor.project, () => editor.touch(), openModal);
@@ -762,21 +907,43 @@ async function main(): Promise<void> {
     pendingImageAt = { x, y };
     fileImage.click();
   };
-  fileImage.onchange = () => {
-    const f = fileImage.files?.[0];
-    const at = pendingImageAt ?? { x: 360, y: 640 };
-    pendingImageAt = null;
-    if (!f) return;
+  /** Bring a picture in as a new actor. Shared by the palette, the 🖼 Art
+   *  screen and dropping a file onto the canvas. */
+  const importImageFile = (f: File, at: { x: number; y: number }): void => {
+    const why = importRejectReason(f.name, f.type);
+    if (why) {
+      // Say what is wrong and what to do instead, rather than silently
+      // importing something that will never render.
+      alert(why);
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       const assetId = editor.addAsset(String(reader.result));
       const def = editor.addEntity('image', at.x, at.y);
       def.assetId = assetId;
       editor.updateEntity(def);
+      editor.select(def.id);
     };
     reader.readAsDataURL(f);
+  };
+  fileImage.onchange = () => {
+    const f = fileImage.files?.[0];
+    const at = pendingImageAt ?? { x: 360, y: 640 };
+    pendingImageAt = null;
+    if (f) importImageFile(f, at);
     fileImage.value = '';
   };
+  // Drop a PNG straight onto the canvas — the thing people try first.
+  center.addEventListener('dragover', (e) => {
+    if (e.dataTransfer?.types.includes('Files')) e.preventDefault();
+  });
+  center.addEventListener('drop', (e) => {
+    const f = e.dataTransfer?.files?.[0];
+    if (!f) return;
+    e.preventDefault();
+    importImageFile(f, { x: 360, y: 640 });
+  });
 
   for (const group of PALETTE) {
     const head = document.createElement('div');
@@ -1094,6 +1261,18 @@ async function main(): Promise<void> {
       editor.touch();
       return true;
     },
+    assetList: () => assetList(editor.project),
+    assetBytes: () => assetBytes(editor.project),
+    importAsset: (dataUrl: string) => editor.addAsset(dataUrl),
+    assignAsset: (entity: string, id: string) => {
+      const ok = assignAsset(editor.project, entity, id);
+      if (ok) editor.touch();
+      return ok;
+    },
+    deleteAsset: (id: string) => deleteAsset(editor.project, id),
+    unusedAssets: () => unusedAssets(editor.project),
+    importReject: (name: string, mime: string) => importRejectReason(name, mime),
+    openAssets: () => openAssets(),
     genGame: (params: unknown) => {
       const made = genGame((params ?? {}) as Partial<GenParams>);
       const problems = validateGame(made);

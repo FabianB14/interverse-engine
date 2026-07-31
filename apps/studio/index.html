@@ -486,6 +486,44 @@
       #app.bottom-float #bottom.grabbing {
         user-select: none;
       }
+
+      /* --- S6: asset library + spritesheet slicer --- */
+      .asset-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+        gap: 8px;
+      }
+      .asset-card {
+        border: 1px solid #35304d;
+        border-radius: 8px;
+        padding: 6px;
+        text-align: center;
+        font-size: 11px;
+      }
+      .asset-card img {
+        max-width: 100%;
+        max-height: 72px;
+        image-rendering: pixelated;
+      }
+      .asset-card.dead {
+        border-color: #6b3a4a;
+      }
+      #sheet-wrap {
+        position: relative;
+        display: inline-block;
+        max-width: 100%;
+        background: #0e0b16;
+      }
+      #sheet-wrap img {
+        display: block;
+        image-rendering: pixelated;
+        max-width: 100%;
+      }
+      #sheet-grid {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
     </style>
   </head>
   <body>
@@ -513,6 +551,9 @@
         <button class="btn" id="btn-tiles" title="Paint terrain tiles onto this level">🗺 Tiles</button>
         <button class="btn" id="btn-frame" title="Preview how things fit on a phone screen — rotated (landscape) or portrait">📱 Fit</button>
         <button class="btn" id="btn-db" title="Project database: items + languages">🗄</button>
+        <button class="btn" id="btn-assets" title="Imported pictures: reuse, rename, delete, slice spritesheets">
+          🖼 Art
+        </button>
         <button class="btn" id="btn-controls" title="Key + on-screen button binds — what every control does">
           🎮 Controls
         </button>
