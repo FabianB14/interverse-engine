@@ -491,6 +491,48 @@ const dbOk =
 await page.evaluate(() => window.__studio.stop());
 await sleep(150);
 
+// PROCEDURAL GAME MAKER: parameters in, a complete PLAYABLE game out —
+// and what comes out has to survive Play, not merely validate on paper.
+const genProblems = await page.evaluate(() =>
+  window.__studio.genGame({
+    seed: 42, genre: 'rpg', theme: 'dungeon', levels: 3, difficulty: 2,
+    mechanics: { combat: true, collect: true, shop: true, dialogue: true, boss: true, skills: true },
+  }),
+);
+await sleep(300);
+const genName = await page.evaluate(() => window.__studio.projectName());
+const genScenes = await page.evaluate(() => window.__studio.sceneCount());
+const genFirst = await page.evaluate(() => window.__studio.sceneName());
+await page.evaluate(() => window.__studio.play());
+await sleep(900);
+const genPlays = await page.evaluate(() => window.__studio.playEntityCount());
+const genVisible = await page.evaluate(() => window.__studio.playVisibleCount());
+const genOver = await page.evaluate(() => window.__studio.gameIsOver());
+await page.evaluate(() => window.__studio.stop());
+await sleep(150);
+// Walk into a real level and confirm it is populated and winnable.
+await page.evaluate(() => window.__studio.switchSceneByName('Vault 1'));
+await page.evaluate(() => window.__studio.play());
+await sleep(900);
+const genMobs = await page.evaluate(() => window.__studio.mobCount());
+const genLive = await page.evaluate(() => window.__studio.playVisibleCount());
+await page.screenshot({ path: `${outDir}/st-19-generated.png` });
+await page.evaluate(() => window.__studio.stop());
+await sleep(150);
+// A cozy game must come out with no enemies at all, and still be winnable.
+await page.evaluate(() => window.__studio.genGame({ seed: 3, genre: 'cozy', theme: 'candy', levels: 2 }));
+await sleep(250);
+await page.evaluate(() => window.__studio.switchSceneByName('Bakery 1'));
+await page.evaluate(() => window.__studio.play());
+await sleep(700);
+const cozyMobs = await page.evaluate(() => window.__studio.mobCount());
+await page.evaluate(() => window.__studio.stop());
+await sleep(150);
+const gameGenOk =
+  genProblems.length === 0 && genScenes === 4 && genFirst === 'Menu' && genName.length > 3 &&
+  genPlays > 0 && genVisible === genPlays && genOver === false &&
+  genMobs > 0 && genLive > genMobs && cozyMobs === 0;
+
 // BRANCHED SKILL TREE: three coloured paths, multi-rank cells, and tiers
 // that only open once enough points are spent IN THAT branch.
 await page.evaluate(() => window.__studio.loadTemplate('vault'));
@@ -769,7 +811,7 @@ const ok =
   placeOk && editOk && storyOk && levelsOk && playOk && stopOk && exportOk && importOk &&
   templatesOk && skillsOk && scoreOk && tilesOk && cameraOk && frameOk && combatOk && rangedOk &&
   patrolOk && chatOk && coinsOk && persistOk && libOk && eventsOk && genOk && uiOk && dbOk &&
-  questOk && levelEvOk && apiOk && keysOk && controlsOk && skillsBranchOk && netOk &&
+  questOk && levelEvOk && apiOk && keysOk && controlsOk && skillsBranchOk && gameGenOk && netOk &&
   errors.length === 0;
 console.log(
   JSON.stringify(
@@ -794,6 +836,7 @@ console.log(
       keysOk, kx0, kxD, kxL, ky0, kyS,
       controlsOk, defRight, reboundRight, rx0, rxOldKey, rxNewKey, addedCustom, killBuiltin, killCustom, conflicts,
       skillsBranchOk, brN, skOpen, layout, rank3, crossBranch, sameBranch, spentBrawl, refunded, afterRespec,
+      gameGenOk, genProblems, genName, genScenes, genFirst, genPlays, genVisible, genMobs, genLive, cozyMobs,
       netOk, playersA, playersB, remotesB, moveOk, remotePosB, stateB,
       errors: errors.slice(0, 6),
     },

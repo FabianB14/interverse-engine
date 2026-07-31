@@ -31,6 +31,20 @@ edit is the real engine, live — press **▶ Play** at any moment.
 
   First-person / 3D templates arrive when the engine grows a 3D renderer.
 
+- **🎲 Generate one for me** (top of the ✚ New screen) builds a complete
+  game from a few choices: kind (arcade / brawler / RPG / runner /
+  survival / cozy), theme (forest / dungeon / city / space / candy),
+  1–5 levels, difficulty, and which mechanics to include (shop,
+  treasure, boss, skill tree). It writes the levels, terrain, enemies,
+  chests, NPCs, ⚡ event wiring, items, music, a title menu and a win
+  condition — then hands you an **ordinary editable project**. Nothing is
+  locked; generating is a starting point, not a black box. **↻ Reroll**
+  keeps your settings and builds a different world, and the same seed
+  always rebuilds the same game, art included. Cozy games come out with
+  no enemies at all, whatever else you tick — and every generated game is
+  checked for a player, a way to finish, and no actor sitting on the
+  player's spawn before it is handed over.
+
 - Your project **autosaves** on this device. **Export** downloads a
   `.interverse.json` you can back up, share, or publish (see §7).
 

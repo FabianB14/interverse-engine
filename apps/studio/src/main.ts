@@ -8,6 +8,8 @@ import { wireControls } from './controls.js';
 import { STARTER_SCRIPT } from './apidocs.js';
 import { PALETTE } from './palette.js';
 import { TEMPLATES } from './templates.js';
+import { genGame, validateGame } from './gengame.js';
+import type { GenParams } from './gengame.js';
 import { TILE_TYPES } from './tiles.js';
 import { pushToGitHub, registerInWorld, slugify, store as pubStore } from './publish.js';
 import type { EntityKind } from './model.js';
@@ -166,7 +168,81 @@ async function main(): Promise<void> {
   // ------------------------------------------------- templates ("✚ New")
   const openTemplates = (): void =>
     openModal((root) => {
-      root.innerHTML = `<h2>✚ New game from a template</h2><div id="lib-row"></div><div class="tpl-grid"></div>`;
+      root.innerHTML = `<h2>✚ New game</h2>
+        <div id="gen-box" style="border:1px solid #35304d;border-radius:10px;padding:10px;margin-bottom:12px">
+          <b>🎲 Generate one for me</b>
+          <p class="muted" style="margin:4px 0 8px;font-size:12px">
+            Pick a few things and get a complete, playable game you can then edit like any other.
+          </p>
+          <div class="row" style="flex-wrap:wrap;gap:6px">
+            <select id="gen-genre" title="Kind of game">
+              <option value="arcade">🕹 Arcade</option>
+              <option value="brawler">👊 Brawler (2.5D)</option>
+              <option value="rpg">🗡 RPG</option>
+              <option value="runner">🏃 Runner (2.5D)</option>
+              <option value="survival">🌊 Survival</option>
+              <option value="cozy">🍵 Cozy (no combat)</option>
+            </select>
+            <select id="gen-theme" title="Look and music">
+              <option value="forest">🌲 Forest</option>
+              <option value="dungeon">🕯 Dungeon</option>
+              <option value="city">🌆 City</option>
+              <option value="space">🚀 Space</option>
+              <option value="candy">🍬 Candy</option>
+            </select>
+            <select id="gen-levels" title="How many levels"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option></select>
+            <select id="gen-diff" title="Difficulty">
+              <option value="1">Gentle</option><option value="2" selected>Normal</option><option value="3">Tough</option>
+            </select>
+          </div>
+          <div class="row" style="flex-wrap:wrap;gap:10px;margin-top:8px;font-size:12px">
+            <label class="muted"><input type="checkbox" id="gen-shop" /> 🛒 shop</label>
+            <label class="muted"><input type="checkbox" id="gen-collect" checked /> 🎁 treasure</label>
+            <label class="muted"><input type="checkbox" id="gen-boss" checked /> 👹 boss</label>
+            <label class="muted"><input type="checkbox" id="gen-skills" /> 🌳 skill tree</label>
+          </div>
+          <div class="row" style="margin-top:8px">
+            <button class="btn primary" id="gen-go">🎲 Generate</button>
+            <button class="btn" id="gen-reroll" title="Same settings, different world">↻ Reroll</button>
+            <span class="muted" id="gen-out" style="font-size:12px"></span>
+          </div>
+        </div>
+        <div id="lib-row"></div><div class="tpl-grid"></div>`;
+      let genSeed = 1;
+      const genOut = root.querySelector<HTMLElement>('#gen-out')!;
+      const sel = (id: string): string => root.querySelector<HTMLSelectElement>(id)!.value;
+      const chk = (id: string): boolean => root.querySelector<HTMLInputElement>(id)!.checked;
+      const runGen = (): void => {
+        const params = {
+          seed: genSeed,
+          genre: sel('#gen-genre') as GenParams['genre'],
+          theme: sel('#gen-theme') as GenParams['theme'],
+          levels: Number(sel('#gen-levels')),
+          difficulty: Number(sel('#gen-diff')) as GenParams['difficulty'],
+          mechanics: {
+            combat: true,
+            collect: chk('#gen-collect'),
+            shop: chk('#gen-shop'),
+            dialogue: true,
+            boss: chk('#gen-boss'),
+            skills: chk('#gen-skills'),
+          },
+        };
+        const made = genGame(params);
+        const problems = validateGame(made);
+        if (problems.length) {
+          // Never hand over a game that cannot be finished.
+          genOut.textContent = `⚠ ${problems[0]}`;
+          return;
+        }
+        editor.importProject(made);
+        closeModal();
+      };
+      root.querySelector<HTMLButtonElement>('#gen-go')!.onclick = runGen;
+      root.querySelector<HTMLButtonElement>('#gen-reroll')!.onclick = () => {
+        genSeed++;
+        runGen();
+      };
       // Your saved games first — open (or delete) any 💾 Save slot.
       const lib = editor.libraryList();
       const libRow = root.querySelector<HTMLElement>('#lib-row')!;
@@ -962,6 +1038,13 @@ async function main(): Promise<void> {
       d.events = events as typeof d.events;
       editor.touch();
       return true;
+    },
+    genGame: (params: unknown) => {
+      const made = genGame((params ?? {}) as Partial<GenParams>);
+      const problems = validateGame(made);
+      if (problems.length) return problems;
+      editor.importProject(made);
+      return [];
     },
     skillBranchCount: () => editor.getPlayScene()?.skillTree()?.branchCount() ?? 0,
     skillRank: (id: string) => editor.getPlayScene()?.skillTree()?.rankOf(id) ?? 0,

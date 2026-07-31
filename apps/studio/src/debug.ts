@@ -68,6 +68,7 @@ export interface StudioDebug {
   chatBridged: () => boolean;
   coinsNow: () => number;
   setEvents: (name: string, events: unknown) => boolean;
+  genGame: (params: unknown) => string[];
   skillBranchCount: () => number;
   skillRank: (id: string) => number;
   skillInvest: (id: string) => boolean;
