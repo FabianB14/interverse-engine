@@ -73,6 +73,40 @@ objects never drift out of agreement with the road they stand on.
   existence at full opacity is the single most obvious tell that a runner is
   a treadmill.
 
+### The bend
+
+```ts
+p.bend = 200;                 // positive bends right, 0 is dead straight
+bendAt(1000, 200);  // 200    — drift of the centre line at that depth
+bendAt(3000, 200);  // 1800   — three times the depth, nine times the drift
+```
+
+Set `bend` on the projection and the road curves. It is added in world units
+*before* the perspective divide, so everything standing on the road — the
+causeway, obstacles, coins, scenery — swings together instead of sliding
+against each other. Lanes stay exactly one lane wide, and the collision test
+never sees it at all: the curve is entirely a matter of where the road AHEAD
+is, which is how every runner of this kind does it.
+
+Quadratic, because that is the shape a constant-radius curve makes when you
+look down it — barely anything underfoot and the far end swung right out of
+frame. Linear drift reads as a road built at an angle rather than one that
+bends.
+
+The player is at `z = 0`, so a curve never moves them.
+
+Two things to get right when you drive it, both learned the hard way:
+
+- **Draw the road in segments.** A single trapezoid from here to the horizon
+  can only ever be straight. Blob Rush slices it into 26 quads spaced by the
+  *square* of the fraction, so most of them land in the near half where the
+  curve is legible rather than in the two-pixel band at the horizon.
+- **Let it commit.** The first cut changed target every 2600 units and eased
+  with a time constant over a second — so at speed it never arrived anywhere
+  before setting off somewhere else, and the average came out at a bend of 25
+  out of a possible 260. It was a straight road with extra maths. Hold a lean
+  for roughly twice as long as it takes to reach it.
+
 Store world positions as **absolute** distance from the start of the run and
 subtract the player's depth where you need it. Decrementing every object every
 frame is more work and accumulates float error into positions that no longer
@@ -110,7 +144,15 @@ waiting to be filed as "it hit me when I dodged".
 `speedAt(distance)` ramps toward a cap rather than growing forever. Without a
 cap every run ends the same way — at the speed where reaction time runs out —
 which makes the last few seconds identical for a beginner and an expert. A cap
-lets skill decide the score instead.
+lets skill decide the score instead. The defaults are 1020 out of the gate up
+to 2600, reached over about 7000 units.
+
+At that pace, **durations must stay durations**. `LANE_SNAP_SECS` and
+`JUMP_SECS` are times, not distances, so a dodge takes the same fraction of a
+second at 2600 as it did at 1020. Anything measured in distance instead
+arrives *after* the obstacle once the run gets going. Jump airtime is
+deliberately short for the same reason: a long hang clears the obstacle after
+the one you jumped for, which turns a dodge into a coin flip.
 
 ## The track
 
@@ -161,10 +203,21 @@ at the desk it is being built at.
 
 ## Blob Rush
 
-Four zones, swapped on a corner: swipe the way the arrow points and the world
-changes around you. Getting a corner wrong is the one mistake with no
-recovery — everything else is a stumble that costs speed and lets the chase
-meter tick up, and running clean pays it back down.
+A rotting causeway through a swamp, with the water either side and cypress,
+mangrove, dead wood and reeds pushing in at the edges. Four zones — Misty Bog,
+Cypress Deep, Sunken Ruins, Blackwater — which are the same swamp at
+increasing depths and darkening hours rather than four unrelated biomes.
+Somewhere that gets stranger the further in you go is a place; a temple
+followed by a glacier is a slideshow.
+
+Zones swap on a corner: swipe the way the arrow points, the world whips round,
+and the road comes out leaning that way so the turn has a direction you can
+feel. Corners come about every 11000 units, and the road wanders between them,
+so you are usually running toward something you cannot fully see.
+
+Getting a corner wrong is the one mistake with no recovery — everything else
+is a stumble that costs speed and lets the chase meter tick up, and running
+clean pays it back down.
 
 Coins buy hats, which is the whole meta-game: they have no other use, and a
 runner whose only progression is a number needs somewhere for that number to

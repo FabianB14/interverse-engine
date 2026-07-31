@@ -22,9 +22,15 @@ export function clampLane(lane: number, count = LANE_COUNT): number {
   return Math.max(0, Math.min(count - 1, Math.round(lane)));
 }
 
-/** How long a lane change takes. Long enough to see, short enough that the
- *  input still feels like it happened when you did it. */
-export const LANE_SNAP_SECS = 0.16;
+/**
+ * How long a lane change takes. Long enough to see, short enough that the
+ * input still feels like it happened when you did it.
+ *
+ * This is a duration, not a speed, so it does NOT stretch as the run gets
+ * faster — which is the point. At 2600 units a second, a dodge that took a
+ * fixed *distance* would arrive after the obstacle.
+ */
+export const LANE_SNAP_SECS = 0.13;
 
 /**
  * A body that lives in lanes.

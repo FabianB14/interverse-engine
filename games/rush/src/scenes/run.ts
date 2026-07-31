@@ -30,13 +30,48 @@ import { loadProfile } from '../save.js';
  *  three digits in it — 20 metres feels like nothing, 2000 feels made up. */
 const UNITS_PER_METRE = 12;
 
-/** Distance between corners. Far enough apart that a turn is an event. */
-const TURN_EVERY = 14_000;
+/**
+ * Distance between corners.
+ *
+ * About twelve seconds of running at the early pace and rather less later.
+ * Corners are the only thing in a runner that changes where you are rather
+ * than what is in front of you, so they have to come often enough to be part
+ * of the rhythm — far apart, they are a quiz you take twice a run.
+ */
+const TURN_EVERY = 11_000;
 
 /** How close a corner has to be before a sideways swipe means "turn" rather
- *  than "change lane". Generous: missing a corner because you were early is
- *  a worse feeling than any amount of difficulty. */
+ *  than "change lane". Generous, and scaled by speed below: missing a corner
+ *  because you were early is a worse feeling than any amount of difficulty. */
 const TURN_WINDOW = 1500;
+
+/**
+ * How hard the road wanders between corners, and how fast it changes its
+ * mind.
+ *
+ * The bend is decoration — lanes are still lanes and the collision test never
+ * sees it — but it is the decoration that turns a corridor into a place. It
+ * eases rather than snapping, because a road that changes curvature in one
+ * frame reads as a glitch, not a bend.
+ */
+const BEND_MAX = 260;
+/**
+ * How far the road holds one lean, and how fast it eases into it.
+ *
+ * These two have to be read together. The first version had the road
+ * changing its mind every 2600 units and easing with a time constant of over
+ * a second — so at speed it never arrived anywhere before setting off
+ * somewhere else, and the average came out at a bend of about 25 out of 260.
+ * The road was, in practice, straight.
+ *
+ * Now it commits: about two and a half seconds per lean, reached in under
+ * half of that.
+ */
+const BEND_EVERY = 4200;
+const BEND_EASE = 2.4;
+
+/** How long the world takes to swing round after a corner is taken. */
+const SWEEP_SECS = 0.45;
 
 /** What one hit costs, and how fast running clean pays it back. Three hits
  *  in quick succession is the end; spaced out, they are survivable. */
@@ -110,8 +145,25 @@ export class RunScene extends Scene {
   private turned = false;
   private turnSign = new Container();
   private turnSignKey = '';
+  /** Where the road is bending right now, and where it is heading. */
+  private bend = 0;
+  private bendTarget = 0;
+  private bendNext = BEND_EVERY;
+  /** Counts down after a corner while the world swings round. */
+  private sweep = 0;
+  private sweepDir = 1;
   private over = false;
   private swipe!: Swipe;
+  /**
+   * Test-only: keep the run alive through stumbles and pits.
+   *
+   * A headless playtest drives the blob straight down the middle without
+   * dodging anything, and at 2600 units a second that is dead in about four.
+   * The mechanics it wants to check — lanes, jumps, corners, the bend — all
+   * take longer than that to exercise. Corner misses still end the run,
+   * because that is one of the things being checked.
+   */
+  private safe = false;
 
   private metresText!: Text;
   private coinsText!: Text;
@@ -126,6 +178,18 @@ export class RunScene extends Scene {
 
   private get zone(): Zone {
     return zone(this.zoneN);
+  }
+
+  /**
+   * How far out a corner starts accepting the swipe.
+   *
+   * Scaled by speed for the same reason hazards are: a window measured in
+   * distance shrinks in TIME as the run gets faster, so a corner that was
+   * comfortable at the start becomes a reflex test at the end — for no
+   * reason anyone chose.
+   */
+  private get turnWindow(): number {
+    return Math.max(TURN_WINDOW, this.speed * 1.6);
   }
 
   protected override onEnter(): void {
@@ -145,6 +209,11 @@ export class RunScene extends Scene {
     this.world.addChild(this.turnSign, this.blobShadow, this.blob.view);
 
     this.speed = speedAt(0);
+    // Start already leaning. A run that opens on a dead-straight corridor
+    // and only starts bending half a minute in has told the player, in the
+    // most memorable moment it gets, that the road is straight.
+    this.bend = (Math.random() < 0.5 ? -1 : 1) * BEND_MAX * 0.5;
+    this.bendTarget = -this.bend * 0.7;
     this.fillTrack();
 
     this.stage.addChild(this.hudLayer);
@@ -259,7 +328,7 @@ export class RunScene extends Scene {
     // At a corner, sideways means TURN — the same gesture, reinterpreted,
     // which is what makes a corner feel like part of the same vocabulary
     // instead of a special move nobody remembers under pressure.
-    if (!this.turned && this.turnZ < TURN_WINDOW) {
+    if (!this.turned && this.turnZ < this.turnWindow) {
       if ((dir === 'left' ? -1 : 1) === this.turnDir) this.takeCorner();
       else this.end('corner');
       return;
@@ -281,6 +350,7 @@ export class RunScene extends Scene {
 
     this.rider.update(dt);
     this.moves.update(dt);
+    this.tickBend(dt);
     this.chase = Math.max(0, this.chase - CHASE_RECOVER * dt);
     this.shake = Math.max(0, this.shake - dt * 4);
 
@@ -297,6 +367,26 @@ export class RunScene extends Scene {
   /** How far ahead of the player something is, right now. */
   private rel(z: number): number {
     return z - this.distance;
+  }
+
+  /**
+   * The road wanders.
+   *
+   * A new target every so often, eased toward rather than snapped to. The
+   * ease is what sells it: the curvature itself changing gradually is the
+   * difference between a bending road and a kinked one.
+   */
+  private tickBend(dt: number): void {
+    if (this.distance >= this.bendNext) {
+      this.bendNext = this.distance + BEND_EVERY * (0.6 + Math.random() * 0.8);
+      // Biased away from wherever it currently is, so the road actually
+      // swings both ways instead of drifting to one side and staying there.
+      const away = this.bend > 0 ? -1 : 1;
+      const sign = Math.random() < 0.72 ? away : -away;
+      this.bendTarget = sign * BEND_MAX * (0.35 + Math.random() * 0.65);
+    }
+    this.bend += (this.bendTarget - this.bend) * Math.min(1, BEND_EASE * dt);
+    if (this.sweep > 0) this.sweep = Math.max(0, this.sweep - dt);
   }
 
   /** Behind the camera is gone. A runner that keeps what it has passed is a
@@ -357,7 +447,15 @@ export class RunScene extends Scene {
     this.turned = true;
     this.zoneN++;
     this.purse += 25;
-    this.shake = 0.6;
+    this.shake = 0.4;
+    // The sweep, and a road that comes out of it already leaning the way you
+    // turned — so the corner has a direction you can feel rather than just a
+    // change of scenery.
+    this.sweep = SWEEP_SECS;
+    this.sweepDir = this.turnDir;
+    this.bend = this.turnDir * BEND_MAX * 1.15;
+    this.bendTarget = this.turnDir * BEND_MAX * 0.4;
+    this.bendNext = this.distance + BEND_EVERY;
     this.banner(`${this.zone.name.toUpperCase()}!`, 1.6);
     audio.chime();
     this.add(burst('confetti', this.proj.cx, this.proj.groundY - 120), this.hudLayer);
@@ -416,12 +514,12 @@ export class RunScene extends Scene {
   private hit(h: Hazard): void {
     // A pit is not a stumble. There is no version of falling in a hole that
     // you run out of, so it ends the run and says so.
-    if (h.kind === 'pit') {
+    if (h.kind === 'pit' && !this.safe) {
       this.end('pit');
       return;
     }
     this.stumble = STUMBLE_SECS;
-    this.chase = Math.min(1, this.chase + CHASE_PER_HIT);
+    if (!this.safe) this.chase = Math.min(1, this.chase + CHASE_PER_HIT);
     this.shake = 1;
     audio.buzz();
     this.add(burst('poof', this.proj.cx, this.proj.groundY - 140), this.hudLayer);
@@ -431,15 +529,27 @@ export class RunScene extends Scene {
   // -------------------------------------------------------------- drawing
 
   private drawWorld(moved: number): void {
+    // The bend goes on the projection, so it is applied once and everything
+    // that stands on the road — causeway, obstacles, coins, scenery — swings
+    // together. Nothing else in the scene needs to know about it.
+    this.proj.bend = this.bend;
     const p = this.proj;
     const far = DRAW_DISTANCE;
     drawRoad(this.roadG, this.zone, this.distance, p, this.game.viewWidth, this.game.viewHeight, far);
 
-    // Shake by moving the whole world, not the camera maths — the road is
-    // redrawn from the projection every frame, so shaking that would fight
-    // with the geometry.
+    // Shake and the corner sweep both move the whole world, not the camera
+    // maths — the road is redrawn from the projection every frame, so
+    // shifting that would fight with the geometry.
     const s = this.shake * this.shake * 9;
-    this.world.position.set(s ? (Math.random() - 0.5) * s : 0, s ? (Math.random() - 0.5) * s : 0);
+    // The sweep is the body of the turn: the world whips the other way and
+    // settles. Without it a corner is a teleport with confetti on it.
+    const t = this.sweep / SWEEP_SECS;
+    const swing = -this.sweepDir * t * t * this.game.viewWidth * 0.4;
+    this.world.position.set(
+      swing + (s ? (Math.random() - 0.5) * s : 0),
+      s ? (Math.random() - 0.5) * s : 0,
+    );
+    this.world.rotation = -this.sweepDir * t * t * 0.12;
 
     for (const h of this.hazards) {
       this.placeAt(h.view, laneX(h.data.lane), this.rel(h.data.z), 0, LANE_WIDTH * 0.82, far);
@@ -512,7 +622,7 @@ export class RunScene extends Scene {
       this.turnSign.visible = false;
       return;
     }
-    const armed = this.turnZ < TURN_WINDOW;
+    const armed = this.turnZ < this.turnWindow;
     // Redrawn only when the arrow actually changes — direction and armed
     // state are the only two things about it that ever do.
     const key = `${this.turnDir}:${armed}`;
@@ -576,9 +686,11 @@ export class RunScene extends Scene {
   debugState(): {
     metres: number; coins: number; lane: number; airborne: boolean; sliding: boolean;
     hazards: number; chase: number; turnZ: number; zone: string; speed: number; over: boolean;
-    spin: number;
+    spin: number; bend: number; sweeping: boolean;
   } {
     return {
+      bend: Math.round(this.bend),
+      sweeping: this.sweep > 0,
       metres: Math.floor(this.distance / UNITS_PER_METRE),
       coins: this.purse,
       lane: this.rider.lane,
@@ -598,10 +710,17 @@ export class RunScene extends Scene {
     this.input(dir);
   }
 
+  /** Survive stumbles and pits, so a test can reach the mechanics that take
+   *  longer than four seconds to get to. Corner misses still end the run. */
+  debugSafe(on: boolean): void {
+    this.safe = on;
+    if (on) this.chase = 0;
+  }
+
   /** Put the next corner right in front of the player, so a test does not
-   *  have to run fourteen thousand units to reach one. */
+   *  have to run eleven thousand units to reach one. */
   debugCorner(): number {
-    this.turnZ = Math.min(this.turnZ, TURN_WINDOW - 200);
+    this.turnZ = Math.min(this.turnZ, this.turnWindow - 200);
     return this.turnDir;
   }
 

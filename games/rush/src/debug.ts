@@ -18,6 +18,10 @@ export interface RunState {
   over: boolean;
   /** Body rotation in radians — proof the blob is rolling. */
   spin: number;
+  /** How hard the road is currently curving, and which way. */
+  bend: number;
+  /** True while the world is swinging round after a corner. */
+  sweeping: boolean;
 }
 
 export interface RushDebug {
@@ -36,6 +40,9 @@ export interface RushDebug {
   swipe: (dir: SwipeDir) => void;
   /** Bring the next corner into the turn window without running to it. */
   corner: () => number;
+  /** Survive stumbles and pits so a test can reach the slower mechanics.
+   *  A missed corner still ends the run. */
+  safe: (on: boolean) => void;
   /** The cosmetic's angle vs the body's — the roll/cosmetic split. */
   hat: () => { hat: number; lean: number; wheel: number; children: number } | null;
   // -------------------------------------------------------------- result

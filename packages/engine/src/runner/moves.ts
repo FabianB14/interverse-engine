@@ -20,12 +20,18 @@ export type MoveState = 'run' | 'jump' | 'slide';
 /** Peak height of a jump, in design units above the road. */
 export const JUMP_HEIGHT = 180;
 
-/** How long a jump lasts, start to landing. */
-export const JUMP_SECS = 0.62;
+/**
+ * How long a jump lasts, start to landing.
+ *
+ * Short, and deliberately so: at running speed a long jump covers so much
+ * road that it clears the obstacle AFTER the one you jumped for, which turns
+ * a dodge into a coin flip. The airtime has to stay inside one gap.
+ */
+export const JUMP_SECS = 0.52;
 
 /** How long you stay low. Long enough to clear a barrier, short enough that
  *  spamming it is not a way to ignore the jump obstacles. */
-export const SLIDE_SECS = 0.55;
+export const SLIDE_SECS = 0.44;
 
 /** How early a swipe still counts. One-fifth of a second is about the gap
  *  between "I meant to do that" and "why did nothing happen". */
@@ -154,6 +160,6 @@ export class RunnerMoves {
  * reaction time runs out, which makes the last few seconds identical for a
  * beginner and an expert. A cap means skill decides the score instead.
  */
-export function speedAt(distance: number, base = 620, cap = 1500, ramp = 9000): number {
+export function speedAt(distance: number, base = 1020, cap = 2600, ramp = 7000): number {
   return base + (cap - base) * (1 - Math.exp(-distance / ramp));
 }

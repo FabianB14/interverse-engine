@@ -1,41 +1,63 @@
 /**
- * 🎨 The look, and the zones you run through.
+ * 🐊 The look: a causeway through a swamp.
  *
  * A runner has no levels, so the only way it can feel like it is going
  * somewhere is for the scenery to change under you. Zones swap in on turns —
  * which is what makes a corner feel like a destination rather than a
  * mechanic.
+ *
+ * All four are the same swamp at different depths and hours, rather than four
+ * unrelated biomes. Somewhere that gets darker and stranger the further in you
+ * get is a place; a temple followed by a glacier is a slideshow.
  */
 
 export interface Zone {
   name: string;
   sky: number;
   skyLow: number;
+  /** The raised causeway you run along. */
   road: number;
   roadEdge: number;
+  /** Planking and lane markings. */
   stripe: number;
-  /** Ground either side of the road. */
-  verge: number;
+  /** The water either side. */
+  water: number;
+  /** Slicks of algae and reflected light on it. */
+  waterLight: number;
+  /** Mist over the water, thickening toward the horizon. */
+  mist: number;
   prop: number;
-  propKind: 'pillar' | 'tree' | 'crystal' | 'torch';
+  propKind: 'cypress' | 'mangrove' | 'deadwood' | 'reeds';
 }
 
 export const ZONES: readonly Zone[] = [
   {
-    name: 'Temple Steps', sky: 0x2a1f4a, skyLow: 0x6b4f8a, road: 0x8a7a5f,
-    roadEdge: 0x6b5c47, stripe: 0xe8dcc0, verge: 0x3d5a3a, prop: 0xa89578, propKind: 'pillar',
+    name: 'Misty Bog',
+    sky: 0x3d4a4a, skyLow: 0x8fa08c,
+    road: 0x6b5c42, roadEdge: 0x4a3f2d, stripe: 0xb9ad8a,
+    water: 0x33463c, waterLight: 0x5c7a5e, mist: 0xc8d6c4,
+    prop: 0x4a5c42, propKind: 'cypress',
   },
   {
-    name: 'Jungle Run', sky: 0x1d4a3f, skyLow: 0x4f9a72, road: 0x7a6a4f,
-    roadEdge: 0x5c4f3a, stripe: 0xd9e8c0, verge: 0x2a5c33, prop: 0x1f4429, propKind: 'tree',
+    name: 'Cypress Deep',
+    sky: 0x22332c, skyLow: 0x4a6b4f,
+    road: 0x5c4f38, roadEdge: 0x3d3325, stripe: 0xa89a72,
+    water: 0x1f3329, waterLight: 0x3f6b4a, mist: 0x86a389,
+    prop: 0x2a3d28, propKind: 'mangrove',
   },
   {
-    name: 'Crystal Deep', sky: 0x1a1533, skyLow: 0x4a3b8a, road: 0x3f3a5c,
-    roadEdge: 0x2e2a45, stripe: 0xb08aff, verge: 0x241d3d, prop: 0x8a6fd0, propKind: 'crystal',
+    name: 'Sunken Ruins',
+    sky: 0x1e3542, skyLow: 0x3f6b72,
+    road: 0x55564a, roadEdge: 0x373a33, stripe: 0x9fb0a2,
+    water: 0x1a3038, waterLight: 0x2f6b6b, mist: 0x7ba3a3,
+    prop: 0x5c6b5c, propKind: 'deadwood',
   },
   {
-    name: 'Ember Way', sky: 0x3d1418, skyLow: 0xa8422a, road: 0x5c3428,
-    roadEdge: 0x42241c, stripe: 0xffb86b, verge: 0x33191a, prop: 0xd9622b, propKind: 'torch',
+    name: 'Blackwater',
+    sky: 0x141c1a, skyLow: 0x2a3d33,
+    road: 0x3d3629, roadEdge: 0x261f18, stripe: 0x7a8a6b,
+    water: 0x0d1614, waterLight: 0x1f4a33, mist: 0x3f5c4a,
+    prop: 0x1a2620, propKind: 'reeds',
   },
 ];
 
@@ -44,12 +66,13 @@ export function zone(i: number): Zone {
 }
 
 export const INK = 0xf2eff8;
-export const DIM = 0x9a97b8;
+export const DIM = 0x9ab0a4;
 export const GOLD = 0xffd166;
 export const MINT = 0x8affc1;
 export const ROSE = 0xff6f91;
-export const NIGHT = 0x120e22;
+export const NIGHT = 0x121a17;
 
 /** The blob you are. One colour, because you are always the same blob — the
- *  hats are what make a run yours. */
+ *  hats are what make a run yours. Kept bright: everything else out here is
+ *  a shade of wet green, and you must never lose yourself against it. */
 export const BLOB_COLOR = 0x6ec5ff;

@@ -87,6 +87,10 @@ async function main(): Promise<void> {
       const s = game.scenes.current;
       return s instanceof RunScene ? s.debugCorner() : 0;
     },
+    safe: (on) => {
+      const s = game.scenes.current;
+      if (s instanceof RunScene) s.debugSafe(on);
+    },
     hat: () => {
       const s = game.scenes.current;
       return s instanceof RunScene ? s.debugHat() : null;

@@ -93,6 +93,10 @@ try {
     () => page.evaluate(() => window.__rush.run()),
     (r) => !!r && r.metres > 0,
   );
+  // This test never dodges anything, and at full pace that is dead in about
+  // four seconds — far less than the mechanics below take to exercise. A
+  // missed corner still ends the run, which is checked at the end.
+  await page.evaluate(() => window.__rush.safe(true));
   // The blob rolls, and it rolls because the road moved: the wheel angle has
   // to change while the run progresses.
   const roll0 = await page.evaluate(() => window.__rush.hat());
@@ -138,16 +142,47 @@ try {
   const early = run0.speed;
   const later = (await page.evaluate(() => window.__rush.run())).speed;
 
-  // Corners: bring one into the window, take it, and check the zone changed.
-  const zoneBefore = (await page.evaluate(() => window.__rush.run())).zone;
+  // Corners now come often enough that a few seconds of sampling will meet
+  // one, and missing a corner ends the run even in safe mode. So take them.
+  const takeAnyCorner = async () => {
+    const s = await page.evaluate(() => window.__rush.run());
+    if (!s || s.turnZ > 2600) return;
+    const d = await page.evaluate(() => window.__rush.corner());
+    await page.evaluate((dir) => window.__rush.swipe(dir > 0 ? 'right' : 'left'), d);
+  };
+
+  // The road has to actually wander. Sample it over a few seconds: a bend
+  // that is always near zero is a straight road with extra maths, which is
+  // exactly what the first cut of this shipped as.
+  const bends = [];
+  for (let i = 0; i < 14; i++) {
+    await takeAnyCorner();
+    bends.push((await page.evaluate(() => window.__rush.run()))?.bend ?? 0);
+    await sleep(220);
+  }
+  const peakBend = Math.max(...bends.map(Math.abs));
+  const bendSpread = Math.max(...bends) - Math.min(...bends);
+  await page.screenshot({ path: `${outDir}/rush-5-bend.png` });
+
+  // Corners: bring one into the window, take it, and check the zone changed
+  // and the world swung round rather than cutting.
+  const zoneBefore = (await page.evaluate(() => window.__rush.run()))?.zone ?? '';
   const turnDir = await page.evaluate(() => window.__rush.corner());
-  await page.screenshot({ path: `${outDir}/rush-5-corner.png` });
+  await page.screenshot({ path: `${outDir}/rush-6-corner.png` });
   await page.evaluate((d) => window.__rush.swipe(d > 0 ? 'right' : 'left'), turnDir);
+  const swept = await waitFor(
+    () => page.evaluate(() => window.__rush.run()),
+    (r) => !!r && r.sweeping,
+    2000,
+  );
   const turned = await waitFor(
     () => page.evaluate(() => window.__rush.run()),
     (r) => !!r && r.zone !== zoneBefore,
     5000,
   );
+  // Coming out of a corner the road leans the way you turned, so the turn
+  // has a direction you can feel and not just a change of scenery.
+  const bendAfterTurn = turned?.bend ?? 0;
 
   // Getting the corner WRONG ends the run. That is the one mistake in this
   // game with no recovery, so it had better actually be one.
@@ -158,7 +193,7 @@ try {
     (s) => s === 'result',
     6000,
   );
-  await page.screenshot({ path: `${outDir}/rush-6-result.png` });
+  await page.screenshot({ path: `${outDir}/rush-7-result.png` });
 
   // -------------------------------------------------------------- result
   const banked = await page.evaluate(() => window.__rush.profile());
@@ -187,8 +222,18 @@ try {
   const rollOk = spun && hatLevel && roll0.children > 0;
   const laneOk = laneRight === 2 && laneClamped === 2;
   const moveOk = !!jumped?.airborne && !!landed && !landed.airborne && !!slid?.sliding;
-  const speedOk = later > early;
-  const cornerOk = !!turned && turned.zone !== zoneBefore && zoneBefore === 'Temple Steps';
+  // Temple Run pace, not a stroll: over a thousand out of the gate and
+  // still climbing.
+  const speedOk = later > early && early > 900;
+  // A road that leans hard and does not stay leaning one way.
+  const bendOk = peakBend > 90 && bendSpread > 90;
+  const cornerOk =
+    // The run starts in the swamp's first zone…
+    run0.zone === 'Misty Bog' &&
+    // …the corner moves you to a different one, the world swings round
+    // rather than cutting, and the road comes out leaning the way you turned.
+    !!turned && turned.zone !== zoneBefore &&
+    !!swept?.sweeping && Math.sign(bendAfterTurn) === Math.sign(turnDir);
   const missOk = ended === 'result';
   const bankOk = banked.best > 0 && banked.coins >= 250 && banked.runs === 1;
   const persistOk =
@@ -196,14 +241,15 @@ try {
     reloaded.owned.includes('party');
 
   const ok =
-    shopOk && rollOk && laneOk && moveOk && speedOk && cornerOk && missOk && bankOk &&
-    persistOk && errors.length === 0;
+    shopOk && rollOk && laneOk && moveOk && speedOk && bendOk && cornerOk && missOk &&
+    bankOk && persistOk && errors.length === 0;
   report = {
-    ok, shopOk, rollOk, laneOk, moveOk, speedOk, cornerOk, missOk, bankOk, persistOk,
+    ok, shopOk, rollOk, laneOk, moveOk, speedOk, bendOk, cornerOk, missOk, bankOk, persistOk,
     screen0, hats0, afterBuy, afterBroke,
     run0, roll0, roll1, spun, hatLevel,
     laneRight, laneClamped, jumped, landed, slid,
-    early, later, zoneBefore, turnDir, turned, ended,
+    early, later, bends, peakBend, bendSpread,
+    zoneBefore, turnDir, swept: !!swept?.sweeping, bendAfterTurn, turned, ended,
     banked, rerun, reloaded, errors,
   };
 } finally {

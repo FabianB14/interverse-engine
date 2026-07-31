@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BUFFER_SECS,
   DEFAULT_PROJECTION,
   JUMP_SECS,
   LANE_WIDTH,
@@ -7,6 +8,7 @@ import {
   RunnerMoves,
   SLIDE_SECS,
   TrackBuilder,
+  bendAt,
   clampLane,
   collides,
   depthOf,
@@ -78,6 +80,49 @@ describe('perspective', () => {
   });
 });
 
+describe('the bend', () => {
+  it('leaves the player alone and swings the far end', () => {
+    // The player stands at z = 0, so a curve must never move them.
+    expect(bendAt(0, 200)).toBe(0);
+    expect(bendAt(1000, 200)).toBe(200);
+    // Quadratic: three times the depth is nine times the drift, which is
+    // what looking down a constant-radius curve actually looks like.
+    expect(bendAt(3000, 200)).toBe(1800);
+  });
+
+  it('is dead straight when nobody asked for a curve', () => {
+    for (const z of [0, 500, 4000]) expect(bendAt(z, 0)).toBe(0);
+    expect(bendAt(2000)).toBe(0);
+  });
+
+  it('bends both ways', () => {
+    expect(bendAt(2000, -150)).toBe(-bendAt(2000, 150));
+  });
+
+  it('moves the road on screen without moving the runner', () => {
+    const straight = { ...DEFAULT_PROJECTION, bend: 0 };
+    const curved = { ...DEFAULT_PROJECTION, bend: 200 };
+    // Underfoot: identical.
+    expect(project(0, 0, 0, curved).x).toBe(project(0, 0, 0, straight).x);
+    // Ahead: visibly swung.
+    expect(project(0, 2500, 0, curved).x).toBeGreaterThan(project(0, 2500, 0, straight).x + 40);
+  });
+
+  it('keeps a lane the same width all the way round the curve', () => {
+    const curved = { ...DEFAULT_PROJECTION, bend: 200 };
+    for (const z of [0, 900, 2400]) {
+      const l = project(-LANE_WIDTH / 2, z, 0, curved).x;
+      const r = project(LANE_WIDTH / 2, z, 0, curved).x;
+      const straightWidth =
+        project(LANE_WIDTH / 2, z, 0, DEFAULT_PROJECTION).x -
+        project(-LANE_WIDTH / 2, z, 0, DEFAULT_PROJECTION).x;
+      // The road swings, it does not stretch — a bend that widened lanes
+      // would make the hitboxes lie.
+      expect(r - l).toBeCloseTo(straightWidth, 6);
+    }
+  });
+});
+
 describe('lanes', () => {
   it('centres the middle lane on the road', () => {
     expect(laneX(1)).toBe(0);
@@ -146,18 +191,34 @@ describe('moves', () => {
     // Most of the way through the jump, ask to slide.
     for (let t = 0; t < JUMP_SECS - 0.1; t += 1 / 60) m.update(1 / 60);
     m.slide();
-    for (let i = 0; i < 30; i++) m.update(1 / 60);
+    // Watch for it to happen at all rather than sampling at one moment —
+    // both durations are tuning knobs, and the rule under test is not.
+    let slidAfterLanding = false;
+    for (let i = 0; i < 40; i++) {
+      m.update(1 / 60);
+      if (!m.airborne && m.sliding) slidAfterLanding = true;
+    }
     // The early input was honoured rather than dropped on the floor.
-    expect(m.sliding).toBe(true);
+    expect(slidAfterLanding).toBe(true);
   });
 
-  it('forgets a buffered input that was too early to have meant it', () => {
+  it('forgets a buffered input older than the buffer', () => {
     const m = new RunnerMoves();
     m.jump();
-    m.slide(); // way too early — this is a fast fall, not a queued slide
-    for (let i = 0; i < 60; i++) m.update(1 / 60);
-    // Landed and moved on; the stale intent did not fire a second later.
-    expect(m.state).toBe('run');
+    // A second jump right at take-off. Unlike a down-swipe this does not
+    // fast-fall, so touchdown is a whole JUMP_SECS away — far longer than
+    // the buffer, and by then it is not what the player meant any more.
+    m.jump();
+    expect(BUFFER_SECS).toBeLessThan(JUMP_SECS);
+    let landed = false;
+    for (let i = 0; i < 40; i++) {
+      m.update(1 / 60);
+      if (!m.airborne) landed = true;
+      if (landed) break;
+    }
+    expect(landed).toBe(true);
+    // Did not immediately launch again off a stale intent.
+    expect(m.airborne).toBe(false);
   });
 
   it('turns a mid-air down-swipe into a fast fall', () => {
@@ -182,12 +243,12 @@ describe('moves', () => {
   });
 
   it('ramps toward a cap instead of accelerating forever', () => {
-    expect(speedAt(0)).toBeCloseTo(620);
+    expect(speedAt(0)).toBeCloseTo(1020);
     expect(speedAt(9000)).toBeGreaterThan(speedAt(3000));
-    expect(speedAt(1e7)).toBeLessThanOrEqual(1500);
+    expect(speedAt(1e7)).toBeLessThanOrEqual(2600);
     // A cap is what stops every run ending identically at the speed where
     // reaction time runs out.
-    expect(speedAt(1e7)).toBeCloseTo(1500, 0);
+    expect(speedAt(1e7)).toBeCloseTo(2600, 0);
   });
 });
 
@@ -212,7 +273,7 @@ describe('hazards', () => {
   });
 
   it('scales the fair warning distance with speed', () => {
-    expect(fairDistance(1500)).toBeGreaterThan(fairDistance(620));
+    expect(fairDistance(2600)).toBeGreaterThan(fairDistance(1020));
   });
 });
 
@@ -230,7 +291,7 @@ describe('track generation', () => {
   });
 
   it('never spawns something closer than the player can react to', () => {
-    const speed = 1500;
+    const speed = 2600;
     const t = new TrackBuilder({ rand: seeded(3) });
     const { hazards } = t.build(0, 40_000, speed);
     for (const h of hazards) expect(h.z).toBeGreaterThanOrEqual(fairDistance(speed));

@@ -30,6 +30,15 @@ export interface Projection {
    * decides how a track *feels* to run down.
    */
   focal: number;
+  /**
+   * How hard the road curves away, in design units of sideways drift per
+   * 1000 of depth, squared. Positive bends right. Zero is dead straight.
+   *
+   * This is the difference between running down a corridor and running
+   * through somewhere. A straight road tells the player nothing is coming;
+   * a road that swings out of sight promises there is more of it.
+   */
+  bend?: number;
 }
 
 export const DEFAULT_PROJECTION: Projection = {
@@ -37,7 +46,26 @@ export const DEFAULT_PROJECTION: Projection = {
   horizonY: 250,
   groundY: 690,
   focal: 900,
+  bend: 0,
 };
+
+/**
+ * Sideways drift of the road's centre line at depth `z`.
+ *
+ * Quadratic, because that is the shape a constant-radius curve makes when
+ * you look down it: barely anything underfoot, and the far end swung right
+ * out of the frame. Linear drift reads as a road built at an angle rather
+ * than a road that bends.
+ *
+ * The player is at z = 0, so the curve never moves them — it is entirely a
+ * matter of where the road AHEAD is. Lanes stay lanes and the collision
+ * test never sees this at all, which is exactly how a runner should do it.
+ */
+export function bendAt(z: number, bend = 0): number {
+  if (!bend) return 0;
+  const k = Math.max(0, z) / 1000;
+  return bend * k * k;
+}
 
 export interface Projected {
   x: number;
@@ -67,7 +95,10 @@ export function project(
 ): Projected {
   const scale = depthOf(z, p);
   return {
-    x: p.cx + x * scale,
+    // The bend is added in world units before the perspective divide, so
+    // everything standing on the road — obstacles, coins, the road itself —
+    // swings together instead of sliding against each other.
+    x: p.cx + (x + bendAt(z, p.bend)) * scale,
     y: p.horizonY + (p.groundY - p.horizonY) * scale - height * scale,
     scale,
   };
