@@ -7,59 +7,8 @@
  * layer of the graph editor — wire-dragging authoring builds on it next.
  */
 import type { StudioEditor } from './editor.js';
-import type { EventAction, EventDef } from './model.js';
-
-const TRIG_ICON: Record<EventDef['trigger'], string> = {
-  tap: '👆',
-  touch: '🚶',
-  start: '🎬',
-  every: '⏲',
-};
-
-const actionLabel = (a: EventAction): string => {
-  switch (a.cmd) {
-    case 'say':
-      return `💬"${(a.text ?? '').slice(0, 12)}"`;
-    case 'coins':
-      return `🪙+${a.n ?? 1}`;
-    case 'score':
-      return `⭐+${a.n ?? 1}`;
-    case 'xp':
-      return `✨+${a.n ?? 5}`;
-    case 'heal':
-      return `❤+${a.n ?? 1}`;
-    case 'sfx':
-      return `🔊${a.text ?? 'pop'}`;
-    case 'music':
-      return `🎵${a.text ?? ''}`;
-    case 'vfx':
-      return `✨${a.text ?? ''}`;
-    case 'spawn':
-      return `🐣${a.text ?? 'crate'}`;
-    case 'remove':
-      return '🗑self';
-    case 'goto':
-      return `🚪${a.text ?? ''}`;
-    case 'switchOn':
-      return `🔛${a.text ?? ''}`;
-    case 'switchOff':
-      return `⏹${a.text ?? ''}`;
-    case 'item':
-      return `🎁${a.text ?? ''}`;
-    case 'var':
-      return `🔢${a.text ?? ''}+${a.n ?? 1}`;
-    case 'shop':
-      return '🛒shop';
-    case 'inventory':
-      return '🎒bag';
-    case 'win':
-      return '🏆win';
-    case 'lose':
-      return '💀lose';
-    default:
-      return a.cmd;
-  }
-};
+import { TRIG_ICON, actionLabel, knownSwitches } from './cmds.js';
+import type { EventDef } from './model.js';
 
 export function wireFlow(editor: StudioEditor): { render: () => void; nodeCount: () => number; link: (fromId: string, toId: string) => boolean } {
   const canvas = document.getElementById('flow-canvas')!;
@@ -186,18 +135,45 @@ export function wireFlow(editor: StudioEditor): { render: () => void; nodeCount:
       });
     };
 
+    /** One '<trigger> <gate> → <actions>' row per event, actor or level. */
+    const evRows = (events: readonly EventDef[]): string =>
+      events
+        .map((ev) => {
+          const gate = `${ev.ifSwitch ? ` 🔒${ev.ifSwitch}` : ''}${ev.ifVar ? ` 🔢${ev.ifVar}≥${ev.ifVarAtLeast ?? 1}` : ''}`;
+          const acts = ev.actions.map(actionLabel).join(' · ');
+          return `<div class="fn-ev">${TRIG_ICON[ev.trigger]}${gate} → ${acts || '(no actions)'}</div>`;
+        })
+        .join('');
+    const setsOf = (events: readonly EventDef[]): string[] =>
+      events.flatMap((ev) => ev.actions.filter((a) => a.cmd === 'switchOn').map((a) => a.text ?? ''));
+    const gatesOf = (events: readonly EventDef[]): string[] =>
+      events.map((ev) => ev.ifSwitch ?? '').filter(Boolean);
+    const gotosOf = (events: readonly EventDef[]): string[] =>
+      events.flatMap((ev) => ev.actions.filter((a) => a.cmd === 'goto').map((a) => a.text ?? ''));
+
     let col = 0;
     for (const scene of editor.project.scenes) {
       const x = 18 + col * 260;
       const lvl = document.createElement('div');
       lvl.className = 'flow-node level';
-      lvl.innerHTML = `<div class="fn-title">🚪 ${scene.name}</div><div class="fn-ev">${scene.entities.length} actors</div>`;
+      const lvlEvents = scene.events ?? [];
+      lvl.innerHTML =
+        `<div class="fn-title">🚪 ${scene.name}</div>` +
+        `<div class="fn-ev">${scene.entities.length} actors</div>` +
+        evRows(lvlEvents);
       place(lvl, `lvl:${scene.id}`, x, 14);
       lvl.ondblclick = () => editor.switchScene(scene.id);
       canvas.appendChild(lvl);
       draggable(lvl, `lvl:${scene.id}`);
       attachPort(lvl, `lvl:${scene.id}`);
-      nodes.push({ id: `lvl:${scene.id}`, el: lvl, switchesSet: [], switchGates: [], gotos: [], levelName: scene.name });
+      nodes.push({
+        id: `lvl:${scene.id}`,
+        el: lvl,
+        switchesSet: setsOf(lvlEvents),
+        switchGates: gatesOf(lvlEvents),
+        gotos: gotosOf(lvlEvents),
+        levelName: scene.name,
+      });
       count++;
 
       let y = 96;
@@ -205,14 +181,7 @@ export function wireFlow(editor: StudioEditor): { render: () => void; nodeCount:
         if (!ent.events.length) continue;
         const el = document.createElement('div');
         el.className = 'flow-node';
-        const evLines = ent.events
-          .map((ev) => {
-            const gate = `${ev.ifSwitch ? ` 🔒${ev.ifSwitch}` : ''}${ev.ifVar ? ` 🔢${ev.ifVar}≥${ev.ifVarAtLeast ?? 1}` : ''}`;
-            const acts = ev.actions.map(actionLabel).join(' · ');
-            return `<div class="fn-ev">${TRIG_ICON[ev.trigger]}${gate} → ${acts || '(no actions)'}</div>`;
-          })
-          .join('');
-        el.innerHTML = `<div class="fn-title">${ent.name}</div>${evLines}`;
+        el.innerHTML = `<div class="fn-title">${ent.name}</div>${evRows(ent.events)}`;
         place(el, `ent:${ent.id}`, x, y);
         y += 66 + ent.events.length * 18;
         el.onclick = () => {
@@ -225,16 +194,16 @@ export function wireFlow(editor: StudioEditor): { render: () => void; nodeCount:
         nodes.push({
           id: `ent:${ent.id}`,
           el,
-          switchesSet: ent.events.flatMap((ev) => ev.actions.filter((a) => a.cmd === 'switchOn').map((a) => a.text ?? '')),
-          switchGates: ent.events.map((ev) => ev.ifSwitch ?? '').filter(Boolean),
-          gotos: ent.events.flatMap((ev) => ev.actions.filter((a) => a.cmd === 'goto').map((a) => a.text ?? '')),
+          switchesSet: setsOf(ent.events),
+          switchGates: gatesOf(ent.events),
+          gotos: gotosOf(ent.events),
           levelName: null,
         });
         count++;
       }
       col++;
     }
-    if (count === editor.project.scenes.length) {
+    if (count === editor.project.scenes.length && !editor.project.scenes.some((s2) => s2.events?.length)) {
       const hint = document.createElement('div');
       hint.className = 'muted';
       hint.style.cssText = 'position:absolute;left:18px;bottom:12px;font-size:12px';
@@ -249,8 +218,8 @@ export function wireFlow(editor: StudioEditor): { render: () => void; nodeCount:
    *  actor → actor: an auto-named switch links them — the source sets it,
    *  the target's events become gated on it (a chest-opens-door in one drag). */
   const link = (fromId: string, toId: string): boolean => {
-    if (!fromId.startsWith('ent:')) return false;
     let fromEnt = null;
+    let fromScene = null;
     let toEnt = null;
     let toScene = null;
     for (const scene of editor.project.scenes) {
@@ -258,18 +227,26 @@ export function wireFlow(editor: StudioEditor): { render: () => void; nodeCount:
         if (`ent:${ent.id}` === fromId) fromEnt = ent;
         if (`ent:${ent.id}` === toId) toEnt = ent;
       }
+      if (`lvl:${scene.id}` === fromId) fromScene = scene;
       if (`lvl:${scene.id}` === toId) toScene = scene;
     }
-    if (!fromEnt || (!toEnt && !toScene)) return false;
-    if (!fromEnt.events.length) fromEnt.events.push({ trigger: 'touch', actions: [] });
-    const firstEv = fromEnt.events[0]!;
+    if ((!fromEnt && !fromScene) || (!toEnt && !toScene)) return false;
+    // A level wires from its own ⚡ events; an actor from its first one.
+    let events: EventDef[];
+    if (fromEnt) {
+      if (!fromEnt.events.length) fromEnt.events.push({ trigger: 'touch', actions: [] });
+      events = fromEnt.events;
+    } else {
+      fromScene!.events ??= [];
+      if (!fromScene!.events.length) fromScene!.events.push({ trigger: 'start', actions: [] });
+      events = fromScene!.events;
+    }
+    const firstEv = events[0]!;
     if (toScene) {
       firstEv.actions.push({ cmd: 'goto', text: toScene.name });
     } else if (toEnt) {
       let n = 1;
-      const used = new Set(
-        editor.project.scenes.flatMap((s) => s.entities.flatMap((e) => e.events.flatMap((ev) => ev.actions.filter((a) => a.cmd === 'switchOn').map((a) => a.text)))),
-      );
+      const used = new Set(knownSwitches(editor.project));
       while (used.has(`link-${n}`)) n++;
       const sw = `link-${n}`;
       firstEv.actions.push({ cmd: 'switchOn', text: sw });

@@ -24,7 +24,12 @@ export type MobBehavior = 'chase' | 'patrol' | 'wander' | 'guard';
 
 /** No-code events (RPG-Maker style): pick a trigger, stack actions.
  *  Runs in Play mode with zero code — the Code tab stays for power users. */
-export type EventTrigger = 'tap' | 'touch' | 'start' | 'every';
+export type EventTrigger = 'tap' | 'touch' | 'start' | 'every' | 'cleared';
+
+/** Triggers that make sense on an actor ('cleared' is a level-wide fact). */
+export const ENTITY_TRIGGERS: readonly EventTrigger[] = ['tap', 'touch', 'start', 'every'];
+/** Triggers a LEVEL can carry ('touch' needs a body to touch). */
+export const LEVEL_TRIGGERS: readonly EventTrigger[] = ['tap', 'start', 'every', 'cleared'];
 
 export interface EventAction {
   cmd:
@@ -142,6 +147,10 @@ export interface SceneDef {
   tiles?: string[];
   /** Scene script (the Code tab) — runs when the scene starts in Play mode. */
   script: string;
+  /** ⚡ Level events — the same blocks actors carry, owned by the level
+   *  itself: start music, run a timer, win when every enemy is down.
+   *  Absent (not empty) when the level has none, so projects stay small. */
+  events?: EventDef[];
   entities: EntityDef[];
 }
 
@@ -296,6 +305,37 @@ export function defaultProject(): ProjectDef {
   };
 }
 
+/** Keep only well-formed events for a scope, and inside them only actions
+ *  the runtime can actually run. Shared by actors and levels so a command
+ *  can never be legal in one place and junk in the other. */
+export function normalizeEvents(input: unknown, scope: 'entity' | 'level'): EventDef[] {
+  const triggers = scope === 'level' ? LEVEL_TRIGGERS : ENTITY_TRIGGERS;
+  const events = (Array.isArray(input) ? input : []).filter(
+    (ev): ev is EventDef =>
+      !!ev &&
+      typeof ev === 'object' &&
+      triggers.includes((ev as EventDef).trigger) &&
+      Array.isArray((ev as EventDef).actions),
+  );
+  for (const ev of events) {
+    ev.actions = ev.actions.filter(
+      (a) =>
+        !!a &&
+        typeof a === 'object' &&
+        EVENT_CMDS.includes(a.cmd) &&
+        // 'remove' means "remove me" — meaningless with no owning actor.
+        !(scope === 'level' && a.cmd === 'remove'),
+    );
+    if (ev.every !== undefined) {
+      // 0 is a real number the author typed, not a missing value — clamp it
+      // rather than letting `|| 1` silently turn it into a one-second timer.
+      const secs = Number(ev.every);
+      ev.every = Math.max(0.1, Number.isFinite(secs) ? secs : 1);
+    }
+  }
+  return events;
+}
+
 /** Parse + minimally repair an imported project. Throws on hopeless input. */
 export function parseProject(json: string): ProjectDef {
   const p = JSON.parse(json) as ProjectDef;
@@ -333,19 +373,13 @@ export function parseProject(json: string): ProjectDef {
       e.clips = (Array.isArray(e.clips) ? e.clips : []).filter(
         (c) => !!c && typeof c === 'object' && typeof c.name === 'string' && Number.isFinite(c.from) && Number.isFinite(c.to),
       );
-      // No-code events: keep only well-formed entries, and inside them
-      // only actions the runtime can actually run.
-      e.events = (Array.isArray(e.events) ? e.events : []).filter(
-        (ev): ev is EventDef =>
-          !!ev &&
-          typeof ev === 'object' &&
-          ['tap', 'touch', 'start', 'every'].includes((ev as EventDef).trigger) &&
-          Array.isArray((ev as EventDef).actions),
-      );
-      for (const ev of e.events) {
-        ev.actions = ev.actions.filter((a) => !!a && typeof a === 'object' && EVENT_CMDS.includes(a.cmd));
-      }
+      e.events = normalizeEvents(e.events, 'entity');
     }
+    // ⚡ Level events use the same blocks, minus the actor-only ones. Kept
+    // absent rather than empty so an untouched level adds nothing to the JSON.
+    const levelEvents = normalizeEvents(s.events, 'level');
+    if (levelEvents.length) s.events = levelEvents;
+    else delete s.events;
   }
   if (!p.scenes.some((s) => s.id === p.startScene)) p.startScene = p.scenes[0]!.id;
   // Content database + locales: normalize to well-formed shapes.

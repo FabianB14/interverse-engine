@@ -491,6 +491,40 @@ const dbOk =
 await page.evaluate(() => window.__studio.stop());
 await sleep(150);
 
+// LEVEL EVENTS: the level itself carries ⚡ events — start music, tick a
+// timer, tap empty ground, and win when the last enemy goes down.
+await page.evaluate(() => window.__studio.loadTemplate('action'));
+await sleep(300);
+await page.evaluate(() =>
+  window.__studio.setLevelEvents([
+    { trigger: 'start', actions: [{ cmd: 'music', text: 'battle' }] },
+    { trigger: 'every', every: 0.2, actions: [{ cmd: 'var', text: 'ticks', n: 1 }] },
+    { trigger: 'tap', actions: [{ cmd: 'switchOn', text: 'tapped-ground' }] },
+    { trigger: 'cleared', actions: [{ cmd: 'win', text: 'ROOM CLEAR' }] },
+  ]),
+);
+const lvlEvN = await page.evaluate(() => window.__studio.levelEventCount());
+await page.evaluate(() => window.__studio.play());
+await sleep(800);
+const lvlMusic = await page.evaluate(() => window.__studio.musicNow());
+const lvlTicks = await page.evaluate(() => window.__studio.varNow('ticks'));
+await page.evaluate(() => window.__studio.tapLevel());
+const lvlTap = await page.evaluate(() => window.__studio.switchIsOn('tapped-ground'));
+// 'cleared' must NOT have fired while mobs are still alive.
+const lvlMobs = await page.evaluate(() => window.__studio.mobCount());
+const lvlEarly = await page.evaluate(() => window.__studio.gameIsOver());
+// Kill every mob and the level's own win event should fire.
+await page.evaluate(() => {
+  window.__studio.applyScriptNow('for (var i = 0; i < 40; i++) api.meleeAttack(4000, 99);');
+});
+await sleep(500);
+const lvlCleared = await page.evaluate(() => window.__studio.gameIsOver());
+const levelEvOk =
+  lvlEvN === 4 && lvlMusic === 'battle' && lvlTicks >= 2 && lvlTap === true &&
+  lvlMobs > 0 && lvlEarly === false && lvlCleared === true;
+await page.evaluate(() => window.__studio.stop());
+await sleep(150);
+
 // QUEST CAPSTONE: menu button -> village; shop opens; chests bump the
 // variable; the gate stays shut at 1 and opens at 2 into the boss lair.
 await page.evaluate(() => window.__studio.loadTemplate('quest'));
@@ -616,7 +650,7 @@ const ok =
   placeOk && editOk && storyOk && levelsOk && playOk && stopOk && exportOk && importOk &&
   templatesOk && skillsOk && scoreOk && tilesOk && cameraOk && frameOk && combatOk && rangedOk &&
   patrolOk && chatOk && coinsOk && persistOk && libOk && eventsOk && genOk && uiOk && dbOk &&
-  questOk && netOk &&
+  questOk && levelEvOk && netOk &&
   errors.length === 0;
 console.log(
   JSON.stringify(
@@ -636,6 +670,7 @@ console.log(
       uiOk, flowN, minOn, minOff, titleShown, titleGone,
       dbOk, hierN, linkOk, linkSwitch, itemN1, itemN0, coinsBeforeUse, coinsAfterUse, bought, trEs,
       questOk, qScene0, qShop, qVar1, qStillVillage, qVar2, qScene2,
+      levelEvOk, lvlEvN, lvlMusic, lvlTicks, lvlTap, lvlMobs, lvlEarly, lvlCleared,
       netOk, playersA, playersB, remotesB, moveOk, remotePosB, stateB,
       errors: errors.slice(0, 6),
     },

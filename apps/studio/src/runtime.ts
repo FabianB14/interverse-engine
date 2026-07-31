@@ -459,6 +459,13 @@ export interface ScriptApi {
   } | null;
 }
 
+/** Who an event belongs to. The level itself owns events with no body,
+ *  which is why every field here is required and the owner is nullable. */
+interface EventOwner {
+  def: EntityDef;
+  e: Entity;
+}
+
 interface MobState {
   def: EntityDef;
   e: Entity;
@@ -523,6 +530,8 @@ export class PlayScene extends Scene {
   private over = false;
   // Combat layer: mobs/bosses, hearts, abilities, XP/levels.
   private mobStates = new Map<string, MobState>();
+  /** ⚡ Level 'tap' events — fired by tapping empty ground. */
+  private levelTaps: (() => void)[] = [];
   private defeatCbs: ((name: string) => void)[] = [];
   private abilityStates: AbilityState[] = [];
   private heartsMax = 0;
@@ -644,6 +653,15 @@ export class PlayScene extends Scene {
     });
     this.camera.setBounds(0, 0, this.sceneDef.worldW, this.sceneDef.worldH);
     for (const def of this.sceneDef.entities) this.spawnDef(def);
+    // Actors first (each firing its own 'start'), then the level's own
+    // events, then the scene script — code always gets the last word.
+    this.wireLevelEvents();
+    if (this.levelTaps.length) {
+      bg.eventMode = 'static';
+      bg.on('pointertap', () => {
+        for (const cb of this.levelTaps) cb();
+      });
+    }
     this.refreshCoinHud(); // shows the wallet if this game has banked coins
     this.centerWorld();
     window.addEventListener('keydown', this.onKeyDown);
@@ -1467,22 +1485,38 @@ export class PlayScene extends Scene {
 
   /** Wire an entity's event blocks (RPG-Maker style: trigger + actions). */
   private wireEvents(def: EntityDef, e: Entity): void {
-    const evs = def.events ?? [];
+    this.bindEvents(def.events ?? [], { def, e });
+  }
+
+  /** ⚡ Level events — the same blocks, owned by the level instead of an
+   *  actor. Bound after every actor has spawned so a 'cleared' event can
+   *  see the mobs it is waiting on, and before the scene script so code
+   *  always gets the last word. */
+  private wireLevelEvents(): void {
+    this.bindEvents(this.sceneDef.events ?? [], null);
+  }
+
+  /** Bind one event list to its owner. `owner === null` means the LEVEL owns
+   *  it: there is no body to tap or walk into, so 'tap' listens on the empty
+   *  ground and 'cleared' watches the mob count instead. */
+  private bindEvents(evs: EventDef[], owner: EventOwner | null): void {
     if (!evs.length) return;
-    const state = evs.map(() => ({ fired: false, inside: false, t: 0 }));
+    const state = evs.map(() => ({ fired: false, inside: false, t: 0, wasClear: this.mobStates.size === 0 }));
     const run = (ev: EventDef, i: number): void => {
       if (ev.once && state[i]!.fired) return;
       if (ev.ifSwitch && !this.switchesMap.get(ev.ifSwitch)) return;
       if (ev.ifVar && (this.varsMap.get(ev.ifVar) ?? 0) < (ev.ifVarAtLeast ?? 1)) return;
       if (ev.once) state[i]!.fired = true;
-      this.runActions(def, e, ev.actions ?? []);
+      this.runActions(owner, ev.actions ?? []);
     };
     evs.forEach((ev, i) => {
       if (ev.trigger === 'start') run(ev, i);
-      else if (ev.trigger === 'tap') makeTappable(e, () => run(ev, i));
-      else {
+      else if (ev.trigger === 'tap') {
+        if (owner) makeTappable(owner.e, () => run(ev, i));
+        else this.levelTaps.push(() => run(ev, i));
+      } else {
         this.updaters.push((dt) => {
-          if (e.destroyed) return;
+          if (owner?.e.destroyed) return;
           if (ev.trigger === 'every') {
             const secs = Math.max(0.1, ev.every ?? 1);
             state[i]!.t += dt;
@@ -1490,11 +1524,17 @@ export class PlayScene extends Scene {
               state[i]!.t -= secs;
               run(ev, i);
             }
-          } else {
+          } else if (ev.trigger === 'cleared') {
+            // Rising edge only, and armed from the live count — a level that
+            // never had an enemy never "clears".
+            const clear = this.mobStates.size === 0;
+            if (clear && !state[i]!.wasClear) run(ev, i);
+            state[i]!.wasClear = clear;
+          } else if (owner) {
             // 'touch': edge-triggered — fires on entering, re-arms on leaving
             const me = this.players[0]?.entity;
             if (!me || me.destroyed) return;
-            const near = Math.hypot(me.x - e.x, me.y - e.y) < def.radius + 45;
+            const near = Math.hypot(me.x - owner.e.x, me.y - owner.e.y) < owner.def.radius + 45;
             if (near && !state[i]!.inside) run(ev, i);
             state[i]!.inside = near;
           }
@@ -1503,12 +1543,18 @@ export class PlayScene extends Scene {
     });
   }
 
-  /** Execute one event's action list against the live scene. */
-  private runActions(def: EntityDef, e: Entity, actions: EventAction[]): void {
+  /** Execute one event's action list against the live scene. A null owner
+   *  is the level itself: actions that default to "where I am" fall back to
+   *  the middle of the board, and "say" is spoken by the level's name. */
+  private runActions(owner: EventOwner | null, actions: EventAction[]): void {
+    const def = owner?.def;
+    const e = owner?.e;
+    const atX = def?.x ?? this.sceneDef.worldW / 2;
+    const atY = def?.y ?? this.sceneDef.worldH / 2;
     for (const a of actions) {
       switch (a.cmd) {
         case 'say':
-          this.sayLines(def.name, [a.text ?? '…']);
+          this.sayLines(def?.name ?? this.sceneDef.name, [a.text ?? '…']);
           break;
         case 'coins':
           this.coinsAdd(a.n ?? 1);
@@ -1540,7 +1586,7 @@ export class PlayScene extends Scene {
           else audio.music.play((a.text ?? 'adventure') as MusicTrackId);
           break;
         case 'vfx':
-          this.spawnVfx((a.text ?? 'sparkle') as VfxPreset, a.x ?? def.x, a.y ?? def.y);
+          this.spawnVfx((a.text ?? 'sparkle') as VfxPreset, a.x ?? atX, a.y ?? atY);
           break;
         case 'item':
           if (a.text) this.giveItem(a.text, a.n ?? 1);
@@ -1555,9 +1601,10 @@ export class PlayScene extends Scene {
           this.openInventory();
           break;
         case 'spawn':
-          this.spawnDef(defaultEntity((a.text ?? 'crate') as EntityKind, a.x ?? def.x, a.y ?? def.y));
+          this.spawnDef(defaultEntity((a.text ?? 'crate') as EntityKind, a.x ?? atX, a.y ?? atY));
           break;
         case 'remove':
+          if (!def || !e) break; // level scope has no body to remove
           for (const [k, v] of this.byName) if (v === e) this.byName.delete(k);
           this.mobStates.delete(def.name);
           if (!e.destroyed) this.remove(e);
@@ -1581,6 +1628,12 @@ export class PlayScene extends Scene {
           break;
       }
     }
+  }
+
+  /** Headless hook: fire the level's 'tap anywhere' events. */
+  fireLevelTaps(): boolean {
+    for (const cb of this.levelTaps) cb();
+    return this.levelTaps.length > 0;
   }
 
   switchState(name: string): boolean {

@@ -939,6 +939,13 @@ async function main(): Promise<void> {
       editor.touch();
       return true;
     },
+    setLevelEvents: (events: unknown) => {
+      editor.scene.events = events as NonNullable<typeof editor.scene.events>;
+      editor.touch();
+      return true;
+    },
+    levelEventCount: () => editor.scene.events?.length ?? 0,
+    tapLevel: () => editor.getPlayScene()?.fireLevelTaps() ?? false,
     switchIsOn: (name: string) => editor.getPlayScene()?.switchState(name) ?? false,
     musicNow: () => editor.getPlayScene()?.musicNow() ?? null,
     vfxCount: () => editor.getPlayScene()?.vfxCount ?? 0,

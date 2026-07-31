@@ -1,39 +1,11 @@
 /** Right-hand inspector: edit every property of the selected entity. */
 import type { StudioEditor } from './editor.js';
 import { HATS, HELD_ITEMS } from './cosmetics.js';
+import { cmdMenuLabel, cmdSpec, cmdsFor, triggerLabel, triggersFor } from './cmds.js';
+import type { Scope } from './cmds.js';
 import type { EntityDef, EventAction, EventDef } from './model.js';
 
 const hex = (n: number): string => `#${n.toString(16).padStart(6, '0')}`;
-
-/** The no-code command palette: label + which params each command needs. */
-const EVENT_CMDS: { cmd: EventAction['cmd']; label: string; params: 'text' | 'n' | 'sound' | 'music' | 'vfx' | 'item' | 'varn' | 'spawn' | 'none' }[] = [
-  { cmd: 'say', label: '💬 Say message', params: 'text' },
-  { cmd: 'coins', label: '🪙 Give coins', params: 'n' },
-  { cmd: 'score', label: '⭐ Add score', params: 'n' },
-  { cmd: 'xp', label: '✨ Grant XP', params: 'n' },
-  { cmd: 'heal', label: '❤ Heal hearts', params: 'n' },
-  { cmd: 'sfx', label: '🔊 Play sound', params: 'sound' },
-  { cmd: 'music', label: '🎵 Music', params: 'music' },
-  { cmd: 'vfx', label: '✨ Particle burst', params: 'vfx' },
-  { cmd: 'item', label: '🎁 Give item', params: 'item' },
-  { cmd: 'var', label: '🔢 Add to variable', params: 'varn' },
-  { cmd: 'shop', label: '🛒 Open shop', params: 'none' },
-  { cmd: 'inventory', label: '🎒 Open inventory', params: 'none' },
-  { cmd: 'spawn', label: '🐣 Spawn a thing', params: 'spawn' },
-  { cmd: 'remove', label: '🗑 Remove this', params: 'none' },
-  { cmd: 'goto', label: '🚪 Go to level…', params: 'text' },
-  { cmd: 'switchOn', label: '🔛 Turn switch ON', params: 'text' },
-  { cmd: 'switchOff', label: '⏹ Turn switch OFF', params: 'text' },
-  { cmd: 'win', label: '🏆 Win the game', params: 'text' },
-  { cmd: 'lose', label: '💀 Lose the game', params: 'text' },
-];
-
-const TRIGGERS: { value: EventDef['trigger']; label: string }[] = [
-  { value: 'tap', label: '👆 When tapped' },
-  { value: 'touch', label: '🚶 When the player touches it' },
-  { value: 'start', label: '🎬 When the level starts' },
-  { value: 'every', label: '⏲ Every N seconds' },
-];
 
 export function wireInspector(editor: StudioEditor): void {
   const title = document.getElementById('insp-title')!;
@@ -42,10 +14,25 @@ export function wireInspector(editor: StudioEditor): void {
   const render = (): void => {
     const def = editor.selected;
     if (!def) {
-      title.textContent = editor.playing ? 'Playing' : 'Nothing selected';
-      body.innerHTML = editor.playing
-        ? '<span class="muted">Press ⏹ Stop to go back to editing.</span>'
-        : '<span class="muted">Drag something in from the palette, or click an entity on the canvas.</span>';
+      // Nothing selected is not nothing to edit — this is the LEVEL, and
+      // its own ⚡ events live here (start the music, run a timer, win when
+      // every enemy is down). Before, this panel was a dead end.
+      if (editor.playing) {
+        title.textContent = 'Playing';
+        body.innerHTML = '<span class="muted">Press ⏹ Stop to go back to editing.</span>';
+        return;
+      }
+      const scene = editor.scene;
+      title.textContent = `level — ${scene.name}`;
+      body.innerHTML = '';
+      const hint = document.createElement('div');
+      hint.className = 'muted';
+      hint.style.fontSize = '12px';
+      hint.textContent =
+        'Click an actor to edit it. These events belong to the level itself and run with no actor involved.';
+      body.appendChild(hint);
+      scene.events ??= [];
+      renderEvents(scene as { events: EventDef[] }, 'level');
       return;
     }
     title.textContent = `${def.kind} — ${def.name}`;
@@ -268,7 +255,7 @@ export function wireInspector(editor: StudioEditor): void {
       body.appendChild(hint);
     }
 
-    renderEvents(def);
+    renderEvents(def, 'entity');
 
     const del = document.createElement('button');
     del.className = 'btn';
@@ -278,12 +265,14 @@ export function wireInspector(editor: StudioEditor): void {
     body.appendChild(del);
   };
 
-  /** ⚡ No-code events: trigger + stacked actions, all dropdowns. */
-  const renderEvents = (def: EntityDef): void => {
+  /** ⚡ No-code events: trigger + stacked actions, all dropdowns. The same
+   *  editor serves an actor and a whole level — only the legal triggers and
+   *  commands differ, which is what `scope` selects. */
+  const renderEvents = (owner: { events: EventDef[] }, scope: Scope): void => {
     const head = document.createElement('div');
     head.className = 'muted';
     head.style.margin = '12px 0 4px';
-    head.textContent = '⚡ Events (no code needed)';
+    head.textContent = scope === 'level' ? '⚡ Level events (no code needed)' : '⚡ Events (no code needed)';
     body.appendChild(head);
 
     const touchAndRender = (): void => {
@@ -291,18 +280,18 @@ export function wireInspector(editor: StudioEditor): void {
       render();
     };
 
-    def.events.forEach((ev, ei) => {
+    owner.events.forEach((ev, ei) => {
       const box = document.createElement('div');
       box.style.cssText = 'border:1px solid #35304d;border-radius:8px;padding:6px;margin-bottom:6px';
 
       const row = document.createElement('div');
       row.className = 'row';
       const trig = document.createElement('select');
-      for (const t of TRIGGERS) {
+      for (const t of triggersFor(scope)) {
         const o = document.createElement('option');
-        o.value = t.value;
-        o.textContent = t.label;
-        if (ev.trigger === t.value) o.selected = true;
+        o.value = t.trigger;
+        o.textContent = triggerLabel(t.trigger, scope);
+        if (ev.trigger === t.trigger) o.selected = true;
         trig.appendChild(o);
       }
       trig.onchange = () => {
@@ -327,7 +316,7 @@ export function wireInspector(editor: StudioEditor): void {
       kill.textContent = '✕';
       kill.title = 'Delete this event';
       kill.onclick = () => {
-        def.events.splice(ei, 1);
+        owner.events.splice(ei, 1);
         touchAndRender();
       };
       row.appendChild(kill);
@@ -387,10 +376,10 @@ export function wireInspector(editor: StudioEditor): void {
         arow.className = 'row';
         arow.style.marginTop = '4px';
         const sel = document.createElement('select');
-        for (const c of EVENT_CMDS) {
+        for (const c of cmdsFor(scope)) {
           const o = document.createElement('option');
           o.value = c.cmd;
-          o.textContent = c.label;
+          o.textContent = cmdMenuLabel(c);
           if (a.cmd === c.cmd) o.selected = true;
           sel.appendChild(o);
         }
@@ -399,7 +388,7 @@ export function wireInspector(editor: StudioEditor): void {
           touchAndRender();
         };
         arow.appendChild(sel);
-        const spec = EVENT_CMDS.find((c) => c.cmd === a.cmd)!;
+        const spec = cmdSpec(a.cmd);
         if (spec.params === 'text') {
           const t = document.createElement('input');
           t.type = 'text';
@@ -545,7 +534,11 @@ export function wireInspector(editor: StudioEditor): void {
     addEvent.className = 'btn';
     addEvent.textContent = '+ Add event';
     addEvent.onclick = () => {
-      def.events.push({ trigger: 'tap', actions: [{ cmd: 'sfx', text: 'pop' }] });
+      owner.events.push(
+        scope === 'level'
+          ? { trigger: 'start', actions: [{ cmd: 'music', text: 'adventure' }] }
+          : { trigger: 'tap', actions: [{ cmd: 'sfx', text: 'pop' }] },
+      );
       touchAndRender();
     };
     body.appendChild(addEvent);

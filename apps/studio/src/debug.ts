@@ -68,6 +68,9 @@ export interface StudioDebug {
   chatBridged: () => boolean;
   coinsNow: () => number;
   setEvents: (name: string, events: unknown) => boolean;
+  setLevelEvents: (events: unknown) => boolean;
+  levelEventCount: () => number;
+  tapLevel: () => boolean;
   switchIsOn: (name: string) => boolean;
   musicNow: () => string | null;
   vfxCount: () => number;

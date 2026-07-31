@@ -173,6 +173,22 @@ Switches and variables are shared with the Code window
 (`api.switches.on/off/isOn`, `api.vars.get/set/add`), so no-code events
 and scripts work on the same world state.
 
+### Level events — logic the level owns
+
+Click empty ground (nothing selected) and the inspector becomes the
+**level**. It has its own ⚡ events, using the same blocks actors use but
+with no actor involved:
+
+- 🎬 **When the level starts** — set the music, say a line, spawn a wave.
+- ⏲ **Every N seconds** — a timer that belongs to the room, not to a prop.
+- 👆 **When the screen is tapped** — fires on empty ground.
+- 🏁 **When every enemy is defeated** — the arena-clear trigger. It only
+  arms once a mob has actually existed, so a peaceful level never
+  instantly "wins".
+
+Actors run first (each firing its own 🎬 start), then the level's events,
+then the Code window — so code always gets the last word.
+
 ## 4⅝ · The 🗄 Database — items, shops, languages
 
 The **🗄** toolbar button opens the project database:
