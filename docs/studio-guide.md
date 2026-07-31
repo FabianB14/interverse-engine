@@ -21,6 +21,9 @@ edit is the real engine, live — press **▶ Play** at any moment.
   | Hilltop Hop | Gravity run · wide | Run + JUMP across 3 screens, camera follows |
   | Firefly Party | Multiplayer co-op | Host a room code, catch fireflies together |
   | Hero's Errand | Menu → Quest | Title menu, village shop, find 2 chests, boss lair |
+  | ⚔️ Blobvale | Co-op RPG · multiplayer | Menu, class pick, shared world, wolves + a direwolf |
+  | 🌱 Bloomstead | Cozy farming | Plant, harvest, sell at the stall — no enemies, no fail state |
+  | 🕯️ Hushfall | Hide & seek · multiplayer | Light every lantern, reach the gate before the Seeker |
 
   **Hero's Errand** is the capstone — it uses almost everything in this
   guide at once (a start-button menu level, a shopkeeper NPC selling
@@ -226,6 +229,28 @@ live, collision included.
   no code is needed. Volumes: `api.music.setVolume('music'|'sfx'|'master',
   0..1)` — remembered per device. Garden Explorer opens on 'adventure',
   Blob Arena on 'battle'.
+
+## 4¼ · 🏠 Menus — main, pause and settings
+
+Every game needs screens that are not gameplay. Three come built in, and
+all of them are reachable from a plain button with **no code**:
+
+- **⚙ Settings** — music and sound volume (remembered per device) and a
+  language switch when your project has a 🌐 language table. Add a button,
+  give it a 👆 tap event with the **⚙ Open settings** action.
+- **⏸ Pause** — Resume · Settings · Restart level · Main menu, from the
+  **⏸ Pause the game** action. A ⏸ button in the corner is all it takes.
+  Gameplay actually stops while it is open.
+- **🏠 Title** — the save-slot screen (Continue / New game + volumes) from
+  the **🏠 Show the title screen** action, or `api.title()`.
+
+A **main menu** is just a level: a Text actor for the name, and Button
+actors whose tap events 🚪 go to your first level or ⚙ open settings.
+Blobvale, Bloomstead and Hushfall all start with one — load any of them
+and look at the `Menu` level to see the pattern.
+
+From code: `api.menu.settings()`, `api.menu.pause()`, `api.menu.close()`,
+`api.menu.isOpen()`.
 
 ## 4½ · Events — build logic with no code
 

@@ -1450,6 +1450,9 @@ async function main(): Promise<void> {
       const raw = JSON.parse(editor.exportJson()) as Record<string, unknown>;
       return ['origin', 'github', 'token', 'pat', 'secrets', 'apiKey', 'api_key'].filter((k) => k in raw);
     },
+    playSolo: () => editor.playSolo(),
+    menuVisible: () => editor.getPlayScene()?.menuVisible() ?? false,
+    gamePaused: () => editor.getPlayScene()?.titlePaused ?? false,
     openAbilities: (id?: string) =>
       openAbilityEditor({ project: editor.project, touch: () => editor.touch(), openModal }, id),
     createAbility: (name: string) => {

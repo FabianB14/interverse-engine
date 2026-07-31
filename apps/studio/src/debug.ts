@@ -74,6 +74,9 @@ export interface StudioDebug {
   whereText: () => string;
   syncState: () => string;
   projectHasSecrets: () => string[];
+  playSolo: () => void;
+  menuVisible: () => boolean;
+  gamePaused: () => boolean;
   openAbilities: (id?: string) => void;
   createAbility: (name: string) => string;
   setAbility: (id: string, patch: Record<string, unknown>) => boolean;

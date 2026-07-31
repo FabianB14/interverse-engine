@@ -4,7 +4,7 @@
  * api, so authors can open one, press Play, and then reshape everything.
  * First-person arrives with the 3D engine (shown as a locked tile in the UI).
  */
-import { defaultEntity, defaultScene } from './model.js';
+import { defaultAbility, defaultEntity, defaultScene } from './model.js';
 import type { EntityDef, EntityKind, ProjectDef, SceneDef } from './model.js';
 
 export interface TemplateDef {
@@ -498,9 +498,210 @@ function vault(): ProjectDef {
   return project('Vault Hunter', [s]);
 }
 
+/** ⚔️ Blobvale — the co-op RPG, distilled: a menu, a class pick, and a
+ *  shared world where a party fights together. Multiplayer is ON, so Play
+ *  opens the room-code lobby. */
+function blobvale(): ProjectDef {
+  const menu = defaultScene('Menu');
+  menu.background = 0x161a2e;
+  menu.entities.push(
+    E('text', 'Title', 360, 380, { text: 'BLOBVALE', fontSize: 62, color: 0x8affc1 }),
+    E('text', 'Sub', 360, 450, { text: 'a 5-player co-op RPG', fontSize: 24, color: 0x9a97b8 }),
+    E('button', 'Play', 360, 640, {
+      text: '▶ PLAY',
+      events: [{ trigger: 'tap', actions: [{ cmd: 'goto', text: 'Choose a class' }] }],
+    }),
+    E('button', 'Settings', 360, 780, {
+      text: '⚙ SETTINGS',
+      events: [{ trigger: 'tap', actions: [{ cmd: 'settings' }] }],
+    }),
+  );
+  menu.script = S(["api.music.play('adventure');"]);
+
+  const pick = defaultScene('Choose a class');
+  pick.background = 0x161a2e;
+  pick.entities.push(
+    E('text', 'Ask', 360, 240, { text: 'Pick your blob', fontSize: 40, color: 0xffd166 }),
+    E('blob', 'Knight', 200, 520, { color: 0x6bc7ff, held: 'sword',
+      events: [{ trigger: 'tap', actions: [{ cmd: 'switchOn', text: 'knight' }, { cmd: 'goto', text: 'Blobvale' }] }] }),
+    E('blob', 'Ranger', 360, 520, { color: 0x8affc1, held: 'staff',
+      events: [{ trigger: 'tap', actions: [{ cmd: 'switchOn', text: 'ranger' }, { cmd: 'goto', text: 'Blobvale' }] }] }),
+    E('blob', 'Healer', 520, 520, { color: 0xff9ecb, hat: 'halo',
+      events: [{ trigger: 'tap', actions: [{ cmd: 'switchOn', text: 'healer' }, { cmd: 'goto', text: 'Blobvale' }] }] }),
+    E('text', 'Hint', 360, 720, { text: 'tap a blob to choose', fontSize: 22, color: 0x9a97b8 }),
+  );
+
+  const world = defaultScene('Blobvale');
+  world.background = 0x14251c;
+  world.worldW = 2160;
+  world.entities.push(
+    E('blob', 'Hero', 360, 1020, { color: 0x8affc1, held: 'sword' }),
+    E('npc', 'Elder', 620, 700, { color: 0xffd166, hat: 'wizard',
+      lines: ['Welcome to Blobvale, traveller.', 'The wolves came down from the ridge.', 'Clear them and the road is ours again.'] }),
+    E('mob', 'Wolf A', 1200, 640, { hp: 3, xp: 8, behavior: 'chase' }),
+    E('mob', 'Wolf B', 1500, 900, { hp: 3, xp: 8, behavior: 'patrol' }),
+    E('mob', 'Wolf C', 1800, 720, { hp: 3, xp: 8, behavior: 'wander' }),
+    E('boss', 'Direwolf', 2000, 500, { hp: 14, xp: 60, shootEvery: 2.6 }),
+    E('button', 'Menu', 660, 90, { text: '⏸', fontSize: 30,
+      events: [{ trigger: 'tap', actions: [{ cmd: 'pause' }] }] }),
+  );
+  world.events = [{ trigger: 'cleared', actions: [{ cmd: 'win', text: 'BLOBVALE IS SAFE! 🏆' }] }];
+  world.script = S([
+    '// A shared world: everyone who joins appears as a live avatar.',
+    "api.player('Hero', 320);",
+    'api.hearts(4);',
+    'api.levels({ xpPerLevel: 20 });',
+    "api.music.play('adventure');",
+    '// Your class came from the pick screen.',
+    "if (api.switches.isOn('healer')) api.hearts(6);",
+  ]);
+  const p = project('Blobvale', [menu, pick, world], true);
+  p.db = {
+    items: [{ id: 'potion', name: 'Potion', emoji: '🧪', desc: 'Restores a heart.', price: 5, effect: 'heal', n: 1 }],
+    abilities: [
+      { ...defaultAbility('slash', 'Slash'), icon: 'sword', effect: 'melee', power: 2, radius: 140, cooldown: 0.5, key: 'q', sfx: 'pop' },
+      { ...defaultAbility('mend', 'Mend'), icon: 'heart', effect: 'heal', power: 1, radius: 0, cooldown: 9, key: 'e', vfx: 'hearts', sfx: 'chime' },
+    ],
+  };
+  world.entities[0]!.abilities = ['slash', 'mend'];
+  return p;
+}
+
+/** 🌱 Bloomstead — the cozy farm: plant, water, harvest, sell. No enemies,
+ *  no fail state, and a shop to spend the day's takings in. */
+function bloomstead(): ProjectDef {
+  const menu = defaultScene('Menu');
+  menu.background = 0x1d2a1b;
+  menu.entities.push(
+    E('text', 'Title', 360, 400, { text: 'BLOOMSTEAD', fontSize: 58, color: 0x8fbf5b }),
+    E('text', 'Sub', 360, 468, { text: 'a little farm, a slow season', fontSize: 24, color: 0x9a97b8 }),
+    E('button', 'Farm', 360, 660, {
+      text: '🌱 START FARMING',
+      events: [{ trigger: 'tap', actions: [{ cmd: 'goto', text: 'The Farm' }] }],
+    }),
+    E('button', 'Settings', 360, 800, {
+      text: '⚙ SETTINGS',
+      events: [{ trigger: 'tap', actions: [{ cmd: 'settings' }] }],
+    }),
+  );
+  menu.script = S(["api.music.play('cozy');"]);
+
+  const farm = defaultScene('The Farm');
+  farm.background = 0x22301d;
+  farm.entities.push(
+    E('blob', 'Farmer', 360, 980, { color: 0xffd166, hat: 'cap' }),
+    E('npc', 'Pip', 560, 420, { color: 0x8fbf5b,
+      lines: ['Morning!', 'Tap a seedling to harvest it.', 'Sell what you gather at the stall.'] }),
+    E('plant', 'Seedling A', 200, 620, {
+      events: [{ trigger: 'tap', actions: [{ cmd: 'coins', n: 3 }, { cmd: 'vfx', text: 'sparkle' }, { cmd: 'sfx', text: 'chime' }] }] }),
+    E('plant', 'Seedling B', 320, 700, {
+      events: [{ trigger: 'tap', actions: [{ cmd: 'coins', n: 3 }, { cmd: 'vfx', text: 'sparkle' }, { cmd: 'sfx', text: 'chime' }] }] }),
+    E('plant', 'Seedling C', 460, 640, {
+      events: [{ trigger: 'tap', actions: [{ cmd: 'coins', n: 3 }, { cmd: 'vfx', text: 'sparkle' }, { cmd: 'sfx', text: 'chime' }] }] }),
+    E('npc', 'Stall', 180, 380, { color: 0xff9ecb,
+      events: [{ trigger: 'tap', actions: [{ cmd: 'shop' }] }] }),
+    E('button', 'Menu', 660, 90, { text: '⏸', fontSize: 30,
+      events: [{ trigger: 'tap', actions: [{ cmd: 'pause' }] }] }),
+  );
+  farm.events = [
+    { trigger: 'start', actions: [{ cmd: 'music', text: 'cozy' }] },
+    { trigger: 'every', every: 12, actions: [{ cmd: 'say', text: 'The weather turns…' }] },
+  ];
+  farm.script = S([
+    '// Cozy: no enemies, no timer, nothing to lose.',
+    "api.player('Farmer', 260);",
+    'api.save.set(\'visited\', true);',
+  ]);
+  const p = project('Bloomstead', [menu, farm]);
+  p.db = {
+    items: [
+      { id: 'seeds', name: 'Seed packet', emoji: '🌰', desc: 'Next season’s crop.', price: 4, effect: 'none', n: 1 },
+      { id: 'cocoa', name: 'Cocoa', emoji: '☕', desc: 'A warm evening.', price: 6, effect: 'heal', n: 1 },
+    ],
+  };
+  return p;
+}
+
+/** 🕯️ Hushfall — asymmetric hide-and-seek: light the lanterns and escape
+ *  before the Seeker finds you. Multiplayer, spooky, one lit disc of hope. */
+function hushfall(): ProjectDef {
+  const menu = defaultScene('Menu');
+  menu.background = 0x0c0a12;
+  menu.entities.push(
+    E('text', 'Title', 360, 380, { text: 'HUSHFALL', fontSize: 62, color: 0xc77dff }),
+    E('text', 'Sub', 360, 450, { text: '7 hide · 1 seeks', fontSize: 24, color: 0x9a97b8 }),
+    E('button', 'Play', 360, 640, {
+      text: '🕯️ ENTER THE GROUNDS',
+      events: [{ trigger: 'tap', actions: [{ cmd: 'goto', text: 'The Grounds' }] }],
+    }),
+    E('button', 'Settings', 360, 790, {
+      text: '⚙ SETTINGS',
+      events: [{ trigger: 'tap', actions: [{ cmd: 'settings' }] }],
+    }),
+  );
+  menu.script = S(["api.music.play('spooky');"]);
+
+  const grounds = defaultScene('The Grounds');
+  grounds.background = 0x0d0b14;
+  grounds.worldW = 2160;
+  const lantern = (name: string, x: number, y: number) =>
+    E('lantern', name, x, y, {
+      events: [
+        {
+          trigger: 'touch',
+          once: true,
+          actions: [
+            { cmd: 'var', text: 'lanterns', n: 1 },
+            { cmd: 'vfx', text: 'embers' },
+            { cmd: 'sfx', text: 'chime' },
+            { cmd: 'say', text: 'A lantern flickers awake…' },
+          ],
+        },
+      ],
+    });
+  grounds.entities.push(
+    E('blob', 'Hider', 260, 1020, { color: 0x9a97b8 }),
+    lantern('Lantern 1', 620, 460),
+    lantern('Lantern 2', 1180, 880),
+    lantern('Lantern 3', 1740, 520),
+    E('mob', 'The Seeker', 1500, 700, { color: 0x6b2233, hp: 99, damage: 1, moveSpeed: 120, behavior: 'chase' }),
+    E('crate', 'Crypt', 900, 620, {}),
+    E('crate', 'Headstone', 1400, 1000, {}),
+    E('lantern', 'The Gate', 2040, 700, {
+      events: [
+        { trigger: 'touch', ifVar: 'lanterns', ifVarAtLeast: 3, actions: [{ cmd: 'win', text: 'YOU ESCAPED! 🕯️' }] },
+        { trigger: 'tap', actions: [{ cmd: 'say', text: 'Locked. Light every lantern first.' }] },
+      ],
+    }),
+    E('button', 'Menu', 660, 90, { text: '⏸', fontSize: 30,
+      events: [{ trigger: 'tap', actions: [{ cmd: 'pause' }] }] }),
+    E('text', 'Hint', 360, 150, { text: 'Light all 3 lanterns, then reach the gate', fontSize: 22, color: 0x6b6688 }),
+  );
+  grounds.script = S([
+    "api.player('Hider', 300);",
+    'api.hearts(2);',
+    "api.music.play('spooky');",
+    '// The Seeker never stops. Keep moving.',
+  ]);
+  const p = project('Hushfall', [menu, grounds], true);
+  p.db = {
+    items: [],
+    abilities: [
+      { ...defaultAbility('sprint', 'Sprint'), icon: 'boot', effect: 'dash', power: 260, radius: 0, cooldown: 6, key: 'q', sfx: 'blip' },
+      { ...defaultAbility('flashlight', 'Flashlight'), icon: 'star', effect: 'custom', cooldown: 10, key: 'e', vfx: 'sparkle',
+        script: "api.say('Hider', 'The beam cuts the dark for a moment.');" },
+    ],
+  };
+  grounds.entities[0]!.abilities = ['sprint', 'flashlight'];
+  return p;
+}
+
 export const TEMPLATES: TemplateDef[] = [
   { id: 'blank', name: 'Blank', emoji: '⬜', view: '2D', blurb: 'An empty canvas with one hero.', make: () => project('My Game', [(() => { const s = defaultScene('Level 1'); s.entities.push(E('blob', 'Hero', 360, 640)); return s; })()]) },
   { id: 'topdown', name: 'Garden Explorer', emoji: '🧭', view: 'Top-down', blurb: 'Walk anywhere, collect the fireflies. Cozy-action starter.', make: topDown },
+  { id: 'blobvale', name: 'Blobvale', emoji: '⚔️', view: 'Co-op RPG · multiplayer', blurb: 'Menu, class pick, and a shared world with wolves and a direwolf boss.', make: blobvale },
+  { id: 'bloomstead', name: 'Bloomstead', emoji: '🌱', view: 'Cozy farming', blurb: 'Plant, harvest and sell at the stall. No enemies, no fail state.', make: bloomstead },
+  { id: 'hushfall', name: 'Hushfall', emoji: '🕯️', view: 'Hide & seek · multiplayer', blurb: 'Light every lantern and reach the gate before the Seeker finds you.', make: hushfall },
   { id: 'vault', name: 'Vault Hunter', emoji: '🌳', view: 'Branching skill tree', blurb: 'Three coloured skill paths with multi-rank skills and tier gates.', make: vault },
   { id: 'quest', name: "Hero's Errand", emoji: '🏰', view: 'Menu → Quest', blurb: 'Menu screen, shop, chests, a gated door and a boss — built from event blocks.', make: quest },
   { id: 'side25', name: 'Sunset Street', emoji: '🌇', view: '2.5D · 3 screens wide', blurb: 'A long street to journey down — depth scaling + camera follow built in.', make: side25 },

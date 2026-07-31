@@ -136,12 +136,16 @@ await page.screenshot({ path: `${outDir}/st-3-final.png` });
 // scene script runs without erroring or instantly game-overing, and (the
 // vanish-on-play regression) every spawned entity is VISIBLY rendering
 // after the pop-in settles.
-const templateIds = ['topdown', 'quest', 'vault', 'side25', 'side', 'runner', 'slash', 'action', 'cozy', 'rpg'];
+const templateIds = ['topdown', 'quest', 'vault', 'blobvale', 'bloomstead', 'hushfall', 'side25', 'side', 'runner', 'slash', 'action', 'cozy', 'rpg'];
 const templates = {};
+const MULTIPLAYER_TEMPLATES = ['blobvale', 'hushfall'];
 for (const id of templateIds) {
   await page.evaluate((t) => window.__studio.loadTemplate(t), id);
   await sleep(250);
-  await page.evaluate(() => window.__studio.play());
+  // A multiplayer project opens the room-code lobby on Play (correct), so
+  // drive those straight into a solo session.
+  if (MULTIPLAYER_TEMPLATES.includes(id)) await page.evaluate(() => window.__studio.playSolo());
+  else await page.evaluate(() => window.__studio.play());
   await sleep(1300);
   templates[id] = {
     n: await page.evaluate(() => window.__studio.playEntityCount()),
@@ -619,6 +623,44 @@ const gameGenOk =
   genPlays > 0 && genVisible === genPlays && genOver === false &&
   genMobs > 0 && genLive > genMobs && cozyMobs === 0;
 
+// MENUS: the ⚙ settings and ⏸ pause screens exist, pause the game, and are
+// reachable from a no-code button action.
+await page.evaluate(() => window.__studio.loadTemplate('hushfall'));
+await sleep(300);
+await page.evaluate(() => window.__studio.switchSceneByName('The Grounds'));
+await page.evaluate(() => window.__studio.playSolo());
+await sleep(800);
+await page.evaluate(() => window.__studio.applyScriptNow('api.menu.pause();'));
+await sleep(250);
+const pauseOpen = await page.evaluate(() => window.__studio.menuVisible());
+const pausedMove = await page.evaluate(() => window.__studio.gamePaused());
+await page.screenshot({ path: `${outDir}/st-23-pause.png` });
+await page.evaluate(() => window.__studio.applyScriptNow('api.menu.settings();'));
+await sleep(250);
+const settingsOpen = await page.evaluate(() => window.__studio.menuVisible());
+await page.screenshot({ path: `${outDir}/st-24-settings.png` });
+await page.evaluate(() => window.__studio.applyScriptNow('api.menu.close();'));
+await sleep(200);
+const menuClosed = await page.evaluate(() => window.__studio.menuVisible());
+const resumed = await page.evaluate(() => window.__studio.gamePaused());
+await page.evaluate(() => window.__studio.stop());
+await sleep(150);
+// The three real games load, and the menu button action is wired with no code.
+const gameTemplates = {};
+for (const id of ['blobvale', 'bloomstead', 'hushfall']) {
+  await page.evaluate((t) => window.__studio.loadTemplate(t), id);
+  await sleep(250);
+  gameTemplates[id] = {
+    scenes: await page.evaluate(() => window.__studio.sceneCount()),
+    first: await page.evaluate(() => window.__studio.sceneName()),
+  };
+}
+const menuOk =
+  pauseOpen === true && pausedMove === true && settingsOpen === true &&
+  menuClosed === false && resumed === false &&
+  gameTemplates.blobvale.scenes === 3 && gameTemplates.blobvale.first === 'Menu' &&
+  gameTemplates.bloomstead.scenes === 2 && gameTemplates.hushfall.scenes === 2;
+
 // ACTOR-OWNED ABILITIES: create one with no code, give it to an actor, and
 // it becomes a working on-screen button when that actor is the player.
 await page.evaluate(() => window.__studio.loadTemplate('action'));
@@ -958,7 +1000,7 @@ const ok =
   placeOk && editOk && storyOk && levelsOk && playOk && stopOk && exportOk && importOk &&
   templatesOk && skillsOk && scoreOk && tilesOk && cameraOk && frameOk && combatOk && rangedOk &&
   patrolOk && chatOk && coinsOk && persistOk && libOk && eventsOk && genOk && uiOk && dbOk &&
-  questOk && levelEvOk && apiOk && keysOk && controlsOk && skillsBranchOk && gameGenOk && dropOk && artOk && originOk && abilityOk && netOk &&
+  questOk && levelEvOk && apiOk && keysOk && controlsOk && skillsBranchOk && gameGenOk && dropOk && artOk && originOk && abilityOk && menuOk && netOk &&
   errors.length === 0;
 console.log(
   JSON.stringify(
@@ -982,6 +1024,7 @@ console.log(
       apiOk, apiN: apiAll.length, apiHit0: apiHit[0], inserted, scriptErr,
       keysOk, kx0, kxD, kxL, ky0, kyS,
       controlsOk, defRight, reboundRight, rx0, rxOldKey, rxNewKey, addedCustom, killBuiltin, killCustom, conflicts,
+      menuOk, pauseOpen, pausedMove, settingsOpen, menuClosed, resumed, gameTemplates,
       abilityOk, abId, granted, heroAbilities, abCount, mobsBefore, mobsAfter, beforeUnlock, afterUnlock,
       skillsBranchOk, brN, skOpen, layout, rank3, crossBranch, sameBranch, spentBrawl, refunded, afterRespec,
       gameGenOk, genProblems, genName, genScenes, genFirst, genPlays, genVisible, genMobs, genLive, cozyMobs,

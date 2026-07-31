@@ -45,6 +45,9 @@ export interface EventAction {
     | 'var' // add n to a named variable (text: variable name)
     | 'shop' // open the shop screen (db items with prices)
     | 'inventory' // open the player's inventory
+    | 'settings' // open the ⚙ settings screen (volumes + language)
+    | 'pause' // open the ⏸ pause menu
+    | 'title' // show the title / save-slot screen
     | 'spawn' // spawn a kind (text) at x/y (defaults: this entity's spot)
     | 'remove' // remove this entity
     | 'goto' // switch to level (text)
@@ -63,7 +66,7 @@ export interface EventAction {
  *  dead row in the inspector and the Flow map. */
 export const EVENT_CMDS: readonly EventAction['cmd'][] = [
   'say', 'coins', 'score', 'xp', 'heal', 'sfx', 'music', 'vfx', 'item',
-  'var', 'shop', 'inventory', 'spawn', 'remove', 'goto', 'switchOn',
+  'var', 'shop', 'inventory', 'settings', 'pause', 'title', 'spawn', 'remove', 'goto', 'switchOn',
   'switchOff', 'win', 'lose',
 ];
 

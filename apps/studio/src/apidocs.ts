@@ -281,6 +281,13 @@ export const API_DOCS: ApiEntry[] = [
   },
   {
     category: '🖼 Screens & UI',
+    name: 'api.menu',
+    signature: 'api.menu.settings() · .pause() · .close() · .isOpen()',
+    blurb: 'The built-in ⚙ settings screen (volumes + language) and ⏸ pause menu. Both pause the game.',
+    snippet: 'api.menu.pause();',
+  },
+  {
+    category: '🖼 Screens & UI',
     name: 'api.title',
     signature: 'api.title()',
     blurb: 'Pause on a title screen with ▶ CONTINUE / ✚ NEW GAME and volume bars.',
@@ -387,7 +394,7 @@ const DOCUMENTED_ROOTS = [
   'player', 'ability', 'onTap', 'entity', 'entities', 'spawn', 'remove', 'tween', 'patrol',
   'overlap', 'every', 'after', 'onUpdate', 'random', 'hearts', 'meleeAttack', 'hurt', 'hpOf',
   'onDefeat', 'score', 'levels', 'xp', 'level', 'coins', 'vars', 'switches', 'skills', 'goto',
-  'gen', 'setTiles', 'camera', 'say', 'title', 'gameOver', 'items', 'shop', 'vfx', 'outfit',
+  'gen', 'setTiles', 'camera', 'say', 'title', 'menu', 'gameOver', 'items', 'shop', 'vfx', 'outfit',
   'playClip', 'music', 'sfx', 'save', 't', 'setLang', 'net',
 ] as const satisfies readonly (keyof ScriptApi)[];
 

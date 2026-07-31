@@ -96,6 +96,21 @@ export const CMD_SPECS: readonly CmdSpec[] = [
     short: () => '🎒bag',
   },
   {
+    cmd: 'settings', emoji: '⚙', label: 'Open settings', params: 'none', scopes: BOTH,
+    keywords: ['options', 'volume', 'sound', 'language', 'preferences'],
+    short: () => '⚙settings',
+  },
+  {
+    cmd: 'pause', emoji: '⏸', label: 'Pause the game', params: 'none', scopes: BOTH,
+    keywords: ['menu', 'stop', 'break', 'resume'],
+    short: () => '⏸pause',
+  },
+  {
+    cmd: 'title', emoji: '🏠', label: 'Show the title screen', params: 'none', scopes: BOTH,
+    keywords: ['main menu', 'start screen', 'home'],
+    short: () => '🏠title',
+  },
+  {
     cmd: 'spawn', emoji: '🐣', label: 'Spawn a thing', params: 'spawn', scopes: BOTH,
     keywords: ['create', 'make', 'add actor'],
     short: (a) => `🐣${a.text ?? 'crate'}`,

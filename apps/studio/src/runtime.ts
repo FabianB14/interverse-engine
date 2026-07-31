@@ -419,6 +419,9 @@ export interface ScriptApi {
   vars: { get: (name: string) => number; set: (name: string, v: number) => void; add: (name: string, n?: number) => void };
   /** 🛒 Ready-made shop screen over the database items with prices. */
   shop: { open: () => void };
+  /** 📋 Built-in menus: ⚙ settings (volumes + language) and ⏸ pause
+   *  (resume / settings / restart / main menu). Both pause the game. */
+  menu: { settings: () => void; pause: () => void; close: () => void; isOpen: () => boolean };
   /** 🎥 Camera direction: pan somewhere (gameplay keeps running), shake,
    *  return to following a player, cinematic letterbox bars. */
   camera: {
@@ -1768,6 +1771,15 @@ export class PlayScene extends Scene {
         case 'inventory':
           this.openInventory();
           break;
+        case 'settings':
+          this.openSettings();
+          break;
+        case 'pause':
+          this.openPause();
+          break;
+        case 'title':
+          this.showTitle();
+          break;
         case 'spawn':
           this.spawnDef(defaultEntity((a.text ?? 'crate') as EntityKind, a.x ?? atX, a.y ?? atY));
           break;
@@ -2055,6 +2067,12 @@ export class PlayScene extends Scene {
         add: (name, n = 1) => void this.varsMap.set(name, (this.varsMap.get(name) ?? 0) + n),
       },
       shop: { open: () => this.openShop() },
+      menu: {
+        settings: () => this.openSettings(),
+        pause: () => this.openPause(),
+        close: () => this.closeMenu(),
+        isOpen: () => !!this.menuRoot,
+      },
       camera: {
         panTo: (x, y, secs = 1) => this.cameraPanTo(x, y, secs),
         shake: (power = 14, secs = 0.4) => {
@@ -2422,6 +2440,127 @@ export class PlayScene extends Scene {
     bar('🔊', 'sfx', H * 0.44 + (played ? 270 : 160));
     this.add(root);
     this.titleRoot = root;
+  }
+
+  private menuRoot: Entity | null = null;
+
+  /** A stack of buttons, centred — the shape every menu in this engine uses. */
+  private menuScreen(
+    title: string,
+    rows: { label: string; fill?: number; onTap: () => void }[],
+    /** Drawn ABOVE the buttons — settings read as options-then-Back, not
+     *  Back-then-options. Returns nothing; reserve its space with `extraH`. */
+    extra?: (root: Entity, W: number, y: number) => void,
+    extraH = 0,
+  ): void {
+    if (this.menuRoot) return;
+    this.titlePaused = true;
+    const W = this.game.viewWidth;
+    const H = this.game.viewHeight;
+    const root = new Entity();
+    const bg = new Graphics().rect(0, 0, W, H).fill({ color: 0x0a0812, alpha: 0.9 });
+    bg.eventMode = 'static';
+    root.addChild(bg);
+    const t = new Text({
+      text: title,
+      style: { fontFamily: 'system-ui, sans-serif', fontSize: 46, fontWeight: '800', fill: 0xffd166 },
+    });
+    t.anchor.set(0.5);
+    t.position.set(W / 2, Math.max(90, H * 0.18));
+    root.addChild(t);
+    let y = Math.max(200, H * 0.32);
+    if (extra) {
+      extra(root, W, y);
+      y += extraH;
+    }
+    for (const r of rows) {
+      const b = new UIButton(r.label, { width: 380, height: 92, fontSize: 26, ...(r.fill ? { fill: r.fill } : {}), onTap: r.onTap });
+      b.position.set(W / 2, y);
+      root.addChild(b);
+      y += 108;
+    }
+    this.add(root);
+    this.menuRoot = root;
+  }
+
+  private closeMenu(): void {
+    if (!this.menuRoot) return;
+    if (!this.menuRoot.destroyed) this.menuRoot.destroy({ children: true });
+    this.menuRoot = null;
+    // The title screen may still be holding the pause.
+    if (!this.titleRoot) this.titlePaused = false;
+  }
+
+  /** ⚙ Settings — volumes and language, reachable from any menu or button. */
+  openSettings(): void {
+    this.closeMenu();
+    const langs = Object.keys(this.project.locales ?? {});
+    const rows: { label: string; fill?: number; onTap: () => void }[] = [];
+    for (const lang of langs) {
+      rows.push({
+        label: `🌐 ${lang.toUpperCase()}`,
+        onTap: () => {
+          setLang(lang);
+          this.closeMenu();
+          this.openSettings();
+        },
+      });
+    }
+    rows.push({ label: '↩ BACK', fill: 0x2a3a4a, onTap: () => this.closeMenu() });
+    this.menuScreen('⚙ SETTINGS', rows, (root, W, y) => {
+      // Volume bars, the one setting every game needs.
+      const bar = (label: string, bus: 'music' | 'sfx', by: number): void => {
+        const t = new Text({ text: label, style: { fontFamily: 'system-ui, sans-serif', fontSize: 28, fill: 0xe6e4f0 } });
+        t.anchor.set(1, 0.5);
+        t.position.set(W / 2 - 120, by);
+        root.addChild(t);
+        const g = new Graphics();
+        const draw = (): void => {
+          g.clear();
+          const v = audio.getVolume(bus);
+          for (let i = 0; i < 5; i++) {
+            g.roundRect(W / 2 - 100 + i * 46, by - 11, 38, 22, 6).fill(v >= (i + 1) / 5 - 0.001 ? 0xc77dff : 0x35304d);
+          }
+        };
+        draw();
+        g.eventMode = 'static';
+        g.cursor = 'pointer';
+        g.on('pointerdown', (ev) => {
+          const local = g.toLocal(ev.global);
+          const i = Math.max(0, Math.min(4, Math.floor((local.x - (W / 2 - 100)) / 46)));
+          audio.setVolume(bus, (i + 1) / 5);
+          draw();
+          if (bus === 'sfx') audio.blip();
+        });
+        root.addChild(g);
+      };
+      bar('🎵 Music', 'music', y);
+      bar('🔊 Sound', 'sfx', y + 56);
+    }, 120);
+  }
+
+  /** ⏸ Pause — resume, settings, restart, or back to the first level. */
+  openPause(): void {
+    if (this.menuRoot || this.over) return;
+    const first = this.project.scenes[0];
+    this.menuScreen('⏸ PAUSED', [
+      { label: '▶ RESUME', fill: 0x8affc1, onTap: () => this.closeMenu() },
+      { label: '⚙ SETTINGS', onTap: () => this.openSettings() },
+      { label: '↻ RESTART LEVEL', onTap: () => {
+        this.closeMenu();
+        this.onGoto(this.sceneDef);
+      } },
+      ...(first && first.id !== this.sceneDef.id
+        ? [{ label: '🏠 MAIN MENU', fill: 0x2a3a4a, onTap: () => {
+            this.closeMenu();
+            this.onGoto(first);
+          } }]
+        : []),
+    ]);
+  }
+
+  menuVisible(): boolean {
+    return !!this.menuRoot;
   }
 
   private wipeSave(): void {
