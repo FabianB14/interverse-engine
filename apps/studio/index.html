@@ -461,6 +461,31 @@
       #code-error.on {
         display: block;
       }
+
+      /* --- S3b: undocked (floating) bottom panel --- */
+      #app.bottom-float #bottom {
+        position: fixed;
+        left: var(--float-x, 240px);
+        top: var(--float-y, 120px);
+        width: var(--float-w, 760px);
+        height: var(--float-h, 420px);
+        z-index: 45;
+        border: 1px solid #4a4370;
+        border-radius: 12px;
+        box-shadow: 0 18px 48px #000a;
+        overflow: hidden;
+        resize: both;
+      }
+      #app.bottom-float #tabs {
+        cursor: move;
+      }
+      /* The grid row the panel used to occupy collapses so the canvas grows. */
+      #app.bottom-float {
+        grid-template-rows: auto 1fr 0px;
+      }
+      #app.bottom-float #bottom.grabbing {
+        user-select: none;
+      }
     </style>
   </head>
   <body>
@@ -522,6 +547,7 @@
           <button data-tab="flow">⛓ Flow</button>
           <button data-tab="chat">AI Chat</button>
           <span style="flex:1"></span>
+          <button id="btn-float" title="Undock this panel — drag it anywhere, resize it, snap it back">⇱</button>
           <button id="btn-minimize" title="Minimize this panel">▾</button>
         </div>
         <div class="tabpane active" data-pane="code">

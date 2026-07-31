@@ -121,6 +121,8 @@ export interface StudioDebug {
   titleVisible: () => boolean;
   titlePick: (kind: 'continue' | 'new') => void;
   togglePanel: () => void;
+  toggleFloat: () => void;
+  panelFloating: () => boolean;
   panelMinimized: () => boolean;
   genTiles: (kind: 'maze' | 'dungeon' | 'island') => void;
   tileRows: () => string[] | null;

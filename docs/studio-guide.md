@@ -270,8 +270,13 @@ already written**, or a new actor placed where you dropped. Arrow keys
 and Enter work; Esc cancels and changes nothing. The list is
 scope-aware, so a level is never offered "remove this".
 
-The bottom panel itself minimizes with the **▾** button in the tab bar
-when you want the full canvas.
+The bottom panel has three states, from the buttons at the right of its
+tab bar: docked (the default), **▾ minimized** when you want the whole
+canvas, and **⇱ undocked** — a floating card you can drag by its tab bar
+and resize from the corner, so the Code window or the Flow map can be as
+big as you like while the canvas keeps the full width underneath. **⇲**
+docks it again, and whichever state you left it in is remembered on this
+device.
 
 ## 5 · Stories (narratives)
 

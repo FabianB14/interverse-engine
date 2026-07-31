@@ -837,6 +837,61 @@ async function main(): Promise<void> {
   );
 
   // ▾ minimize the bottom panel (the canvas grows to fill the space)
+  // ⇱ Undock: the panel becomes a draggable, resizable floating card. A
+  // popup window was the other option, but popups are blocked, absent in
+  // Tauri and on iOS, and would mean two copies of the editor state.
+  const appEl = $<HTMLElement>('app');
+  const bottomEl = $<HTMLElement>('bottom');
+  const floatBtn = $<HTMLButtonElement>('btn-float');
+  const FLOAT_KEY = 'studio.panel.float';
+  const applyFloat = (on: boolean, pos?: { x: number; y: number }): void => {
+    appEl.classList.toggle('bottom-float', on);
+    if (on) appEl.classList.remove('bottom-min');
+    floatBtn.textContent = on ? '⇲' : '⇱';
+    floatBtn.title = on ? 'Dock this panel back at the bottom' : 'Undock this panel — drag it anywhere';
+    if (pos) {
+      appEl.style.setProperty('--float-x', `${pos.x}px`);
+      appEl.style.setProperty('--float-y', `${pos.y}px`);
+    }
+    localStorage.setItem(
+      FLOAT_KEY,
+      JSON.stringify({
+        on,
+        x: parseInt(appEl.style.getPropertyValue('--float-x') || '240', 10),
+        y: parseInt(appEl.style.getPropertyValue('--float-y') || '120', 10),
+      }),
+    );
+    window.dispatchEvent(new Event('resize'));
+  };
+  floatBtn.onclick = () => applyFloat(!appEl.classList.contains('bottom-float'));
+  // Drag it by the tab bar.
+  $('tabs').addEventListener('pointerdown', (down) => {
+    if (!appEl.classList.contains('bottom-float')) return;
+    if ((down.target as HTMLElement).tagName === 'BUTTON') return;
+    const rect = bottomEl.getBoundingClientRect();
+    const ox = down.clientX - rect.left;
+    const oy = down.clientY - rect.top;
+    bottomEl.classList.add('grabbing');
+    const move = (e: PointerEvent): void => {
+      appEl.style.setProperty('--float-x', `${Math.max(0, Math.min(window.innerWidth - 200, e.clientX - ox))}px`);
+      appEl.style.setProperty('--float-y', `${Math.max(0, Math.min(window.innerHeight - 80, e.clientY - oy))}px`);
+    };
+    const up = (): void => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      bottomEl.classList.remove('grabbing');
+      applyFloat(true);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  });
+  try {
+    const saved = JSON.parse(localStorage.getItem(FLOAT_KEY) ?? 'null') as { on?: boolean; x?: number; y?: number } | null;
+    if (saved?.on) applyFloat(true, { x: saved.x ?? 240, y: saved.y ?? 120 });
+  } catch {
+    /* a corrupt preference is not worth failing boot over */
+  }
+
   const minBtn = $<HTMLButtonElement>('btn-minimize');
   minBtn.style.cssText = 'background:transparent;border:0;color:var(--ink-soft);cursor:pointer;font-weight:800';
   minBtn.onclick = () => {
@@ -1126,6 +1181,8 @@ async function main(): Promise<void> {
     titleVisible: () => editor.getPlayScene()?.titleVisible() ?? false,
     titlePick: (kind: 'continue' | 'new') => editor.getPlayScene()?.titlePick(kind),
     togglePanel: () => $<HTMLButtonElement>('btn-minimize').click(),
+    toggleFloat: () => floatBtn.click(),
+    panelFloating: () => appEl.classList.contains('bottom-float'),
     panelMinimized: () => document.getElementById('app')!.classList.contains('bottom-min'),
     genTiles: (kind: 'maze' | 'dungeon' | 'island') => editor.generateTiles(kind),
     tileRows: () => editor.scene.tiles ?? null,

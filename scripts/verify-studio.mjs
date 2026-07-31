@@ -749,6 +749,15 @@ await page.evaluate(() => window.__studio.togglePanel());
 const minOn = await page.evaluate(() => window.__studio.panelMinimized());
 await page.evaluate(() => window.__studio.togglePanel());
 const minOff = await page.evaluate(() => window.__studio.panelMinimized());
+// ⇱ Undock: floating survives a reload, and undocking clears minimize.
+await page.evaluate(() => window.__studio.toggleFloat());
+const floatOn = await page.evaluate(() => window.__studio.panelFloating());
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForFunction(() => window.__studio?.ready?.() === true, null, { timeout: 30_000 });
+await sleep(400);
+const floatKept = await page.evaluate(() => window.__studio.panelFloating());
+await page.evaluate(() => window.__studio.toggleFloat());
+const floatOff = await page.evaluate(() => window.__studio.panelFloating());
 await page.evaluate(() => {
   window.__studio.setScript("api.player('Hero', 300); api.title();");
   window.__studio.play();
@@ -758,7 +767,8 @@ const titleShown = await page.evaluate(() => window.__studio.titleVisible());
 await page.screenshot({ path: `${outDir}/st-14-title.png` });
 await page.evaluate(() => window.__studio.titlePick('new'));
 const titleGone = await page.evaluate(() => window.__studio.titleVisible());
-const uiOk = flowN >= 3 && minOn === true && minOff === false && titleShown === true && titleGone === false;
+const uiOk = flowN >= 3 && minOn === true && minOff === false && titleShown === true && titleGone === false &&
+  floatOn === true && floatKept === true && floatOff === false;
 await page.evaluate(() => window.__studio.stop());
 await sleep(150);
 
@@ -853,7 +863,7 @@ console.log(
       libOk, libId, savedName, restoredName, libCount,
       eventsOk, evCoins0, evCoinsGated, evScore, evSwitch, evCount0, evCount1, evCoins1,
       genOk, mazeHasWalls, mazePlays, islandLive,
-      uiOk, flowN, minOn, minOff, titleShown, titleGone,
+      uiOk, flowN, minOn, minOff, floatOn, floatKept, floatOff, titleShown, titleGone,
       dbOk, hierN, linkOk, linkSwitch, itemN1, itemN0, coinsBeforeUse, coinsAfterUse, bought, trEs,
       questOk, qScene0, qShop, qVar1, qStillVillage, qVar2, qScene2,
       levelEvOk, lvlEvN, lvlMusic, lvlTicks, lvlTap, lvlMobs, lvlEarly, lvlCleared,
