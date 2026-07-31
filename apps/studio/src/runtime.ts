@@ -34,7 +34,10 @@ import { SkillTree } from './skills.js';
 import type { SkillTreeDef } from './skills.js';
 import type { StudioNet } from './net.js';
 import { generateRows } from './gen.js';
-import { anyTiles, buildTileLayer, isPlatformChar } from './tiles.js';
+import { TILE_LAYERS, anyTiles, buildTileLayer, isPlatformChar } from './tiles.js';
+import {
+  CHARGE_SPEED, CHARGE_TIME, SLAM_TIME, attackDuration, attackShots, slamHits, slamRadius, windupFor,
+} from './attacks.js';
 
 // ---- 🌐 localization: strings starting with @key resolve per-language ----
 let localeTable: Record<string, Record<string, string>> = {};
@@ -470,6 +473,22 @@ interface MobState {
   shootT: number;
   /** Boss phase two: below half HP — faster, angrier, shoots quicker. */
   enraged: boolean;
+  /** ⚔ Wind-up remaining. While this is running the enemy stands still and
+   *  flashes: the player's whole chance to react lives in this number. */
+  windT: number;
+  /** What the wind-up started at, so the tell can show how much is left. */
+  windMax: number;
+  /** The telegraph flash, drawn under the enemy. */
+  tell: Graphics | null;
+  /** Shots still queued from the current attack (burst fire). */
+  queued: { t: number; angle: number; speed: number }[];
+  /** Charge: direction locked at the end of the wind-up, and time left. */
+  dashX: number;
+  dashY: number;
+  dashT: number;
+  /** Ground slam: seconds since the wave went out, or -1 when idle. */
+  slamT: number;
+  slamRing: Graphics | null;
 }
 
 interface Projectile {
@@ -643,13 +662,31 @@ export class PlayScene extends Scene {
       });
     }
     this.world.addChildAt(bg, 0);
-    // Painted tiles render above the background; solid tiles collide.
-    if (anyTiles(this.sceneDef.tiles)) {
-      const layer = buildTileLayer(this.sceneDef.tiles!);
+    // 🥞 Painted tiles render above the background. Only the MAIN layer
+    // collides — decoration that could quietly block you is the confusion
+    // layers exist to remove. The "in front" layer is added here too but
+    // rides a huge zIndex, so actors spawned later still pass underneath it.
+    for (const spec of TILE_LAYERS) {
+      const rows = this.sceneDef[spec.key];
+      if (!anyTiles(rows)) continue;
+      const layer = buildTileLayer(rows!);
       layer.view.eventMode = 'none';
-      this.world.addChildAt(layer.view, 1);
-      this.tileMap = layer.map;
-      this.tileLayerView = layer.view;
+      if (spec.id === 'over') {
+        // This layer is built before the actors exist, so insertion order
+        // alone would put every actor on top of it. Sorting is switched on
+        // ONLY here: a level with nothing drawn in front keeps exactly the
+        // draw order it had before layers existed.
+        this.world.sortableChildren = true;
+        layer.view.zIndex = 2e9;
+        this.world.addChild(layer.view);
+        this.overTileView = layer.view;
+      } else {
+        this.world.addChildAt(layer.view, spec.id === 'back' ? 1 : Math.min(2, this.world.children.length));
+      }
+      if (spec.solid) {
+        this.tileMap = layer.map;
+        this.tileLayerView = layer.view;
+      }
     }
     // The camera crops the board to the current view (adaptive: a rotated
     // device sees a wide ~720-tall window) and follows the player.
@@ -868,6 +905,15 @@ export class PlayScene extends Scene {
       wanderT: 0,
       shootT: Math.max(0, def.shootEvery),
       enraged: false,
+      windT: 0,
+      windMax: 0,
+      tell: null,
+      queued: [],
+      dashX: 0,
+      dashY: 0,
+      dashT: 0,
+      slamT: -1,
+      slamRing: null,
     });
     if (def.kind === 'boss') this.ensureBossBar();
     if (this.players.length && !this.heartsMax) this.enableHearts(3);
@@ -950,6 +996,11 @@ export class PlayScene extends Scene {
 
   private defeatMob(m: MobState): void {
     this.mobStates.delete(m.def.name);
+    // The wind-up flash rides on the body, but the shockwave is a child of
+    // the world and would outlive its owner.
+    m.slamRing?.destroy();
+    m.slamRing = null;
+    m.queued.length = 0;
     for (const [k, v] of this.byName) if (v === m.e) this.byName.delete(k);
     audio.chime();
     // squash out, then remove
@@ -1319,21 +1370,25 @@ export class PlayScene extends Scene {
         vx = m.dirX;
         vy = m.dirY;
       }
-      const speed = m.def.moveSpeed * (m.enraged ? 1.4 : 1);
+      let speed = m.def.moveSpeed * (m.enraged ? 1.4 : 1);
+      // A telegraphed attack roots the enemy: standing still IS the tell, and
+      // an enemy that keeps closing while it winds up is not dodgeable.
+      if (m.windT > 0) {
+        vx = 0;
+        vy = 0;
+      }
+      if (m.dashT > 0) {
+        vx = m.dashX;
+        vy = m.dashY;
+        speed *= CHARGE_SPEED;
+      }
       if (vx !== 0) this.face(m.e, vx);
       this.autoClip(m.def, vx || vy ? 'walk' : 'idle');
       if (vx || vy) {
         m.e.x = Math.max(20, Math.min(W - 20, m.e.x + vx * speed * dt));
         m.e.y = Math.max(minY, Math.min(H - 20, m.e.y + vy * speed * dt));
       }
-      // Ranged: lob a dodgeable projectile at the player on a timer.
-      if (m.def.shootEvery > 0 && me && !me.destroyed && dMe < 900) {
-        m.shootT -= dt;
-        if (m.shootT <= 0) {
-          m.shootT = m.def.shootEvery * (m.enraged ? 0.55 : 1);
-          this.fireProjectile(m, me);
-        }
-      }
+      this.tickAttack(m, me, dMe, dt);
       // touching the player costs a heart (with i-frames + knockback);
       // an airborne brawler-jump player sails safely over mobs
       const airborne = (this.players[0]?.z ?? 0) > 30;
@@ -1480,7 +1535,132 @@ export class PlayScene extends Scene {
     this.playerShots.push({ e, vx: (dirX / d) * speed, vy: (dirY / d) * speed, ttl: 2.4, damage: a.power });
   }
 
-  private fireProjectile(m: MobState, at: Entity): void {
+  /**
+   * ⚔ One enemy's attack clock: cooldown -> wind-up -> the attack itself.
+   *
+   * Split into those three phases on purpose. The cooldown is the author's
+   * knob ("attack every N secs"); the wind-up is the engine's promise to the
+   * player that something is coming; the attack is whatever the pattern says.
+   * Nothing may skip the middle phase, which is why the flash is started here
+   * rather than by each pattern.
+   */
+  private tickAttack(m: MobState, me: Entity | undefined, dMe: number, dt: number): void {
+    const pattern = m.def.attack;
+    // Shots already in the air from a burst keep coming out even if the
+    // player has since run out of range — you cannot un-fire a gun.
+    if (m.queued.length) {
+      for (let i = m.queued.length - 1; i >= 0; i--) {
+        const q = m.queued[i]!;
+        q.t -= dt;
+        if (q.t <= 0) {
+          this.spawnShot(m, q.angle, q.speed);
+          m.queued.splice(i, 1);
+        }
+      }
+    }
+    if (m.dashT > 0) m.dashT = Math.max(0, m.dashT - dt);
+    if (m.slamT >= 0) this.tickSlam(m, me, dt);
+
+    if (pattern === 'contact' || m.def.shootEvery <= 0) return;
+    if (m.windT > 0) {
+      m.windT -= dt;
+      this.drawTell(m);
+      if (m.windT <= 0) this.launchAttack(m, me);
+      return;
+    }
+    // Out of range, or busy: no point starting a wind-up nobody will see.
+    if (!me || me.destroyed || dMe > 900) return;
+    if (m.dashT > 0 || m.slamT >= 0 || m.queued.length) return;
+    m.shootT -= dt;
+    if (m.shootT > 0) return;
+    m.shootT = m.def.shootEvery * (m.enraged ? 0.55 : 1) + attackDuration(pattern);
+    const wind = windupFor(pattern, m.enraged);
+    m.windMax = wind;
+    if (wind > 0) {
+      m.windT = wind;
+      audio.blip(0.35);
+    } else {
+      this.launchAttack(m, me);
+    }
+  }
+
+  /** The wind-up flash: a ring that closes in as the attack gets closer, so
+   *  "how long have I got" is readable at a glance and without a HUD. */
+  private drawTell(m: MobState): void {
+    if (!m.tell) {
+      m.tell = new Graphics();
+      m.tell.eventMode = 'none';
+      m.e.addChildAt(m.tell, 0);
+    }
+    const left = Math.max(0, m.windT) / Math.max(0.001, m.windMax);
+    const r = m.def.radius * (1.5 + left * 1.6);
+    m.tell.clear();
+    m.tell
+      .circle(0, 0, r)
+      .stroke({ color: 0xffd166, width: 4, alpha: 0.35 + (1 - left) * 0.5 });
+  }
+
+  private clearTell(m: MobState): void {
+    m.tell?.destroy();
+    m.tell = null;
+  }
+
+  /** The wind-up finished: do the thing. */
+  private launchAttack(m: MobState, me: Entity | undefined): void {
+    this.clearTell(m);
+    m.windT = 0;
+    const pattern = m.def.attack;
+    // Aim is taken NOW, at the end of the wind-up, from where the player is.
+    // That is what makes stepping aside during the tell actually work.
+    const aim =
+      me && !me.destroyed ? Math.atan2(me.y - m.e.y, me.x - m.e.x) : Math.atan2(m.dirY, m.dirX);
+    if (pattern === 'charge') {
+      m.dashX = Math.cos(aim);
+      m.dashY = Math.sin(aim);
+      m.dashT = CHARGE_TIME;
+      audio.blip(0.5);
+      return;
+    }
+    if (pattern === 'slam') {
+      m.slamT = 0;
+      audio.blip(0.25);
+      return;
+    }
+    for (const shot of attackShots(pattern, aim)) {
+      if (shot.delay <= 0) this.spawnShot(m, shot.angle, shot.speed);
+      else m.queued.push({ t: shot.delay, angle: shot.angle, speed: shot.speed });
+    }
+  }
+
+  /** The shockwave: a ring that rolls outward and only hurts as it passes. */
+  private tickSlam(m: MobState, me: Entity | undefined, dt: number): void {
+    m.slamT += dt;
+    if (!m.slamRing) {
+      m.slamRing = new Graphics();
+      m.slamRing.eventMode = 'none';
+      this.world.addChild(m.slamRing);
+    }
+    const r = slamRadius(m.slamT);
+    m.slamRing.clear();
+    m.slamRing.position.set(m.e.x, m.e.y);
+    m.slamRing
+      .circle(0, 0, r)
+      .stroke({ color: lighten(m.def.color, 0.4), width: 10, alpha: 1 - m.slamT / SLAM_TIME });
+    const airborne = (this.players[0]?.z ?? 0) > 30;
+    if (me && !me.destroyed && !airborne && this.heartsMax > 0 && this.hurtT <= 0) {
+      if (slamHits(m.slamT, Math.hypot(me.x - m.e.x, me.y - m.e.y))) {
+        this.hurtPlayer(Math.max(1, m.def.damage), m.e);
+      }
+    }
+    if (m.slamT >= SLAM_TIME) {
+      m.slamRing.destroy();
+      m.slamRing = null;
+      m.slamT = -1;
+    }
+  }
+
+  /** One projectile at an angle — every pattern's shots come through here. */
+  private spawnShot(m: MobState, angle: number, speed: number): void {
     const e = new Entity();
     const g = new Graphics()
       .circle(0, 0, 16)
@@ -1490,16 +1670,33 @@ export class PlayScene extends Scene {
     e.addChild(g);
     e.position.set(m.e.x, m.e.y - 10);
     this.add(e, this.world);
-    const d = Math.hypot(at.x - m.e.x, at.y - m.e.y) || 1;
     this.projectiles.push({
       e,
-      vx: ((at.x - m.e.x) / d) * 320,
-      vy: ((at.y - m.e.y) / d) * 320,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
       ttl: 2.8,
       damage: Math.max(1, m.def.damage),
     });
     this.shotsFiredTotal++;
     audio.blip(0.6);
+  }
+
+  /** ⚔ Attack introspection for the headless playtest. */
+  mobWindup(name: string): number {
+    return this.mobStates.get(name)?.windT ?? 0;
+  }
+
+  mobDashing(name: string): boolean {
+    return (this.mobStates.get(name)?.dashT ?? 0) > 0;
+  }
+
+  /** Seconds into the shockwave, or -1 when there is not one. */
+  slamNow(name: string): number {
+    return this.mobStates.get(name)?.slamT ?? -1;
+  }
+
+  liveShotCount(): number {
+    return this.projectiles.length;
   }
 
   private tickProjectiles(dt: number): void {
@@ -1609,6 +1806,13 @@ export class PlayScene extends Scene {
   activeClips = new Map<string, string>();
 
   private tileLayerView: Container | null = null;
+  /** The 🥞 "in front" tile layer — actors walk behind it. */
+  private overTileView: Container | null = null;
+
+  /** Is anything drawn over the actors in this level? */
+  hasOverTiles(): boolean {
+    return !!this.overTileView && !this.overTileView.destroyed;
+  }
 
   /** Swap the painted tile layer live — procgen worlds mid-play. */
   setTilesLive(rows: string[]): void {

@@ -47,6 +47,7 @@
         height: 100%;
         gap: 1px;
         background: var(--line);
+        position: relative;
       }
       #top {
         grid-area: top;
@@ -55,6 +56,30 @@
         align-items: center;
         gap: 10px;
         padding: 0 12px;
+      }
+      #top > * {
+        flex: 0 0 auto;
+      }
+      #top {
+        overflow: hidden;
+      }
+      #top-more {
+        position: absolute;
+        top: 46px;
+        right: 10px;
+        z-index: 60;
+        display: none;
+        max-width: min(560px, calc(100vw - 24px));
+        max-height: calc(100vh - 70px);
+        overflow-y: auto;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 10px 12px;
+        box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
+      }
+      #top-more.open {
+        display: block;
       }
       #top .logo {
         font-weight: 800;
@@ -65,6 +90,22 @@
       }
       #top input[type='text'] {
         width: 170px;
+        min-width: 84px;
+        flex: 0 1 auto;
+      }
+      /* Tight bar: drop the words, keep the icons. Every one has a title. */
+      #top.compact .w {
+        display: none;
+      }
+      /* ...but never inside the ⋯ panel, where there is room to read. */
+      #top-more .w {
+        display: inline !important;
+      }
+      /* Below this the wordmark is just costing you buttons. */
+      @media (max-width: 1200px) {
+        #top .logo-word {
+          display: none;
+        }
       }
       #left {
         grid-area: left;
@@ -529,15 +570,15 @@
   <body>
     <div id="app">
       <div id="top">
-        <span class="logo">◆ INTERVERSE STUDIO</span>
+        <span class="logo" id="top-logo"><b>◆</b><span class="logo-word"> INTERVERSE STUDIO</span></span>
         <button class="btn" id="btn-new" title="Start from a template, or open one of your saved games">✚ New</button>
         <button class="btn" id="btn-undo" title="Undo (Ctrl+Z)">↶</button>
         <button class="btn" id="btn-redo" title="Redo (Ctrl+Shift+Z)">↷</button>
-        <button class="btn" id="btn-save" title="Save this game to My Games (kept on this device)">💾 Save</button>
+        <button class="btn" id="btn-save" title="Save this game to My Games (kept on this device)">💾<span class="w"> Save</span></button>
         <span id="project-where" class="muted" title="Where this project lives"></span>
         <input id="project-name" type="text" title="Project name" />
         <select id="scene-select" title="Scene"></select>
-        <button class="btn" id="btn-add-scene" title="Add a scene/level">+ Level</button>
+        <button class="btn" id="btn-add-scene" title="Add a scene/level">+<span class="w"> Level</span></button>
         <select id="view-select" title="How this level is viewed (rotating the device just letterboxes — that's not a game style)">
           <option value="top">👁 Top-down</option>
           <option value="depth">👁 2.5D</option>
@@ -548,32 +589,30 @@
           <option value="2160">⛶ 3 long</option>
           <option value="2880">⛶ 4 long</option>
         </select>
-        <label class="muted" title="Top-down: platformer physics (run + jump with up/W). 2.5D: brawler jump — Space or the Jump button, steer mid-air, land anywhere on the plane"
+        <label class="muted" id="lbl-gravity" title="Top-down: platformer physics (run + jump with up/W). 2.5D: brawler jump — Space or the Jump button, steer mid-air, land anywhere on the plane"
           ><input type="checkbox" id="chk-gravity" /> Gravity</label
         >
-        <button class="btn" id="btn-tiles" title="Paint terrain tiles onto this level">🗺 Tiles</button>
-        <button class="btn" id="btn-frame" title="Preview how things fit on a phone screen — rotated (landscape) or portrait">📱 Fit</button>
-        <button class="btn" id="btn-db" title="Project database: items + languages">🗄</button>
-        <button class="btn" id="btn-hud" title="HUD layout: where hearts, score and buttons sit">🎛 HUD</button>
-        <button class="btn" id="btn-assets" title="Imported pictures: reuse, rename, delete, slice spritesheets">
-          🖼 Art
-        </button>
-        <button class="btn" id="btn-controls" title="Key + on-screen button binds — what every control does">
-          🎮 Controls
-        </button>
-        <button class="btn" id="btn-install" style="display: none" title="Install Interverse Studio as an app">⬇ Install</button>
-        <span style="flex: 1"></span>
-        <label class="muted" title="Play opens a host/join lobby; friends share a 4-letter room code"
+        <button class="btn" id="btn-tiles" title="Paint terrain tiles onto this level">🗺<span class="w"> Tiles</span></button>
+        <button class="btn" id="btn-frame" title="Preview how things fit on a phone screen — rotated (landscape) or portrait">📱<span class="w"> Fit</span></button>
+        <button class="btn" id="btn-db" title="Project database: items, shops and languages">🗄<span class="w"> Database</span></button>
+        <button class="btn" id="btn-hud" title="HUD layout: where hearts, score and buttons sit">🎛<span class="w"> HUD</span></button>
+        <button class="btn" id="btn-assets" title="Imported pictures: reuse, rename, delete, slice spritesheets">🖼<span class="w"> Art</span></button>
+        <button class="btn" id="btn-controls" title="Key + on-screen button binds — what every control does">🎮<span class="w"> Controls</span></button>
+        <button class="btn" id="btn-install" style="display: none" title="Install Interverse Studio as an app">⬇<span class="w"> Install</span></button>
+        <span id="top-spacer" style="flex: 1 1 0; min-width: 0"></span>
+        <label class="muted" id="lbl-multiplayer" title="Play opens a host/join lobby; friends share a 4-letter room code"
           ><input type="checkbox" id="chk-multiplayer" /> Multiplayer</label
         >
-        <label class="muted" title="Adds the Verium wallet + Interverse hooks to your game"
+        <label class="muted" id="lbl-interverse" title="Adds the Verium wallet + Interverse hooks to your game"
           ><input type="checkbox" id="chk-interverse" /> Interverse</label
         >
-        <button class="btn" id="btn-import">Import</button>
-        <button class="btn" id="btn-export">Export</button>
-        <button class="btn" id="btn-publish">🌍 Publish</button>
+        <button class="btn" id="btn-import" title="Open a game file (.json)">⤓<span class="w"> Import</span></button>
+        <button class="btn" id="btn-export" title="Save this game out as a file (.json)">⤒<span class="w"> Export</span></button>
+        <button class="btn" id="btn-publish" title="Publish to your repo and the Interverse world">🌍<span class="w"> Publish</span></button>
+        <button class="btn" id="btn-more" title="Everything that does not fit on this screen">⋯<span class="w"> More</span></button>
         <button class="btn primary" id="btn-play">▶ Play</button>
       </div>
+      <div id="top-more"></div>
       <div id="left"></div>
       <div id="center">
         <div id="drop-hint">drop to place</div>

@@ -7,6 +7,7 @@ import { wireCodePane } from './codepane.js';
 import { wireControls } from './controls.js';
 import { isEditorUndoTarget } from './history.js';
 import { isEditorClipboardTarget, withinMarquee } from './clipboard.js';
+import { wireToolbar } from './toolbar.js';
 import { ensureHud, moveHudPart, openHudEditor } from './hud.js';
 import { createAbility, grantTo, openAbilityEditor } from './abilities.js';
 import {
@@ -18,7 +19,7 @@ import { PALETTE } from './palette.js';
 import { TEMPLATES } from './templates.js';
 import { genGame, validateGame } from './gengame.js';
 import type { GenParams } from './gengame.js';
-import { TILE_TYPES } from './tiles.js';
+import { TILE_LAYERS, TILE_TYPES, tileLayerSpec } from './tiles.js';
 import { pushToGitHub, registerInWorld, slugify, store as pubStore } from './publish.js';
 import { getOrigin, originLabel, readFromGitHub, setOrigin, stripSecrets, syncIcon } from './origin.js';
 import type { Origin, SyncState } from './origin.js';
@@ -1145,6 +1146,38 @@ async function main(): Promise<void> {
   };
   const buildTilePalette = (): void => {
     palTiles.innerHTML = '';
+    // 🥞 Which layer the brush writes to, before what it writes.
+    const layerHead = document.createElement('div');
+    layerHead.className = 'pal-head';
+    layerHead.textContent = '🥞 Layer';
+    palTiles.appendChild(layerHead);
+    const layerRow = document.createElement('div');
+    layerRow.className = 'row';
+    layerRow.style.cssText = 'gap:4px;margin-bottom:4px';
+    const layerHint = document.createElement('div');
+    layerHint.className = 'muted';
+    layerHint.style.cssText = 'font-size:12px;margin-bottom:8px';
+    const layerBtns = new Map<string, HTMLButtonElement>();
+    const pickLayer = (id: string): void => {
+      const now = editor.setPaintLayer(id);
+      for (const [k, b] of layerBtns) b.className = k === now ? 'btn primary' : 'btn';
+      layerHint.textContent = tileLayerSpec(now).hint;
+      if (rebuilding) return;
+      rebuilding = true;
+      buildTilePalette();
+      rebuilding = false;
+    };
+    for (const spec of TILE_LAYERS) {
+      const b = document.createElement('button');
+      b.className = 'btn';
+      b.textContent = `${spec.emoji} ${spec.label}`;
+      b.title = spec.hint;
+      b.onclick = () => pickLayer(spec.id);
+      layerBtns.set(spec.id, b);
+      layerRow.appendChild(b);
+    }
+    palTiles.append(layerRow, layerHint);
+    pickLayer(editor.paintLayer);
     const head = document.createElement('div');
     head.className = 'pal-head';
     head.textContent = 'Paint terrain';
@@ -1158,9 +1191,11 @@ async function main(): Promise<void> {
     for (const t of TILE_TYPES) {
       const item = document.createElement('div');
       item.className = 'pal-item';
+      // "solid" is only true on the layer that actually collides.
+      const solidHere = t.solid && tileLayerSpec(editor.paintLayer).solid;
       item.innerHTML = `<span class="em" style="display:inline-block;width:20px;height:20px;border-radius:5px;background:#${t.color
         .toString(16)
-        .padStart(6, '0')}"></span>${t.name}${t.solid ? ' <span class="muted" style="font-size:11px">solid</span>' : ''}`;
+        .padStart(6, '0')}"></span>${t.name}${solidHere ? ' <span class="muted" style="font-size:11px">solid</span>' : ''}`;
       item.onclick = () => pick(item, t.ch);
       palTiles.appendChild(item);
     }
@@ -1192,9 +1227,10 @@ async function main(): Promise<void> {
     hint.className = 'muted';
     hint.style.cssText = 'font-size:12px;margin-top:10px';
     hint.textContent =
-      'Click / drag on the canvas to paint. Solid tiles (water, walls, trees) block players in Play mode.';
+      'Click / drag on the canvas to paint. Only the ⬛ Main layer blocks players — Behind and In front are decoration.';
     palTiles.appendChild(hint);
   };
+  let rebuilding = false;
   buildTilePalette();
   tilesBtn.onclick = () => {
     if (palTiles.style.display === 'none') {
@@ -1453,6 +1489,10 @@ async function main(): Promise<void> {
   refreshHierarchy();
   refreshStory();
 
+  // 🧰 Overflow bar: nothing may fall off the right-hand edge. Wired last,
+  // so every button already has its handler before it can be moved.
+  const toolbar = wireToolbar($('top'), $('top-more'), $('btn-more'));
+
   // ------------------------------------------------------------ debug API
   window.__studio = {
     ready: () => true,
@@ -1532,10 +1572,11 @@ async function main(): Promise<void> {
     },
     netSetState: (k: string, v: unknown) => editor.net?.setState(k, v),
     netGetState: (k: string) => editor.net?.getState(k),
-    setTile: (c: number, r: number, ch: string) => editor.setTile(c, r, ch),
-    tileAt: (c: number, r: number) => editor.tileAt(c, r),
+    setTile: (c: number, r: number, ch: string, layer?: string) => editor.setTile(c, r, ch, layer),
+    tileAt: (c: number, r: number, layer?: string) => editor.tileAt(c, r, layer),
     setTileMode: (ch: string | null) => editor.setTileMode(ch),
     playHasTiles: () => editor.getPlayScene()?.hasTiles() ?? false,
+    playHasOverTiles: () => editor.getPlayScene()?.hasOverTiles() ?? false,
     setWorldSize: (w: number, h: number) => editor.setWorldSize(w, h),
     worldSize: () => editor.getPlayScene()?.worldSize() ?? { w: editor.scene.worldW, h: editor.scene.worldH },
     cameraX: () => editor.getPlayScene()?.cameraX() ?? 0,
@@ -1768,7 +1809,12 @@ async function main(): Promise<void> {
     panelFloating: () => appEl.classList.contains('bottom-float'),
     panelMinimized: () => document.getElementById('app')!.classList.contains('bottom-min'),
     genTiles: (kind: 'maze' | 'dungeon' | 'island') => editor.generateTiles(kind),
-    tileRows: () => editor.scene.tiles ?? null,
+    tileRows: (layer?: string) =>
+      (editor.scene as unknown as Record<string, string[] | undefined>)[
+        tileLayerSpec(layer ?? 'main').key
+      ] ?? null,
+    setPaintLayer: (id: string) => editor.setPaintLayer(id),
+    paintLayer: () => editor.paintLayer,
     playClip: (name: string, clip: string) => editor.getPlayScene()?.playClip(name, clip) ?? false,
     activeClip: (name: string) => editor.getPlayScene()?.activeClips.get(name) ?? null,
     librarySave: () => editor.saveToLibrary(),
@@ -1808,6 +1854,31 @@ async function main(): Promise<void> {
     // Lets a test drive the canvas with a REAL pointer: it needs to know
     // where a design coordinate lands on screen.
     designAt: (clientX: number, clientY: number) => editor.toDesign(clientX, clientY),
+    selectionBoxes: () => editor.selectionBoxes(),
+    setAttack: (name: string, pattern: string, every: number) => {
+      const d = editor.entityByName(name);
+      if (!d) return false;
+      d.attack = pattern as typeof d.attack;
+      d.shootEvery = every;
+      editor.touch();
+      return true;
+    },
+    attackOf: (name: string) => editor.entityByName(name)?.attack ?? null,
+    mobWindup: (name: string) => editor.getPlayScene()?.mobWindup(name) ?? 0,
+    mobDashing: (name: string) => editor.getPlayScene()?.mobDashing(name) ?? false,
+    slamNow: (name: string) => editor.getPlayScene()?.slamNow(name) ?? -1,
+    liveShots: () => editor.getPlayScene()?.liveShotCount() ?? 0,
+    toolbarOverflow: () => toolbar.overflowed(),
+    toolbarOpen: () => toolbar.open(),
+    toolbarClose: () => toolbar.close(),
+    toolbarIsOpen: () => toolbar.isOpen(),
+    toolbarRelayout: () => toolbar.relayout(),
+    onScreen: (id: string) => {
+      const el = document.getElementById(id);
+      if (!el || !el.offsetParent) return false;
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.left >= 0 && r.right <= window.innerWidth + 1;
+    },
   };
 
   // Player boot: ?load=<url-to-project-json> (+ &play=1 to jump straight in).

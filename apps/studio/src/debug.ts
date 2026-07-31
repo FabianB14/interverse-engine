@@ -43,10 +43,11 @@ export interface StudioDebug {
   netRemotePos: () => { x: number; y: number } | null;
   netSetState: (k: string, v: unknown) => void;
   netGetState: (k: string) => unknown;
-  setTile: (c: number, r: number, ch: string) => void;
-  tileAt: (c: number, r: number) => string;
+  setTile: (c: number, r: number, ch: string, layer?: string) => void;
+  tileAt: (c: number, r: number, layer?: string) => string;
   setTileMode: (ch: string | null) => void;
   playHasTiles: () => boolean;
+  playHasOverTiles: () => boolean;
   setView: (v: 'top' | 'depth') => void;
   setGravity: (g: boolean) => void;
   setWorldSize: (w: number, h: number) => void;
@@ -167,7 +168,10 @@ export interface StudioDebug {
   panelFloating: () => boolean;
   panelMinimized: () => boolean;
   genTiles: (kind: 'maze' | 'dungeon' | 'island') => void;
-  tileRows: () => string[] | null;
+  tileRows: (layer?: string) => string[] | null;
+  /** 🥞 tile layers */
+  setPaintLayer: (id: string) => string;
+  paintLayer: () => string;
   playClip: (name: string, clip: string) => boolean;
   activeClip: (name: string) => string | null;
   librarySave: () => string;
@@ -190,6 +194,24 @@ export interface StudioDebug {
   dragSel: (name: string, x: number, y: number) => boolean;
   inspectorTitle: () => string;
   designAt: (clientX: number, clientY: number) => { x: number; y: number };
+  selectionBoxes: () => {
+    ring: { x: number; y: number; w: number; h: number };
+    view: { x: number; y: number; w: number; h: number };
+  } | null;
+  /** ⚔ enemy attack patterns */
+  setAttack: (name: string, pattern: string, every: number) => boolean;
+  attackOf: (name: string) => string | null;
+  mobWindup: (name: string) => number;
+  mobDashing: (name: string) => boolean;
+  slamNow: (name: string) => number;
+  liveShots: () => number;
+  /** 🧰 overflow toolbar */
+  toolbarOverflow: () => string[];
+  toolbarOpen: () => void;
+  toolbarClose: () => void;
+  toolbarIsOpen: () => boolean;
+  toolbarRelayout: () => void;
+  onScreen: (id: string) => boolean;
 }
 
 declare global {

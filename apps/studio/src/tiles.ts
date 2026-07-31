@@ -214,3 +214,60 @@ export function buildTileLayer(rows: string[]): { view: Container; map: TileMapD
   const view = buildTileMapView(map, painters, sameTerrain);
   return { view, map };
 }
+
+// --------------------------------------------------------------- layers
+
+/**
+ * 🥞 Three tile layers, because one is not enough to draw a place.
+ *
+ * A single grid forces every choice at once: a tree you can walk behind has
+ * to be either solid (so you cannot) or drawn under you (so it is not a
+ * tree). Splitting into behind / main / in-front separates "what it looks
+ * like" from "what stops you", which is the whole point.
+ *
+ * Only the main layer collides. That is a rule, not a default: a decorative
+ * layer that could quietly block the player would reintroduce exactly the
+ * confusion this is here to remove.
+ */
+export type TileLayerId = 'back' | 'main' | 'over';
+
+export interface TileLayerSpec {
+  id: TileLayerId;
+  /** The SceneDef field it lives in. `main` keeps the original name, so
+   *  every game made before layers existed is already a main-layer game. */
+  key: 'tilesBack' | 'tiles' | 'tilesOver';
+  emoji: string;
+  label: string;
+  hint: string;
+  solid: boolean;
+}
+
+/** Painting order, back to front. */
+export const TILE_LAYERS: readonly TileLayerSpec[] = [
+  {
+    id: 'back', key: 'tilesBack', emoji: '⬓', label: 'Behind', solid: false,
+    hint: 'Ground, paths, rugs — under everything. Never blocks anyone.',
+  },
+  {
+    id: 'main', key: 'tiles', emoji: '⬛', label: 'Main', solid: true,
+    hint: 'The level itself. Solid tiles here are the ones that block players.',
+  },
+  {
+    id: 'over', key: 'tilesOver', emoji: '⬒', label: 'In front', solid: false,
+    hint: 'Drawn OVER the actors — treetops, roofs, mist to walk behind. Never blocks.',
+  },
+];
+
+export function tileLayerSpec(id: string): TileLayerSpec {
+  return TILE_LAYERS.find((l) => l.id === id) ?? TILE_LAYERS[1]!;
+}
+
+export function isTileLayerId(v: unknown): v is TileLayerId {
+  return TILE_LAYERS.some((l) => l.id === v);
+}
+
+/** The only layer that stops anybody. Kept as a function so the answer to
+ *  "can this layer block me" has exactly one place to come from. */
+export function layerBlocks(id: TileLayerId): boolean {
+  return tileLayerSpec(id).solid;
+}

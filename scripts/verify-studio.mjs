@@ -40,6 +40,21 @@ function findChromium() {
   return undefined;
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/**
+ * Wait for something to become true rather than guessing how long it takes.
+ * A loaded machine runs the game loop slowly, and a fixed sleep then tests
+ * the machine instead of the code. Returns the last value either way, so a
+ * timeout still fails the assertion it was gathering evidence for.
+ */
+const waitFor = async (read, ok, timeout = 8000) => {
+  const until = Date.now() + timeout;
+  let v = await read();
+  while (!ok(v) && Date.now() < until) {
+    await sleep(100);
+    v = await read();
+  }
+  return v;
+};
 
 const browser = await chromium.launch({
   ...(findChromium() ? { executablePath: findChromium() } : {}),
@@ -428,9 +443,12 @@ await page.evaluate(() => {
   window.__studio.setScript("api.player('Hero', 300);");
   window.__studio.play();
 });
-await sleep(700);
+// Wait for the level to actually be live before counting what is in it.
+const evCount0 = await waitFor(
+  () => page.evaluate(() => window.__studio.playEntityCount()),
+  (n) => n > 0,
+);
 const evCoins0 = await page.evaluate(() => window.__studio.coinsNow());
-const evCount0 = await page.evaluate(() => window.__studio.playEntityCount());
 // gated lantern first: nothing should happen (switch is off)
 await page.evaluate(() => window.__studio.applyScriptNow("var h=api.entity('Hero'); h.x=160; h.y=640;"));
 await sleep(400);
@@ -689,7 +707,8 @@ await page.evaluate(() => window.__studio.select('Hero'));
 await page.evaluate(() => window.__studio.setProp('x', 360));
 await page.evaluate(() => window.__studio.setProp('y', 300));
 await page.evaluate(() => window.__studio.play());
-await sleep(1500);
+// Wait for the fall to finish rather than betting on the frame rate.
+await waitFor(() => page.evaluate(() => window.__studio.playerGrounded()), (g) => g === true);
 // It should have fallen and be standing on the ledge (row 20 -> y 800).
 const restY = await page.evaluate(() => window.__studio.getPlayPos('Hero').y);
 const onGround = await page.evaluate(() => window.__studio.playerGrounded());
@@ -771,45 +790,72 @@ await page.screenshot({ path: `${outDir}/st-29-multiselect.png` });
 // A marquee over the whole board takes everything.
 const msMarquee = await page.evaluate(() => window.__studio.marqueeSelect(-50, -50, 9000, 9000));
 const msTotal = await page.evaluate(() => window.__studio.entityCount());
-// And the same thing with a REAL mouse: rubber-band across empty ground,
-// then drag one of the caught actors and watch the group travel with it.
+// And the same thing with a REAL mouse. This gets its own empty level with
+// three crates at known spots: a rubber-band test that depends on where
+// earlier steps happened to leave things is a test of the earlier steps.
+await page.evaluate(() => window.__studio.loadTemplate('blank'));
+await sleep(400);
+const bandNames = await page.evaluate(() => [
+  window.__studio.addEntity('crate', 200, 400),
+  window.__studio.addEntity('crate', 340, 400),
+  window.__studio.addEntity('crate', 620, 400),
+]);
+await sleep(300);
 // Invert the editor's own client->design mapping from two samples.
-const s0 = await page.evaluate(() => window.__studio.designAt(200, 200));
-const s1 = await page.evaluate(() => window.__studio.designAt(400, 400));
+const s0 = await page.evaluate(() => window.__studio.designAt(400, 300));
+const s1 = await page.evaluate(() => window.__studio.designAt(600, 500));
 const msScale = 200 / (s1.x - s0.x);
-const toClient = (x, y) => ({ x: 200 + (x - s0.x) * msScale, y: 200 + (y - s0.y) * msScale });
+const toClient = (x, y) => ({ x: 400 + (x - s0.x) * msScale, y: 300 + (y - s0.y) * msScale });
 await page.evaluate(() => window.__studio.marqueeSelect(-1, -1, -1, -1)); // start from nothing
-const bandFrom = toClient(250, 440);
-const bandTo = toClient(520, 560);
+// Band the first two, stopping well short of the third.
+const bandFrom = toClient(120, 300);
+const bandTo = toClient(460, 500);
 await page.mouse.move(bandFrom.x, bandFrom.y);
 await page.mouse.down();
 await page.mouse.move((bandFrom.x + bandTo.x) / 2, (bandFrom.y + bandTo.y) / 2, { steps: 4 });
 await page.mouse.move(bandTo.x, bandTo.y, { steps: 4 });
 await page.screenshot({ path: `${outDir}/st-30-marquee.png` });
 await page.mouse.up();
-await sleep(150);
+await sleep(200);
 const msBand = await page.evaluate(() => window.__studio.selectedNames());
+// Keyed by name, so a selection that changes size is a failed assertion
+// rather than a crash in the harness.
 const posOf = () =>
   page.evaluate(() =>
-    window.__studio.selectedNames().map((n) => {
-      const e = window.__studio.getEntity(n);
-      return [e.x, e.y];
-    }),
+    Object.fromEntries(
+      window.__studio.selectedNames().map((n) => {
+        const e = window.__studio.getEntity(n);
+        return [n, [e.x, e.y]];
+      }),
+    ),
   );
-// Drag one of them 100 right / 60 down; every other one must follow exactly.
 const msBefore = await posOf();
-const grab = toClient(302, 500);
-await page.mouse.move(grab.x, grab.y);
-await page.mouse.down();
-await page.mouse.move(grab.x + 100 * msScale, grab.y + 60 * msScale, { steps: 6 });
-await page.mouse.up();
-await sleep(150);
-const msAfterDrag = await posOf();
-const msTowed = msAfterDrag.map(([x, y], i) => [x - msBefore[i][0], y - msBefore[i][1]]);
+// Drag one of them 100 right / 60 down; every other one must follow exactly.
+let msTowed = [];
+const msNames0 = Object.keys(msBefore);
+if (msNames0.length) {
+  const grab = toClient(msBefore[msNames0[0]][0], msBefore[msNames0[0]][1]);
+  await page.mouse.move(grab.x, grab.y);
+  await page.mouse.down();
+  await page.mouse.move(grab.x + 100 * msScale, grab.y + 60 * msScale, { steps: 6 });
+  await page.mouse.up();
+  await sleep(200);
+  const msAfterDrag = await posOf();
+  msTowed = msNames0
+    .filter((n) => msAfterDrag[n])
+    .map((n) => [msAfterDrag[n][0] - msBefore[n][0], msAfterDrag[n][1] - msBefore[n][1]]);
+}
+// Back to the crates that were copied, for the paste test below.
+await page.evaluate(() => window.__studio.loadTemplate('topdown'));
+await sleep(400);
+const msA2 = await page.evaluate(() => window.__studio.addEntity('crate', 200, 300));
+const msB2 = await page.evaluate(() => window.__studio.addEntity('crate', 300, 300));
+const msC2 = await page.evaluate(() => window.__studio.addEntity('crate', 400, 300));
+await page.evaluate((n) => window.__studio.select(n), msA2);
+await page.evaluate((n) => window.__studio.selectAdd(n), msB2);
+await page.evaluate((n) => window.__studio.selectAdd(n), msC2);
+
 // Copy here, paste into a level that has never seen them.
-await page.evaluate((n) => window.__studio.select(n), msA);
-await page.evaluate((n) => window.__studio.selectAdd(n), msB);
-await page.evaluate((n) => window.__studio.selectAdd(n), msC);
 const msCopied = await page.evaluate(() => window.__studio.copySel());
 await page.evaluate(() => window.__studio.addScene('Paste Target'));
 const msEmpty = await page.evaluate(() => window.__studio.entityCount());
@@ -837,11 +883,207 @@ const multiOk =
   msDragged.x === 340 && msDragged.y === 500 && msNudged === 342 &&
   msYs.join() === '500,500,500' && msXs.join() === '302,452,602' &&
   msMarquee === msTotal &&
-  msBand.includes(msA) && msBand.includes(msB) && !msBand.includes(msC) &&
+  msBand.includes(bandNames[0]) && msBand.includes(bandNames[1]) &&
+  !msBand.includes(bandNames[2]) &&
+  msTowed.length === msNames0.length && msNames0.length === 2 &&
   msTowed.every(([dx, dy]) => Math.abs(dx - 100) <= 1 && Math.abs(dy - 60) <= 1) &&
   msCopied === 3 && msPasted === 3 && msAfter === msEmpty + 3 &&
   msDeleted === msEmpty && msUndone === msEmpty + 3 &&
   msAll === msUndone && msDup === msUndone * 2 && msUniqueNames === true;
+
+// ⚔ ENEMY ATTACK PATTERNS: each one puts something different in the air (or
+// moves the enemy), and every one of them telegraphs first.
+await page.evaluate(() => window.__studio.loadTemplate('action'));
+await sleep(300);
+const atkMob = await page.evaluate(() => {
+  const j = JSON.parse(window.__studio.exportJson());
+  const m = j.scenes[0].entities.find((e) => e.kind === 'mob' || e.kind === 'boss');
+  return m ? m.name : null;
+});
+// Count what one attack of each pattern leaves in the air.
+const shotsFor = async (pattern) => {
+  await page.evaluate(() => window.__studio.stop());
+  await sleep(150);
+  await page.evaluate(
+    ([n, p]) => window.__studio.setAttack(n, p, 0.8),
+    [atkMob, pattern],
+  );
+  await page.evaluate(() => window.__studio.play());
+  await sleep(2200);
+  const live = await page.evaluate(() => window.__studio.liveShots());
+  return live;
+};
+const atkAimed = await shotsFor('aimed');
+const atkSpread = await shotsFor('spread');
+const atkRing = await shotsFor('ring');
+// The telegraph: the enemy must spend real time winding up before anything
+// happens, or "dodge it" is not advice a player can act on.
+await page.evaluate(() => window.__studio.stop());
+await sleep(150);
+await page.evaluate(([n]) => window.__studio.setAttack(n, 'charge', 1.2), [atkMob]);
+await page.evaluate(() => window.__studio.play());
+let sawWindup = false;
+let sawDash = false;
+for (let i = 0; i < 40; i++) {
+  const [w, d] = await page.evaluate(
+    ([n]) => [window.__studio.mobWindup(n), window.__studio.mobDashing(n)],
+    [atkMob],
+  );
+  if (w > 0) sawWindup = true;
+  if (d) sawDash = true;
+  if (sawWindup && sawDash) break;
+  await sleep(100);
+}
+// Ground slam sends out a wave.
+await page.evaluate(() => window.__studio.stop());
+await sleep(150);
+await page.evaluate(([n]) => window.__studio.setAttack(n, 'slam', 1), [atkMob]);
+await page.evaluate(() => window.__studio.play());
+let sawSlam = false;
+for (let i = 0; i < 40; i++) {
+  const t = await page.evaluate(([n]) => window.__studio.slamNow(n), [atkMob]);
+  if (t >= 0) {
+    sawSlam = true;
+    break;
+  }
+  await sleep(100);
+}
+await page.screenshot({ path: `${outDir}/st-33-attacks.png` });
+await page.evaluate(() => window.__studio.stop());
+await sleep(150);
+// An old project that only said "shoots every N secs" still means one shot.
+const atkLegacy = await page.evaluate(() => {
+  const j = JSON.parse(window.__studio.exportJson());
+  const m = j.scenes[0].entities.find((e) => e.kind === 'mob' || e.kind === 'boss');
+  delete m.attack;
+  m.shootEvery = 1.5;
+  window.__studio.importJson(JSON.stringify(j));
+  return window.__studio.attackOf(m.name);
+});
+const attackOk =
+  !!atkMob && atkAimed >= 1 && atkSpread > atkAimed && atkRing > atkSpread &&
+  sawWindup && sawDash && sawSlam && atkLegacy === 'aimed';
+
+// 🥞 TILE LAYERS: paint behind and in front; only the main layer collides.
+await page.evaluate(() => window.__studio.loadTemplate('blank'));
+await sleep(300);
+await page.evaluate(() => {
+  window.__studio.setPaintLayer('back');
+  for (let c = 0; c < 18; c++) window.__studio.setTile(c, 14, 'g');
+  window.__studio.setPaintLayer('over');
+  for (let c = 0; c < 18; c++) window.__studio.setTile(c, 6, 'k');
+  window.__studio.setPaintLayer('main');
+  for (let c = 0; c < 18; c++) window.__studio.setTile(c, 20, 'k');
+});
+await sleep(250);
+const layBack = await page.evaluate(() => window.__studio.tileAt(3, 14, 'back'));
+const layOver = await page.evaluate(() => window.__studio.tileAt(3, 6, 'over'));
+const layMain = await page.evaluate(() => window.__studio.tileAt(3, 20, 'main'));
+// Painting one layer must not touch another.
+const layClean = await page.evaluate(() => window.__studio.tileAt(3, 14, 'main'));
+await page.screenshot({ path: `${outDir}/st-34-layers.png` });
+// In play: the decoration renders, and walking into a decorative wall works.
+await page.evaluate(() => {
+  window.__studio.setScript("api.player('Hero', 300);");
+  window.__studio.play();
+});
+await sleep(900);
+const layPlays = await page.evaluate(() => window.__studio.playHasTiles());
+const layOverPlays = await page.evaluate(() => window.__studio.playHasOverTiles());
+// Stand the player on the decorative row and push: nothing should stop them.
+await page.evaluate(() =>
+  window.__studio.applyScriptNow("var h=api.entity('Hero'); h.x=140; h.y=520;"),
+);
+await sleep(200);
+await page.keyboard.down('d');
+await sleep(700);
+await page.keyboard.up('d');
+const layWalkedThrough = await page.evaluate(() => window.__studio.getPlayPos('Hero').x);
+await page.evaluate(() => window.__studio.stop());
+await sleep(150);
+// Layers survive a save/load round-trip and a level resize.
+const layRound = await page.evaluate(() => {
+  window.__studio.importJson(window.__studio.exportJson());
+  return [window.__studio.tileAt(3, 14, 'back'), window.__studio.tileAt(3, 6, 'over')];
+});
+const layersOk =
+  layBack === 'g' && layOver === 'k' && layMain === 'k' && layClean === '.' &&
+  layPlays === true && layOverPlays === true && layWalkedThrough > 200 &&
+  layRound[0] === 'g' && layRound[1] === 'k';
+
+// SELECTION RING: the highlight has to sit ON the actor — after panning a
+// tall level (the ring used to live on the un-scrolling stage and drift off
+// entirely) and in a 2.5D level (where actors are scaled by depth).
+const ringHugs = (s) =>
+  !!s &&
+  s.ring.x <= s.view.x && s.ring.y <= s.view.y &&
+  s.ring.x + s.ring.w >= s.view.x + s.view.w &&
+  s.ring.y + s.ring.h >= s.view.y + s.view.h &&
+  // ...and snugly: a ring three times the size of the art is not a highlight.
+  s.ring.w < s.view.w + 40 && s.ring.h < s.view.h + 40;
+await page.evaluate(() => window.__studio.loadTemplate('blank'));
+await sleep(300);
+await page.evaluate(() => window.__studio.setWorldSize(720, 2560));
+await sleep(400);
+const ringName = await page.evaluate(() => window.__studio.addEntity('crate', 300, 300));
+await sleep(200);
+const ringFlat = await page.evaluate(() => window.__studio.selectionBoxes());
+await page.mouse.move(600, 400);
+for (let i = 0; i < 12; i++) await page.mouse.wheel(0, 60);
+await sleep(300);
+await page.evaluate((n) => window.__studio.select(n), ringName);
+await sleep(200);
+const ringPanned = await page.evaluate(() => window.__studio.selectionBoxes());
+// 2.5D: the view is depth-scaled, so a ring sized from def.scale alone drifts.
+await page.evaluate(() => window.__studio.loadTemplate('blank'));
+await sleep(300);
+await page.evaluate(() => window.__studio.setView('depth'));
+await sleep(500);
+const ringDeep = [];
+for (const y of [260, 650]) {
+  const n = await page.evaluate((yy) => window.__studio.addEntity('mob', 300, yy), y);
+  await sleep(300);
+  await page.evaluate((nn) => window.__studio.select(nn), n);
+  await sleep(200);
+  ringDeep.push(await page.evaluate(() => window.__studio.selectionBoxes()));
+}
+await page.screenshot({ path: `${outDir}/st-31-ring.png` });
+const ringOk = ringHugs(ringFlat) && ringHugs(ringPanned) && ringDeep.every(ringHugs);
+
+// 🧰 TOOLBAR: ▶ Play used to fall off the right-hand edge with no way to
+// reach it. Nothing may ever be off-screen, at any window size.
+const barAt = async (w, h) => {
+  await page.setViewportSize({ width: w, height: h });
+  await sleep(400);
+  return page.evaluate(() => ({
+    hidden: window.__studio.toolbarOverflow(),
+    play: window.__studio.onScreen('btn-play'),
+    more: window.__studio.onScreen('btn-more'),
+    scene: window.__studio.onScreen('scene-select'),
+  }));
+};
+const barWide = await barAt(1920, 900);
+const barMid = await barAt(1280, 860);
+const barNarrow = await barAt(900, 800);
+// The ⋯ panel really holds the missing controls, and closes again.
+await page.evaluate(() => window.__studio.toolbarOpen());
+await sleep(200);
+const barPanelOpen = await page.evaluate(() => window.__studio.toolbarIsOpen());
+const barPanelHas = await page.evaluate(
+  () => document.querySelectorAll('#top-more .btn, #top-more label').length,
+);
+await page.screenshot({ path: `${outDir}/st-32-toolbar.png` });
+await page.evaluate(() => window.__studio.toolbarClose());
+await sleep(150);
+const barPanelShut = await page.evaluate(() => window.__studio.toolbarIsOpen());
+await page.setViewportSize({ width: 1440, height: 900 });
+await sleep(400);
+const toolbarOk =
+  [barWide, barMid, barNarrow].every((b) => b.play && b.scene) &&
+  // Wide enough for everything: no menu at all. Narrow: a menu, and it grows.
+  barWide.hidden.length === 0 && !barWide.more &&
+  barNarrow.more && barNarrow.hidden.length > barMid.hidden.length &&
+  barPanelOpen === true && barPanelHas > 0 && barPanelShut === false;
 
 // HUD LAYOUT: a piece moved in the editor lands there in the running game,
 // and safe areas push it clear of a notch.
@@ -1033,8 +1275,10 @@ await page.evaluate(() => window.__studio.unbindKey('move-right', 'd'));
 await page.evaluate(() => window.__studio.unbindKey('move-right', 'arrowright'));
 const reboundRight = await page.evaluate(() => window.__studio.keysOf('move-right'));
 await page.evaluate(() => window.__studio.play());
-await sleep(700);
-const rx0 = await page.evaluate(() => window.__studio.getPlayPos('Hero').x);
+const rx0 = await waitFor(
+  () => page.evaluate(() => window.__studio.getPlayPos('Hero').x),
+  (x) => x > 0,
+);
 await page.keyboard.down('d');
 await sleep(350);
 await page.keyboard.up('d');
@@ -1092,11 +1336,13 @@ await page.evaluate(() =>
 );
 const lvlEvN = await page.evaluate(() => window.__studio.levelEventCount());
 await page.evaluate(() => window.__studio.play());
-// Long enough that a slow headless frame rate still clears several 0.2s
-// ticks — this is a "does the timer run", not a "how fast" assertion.
-await sleep(1800);
+// This is a "does the timer run" assertion, not a "how fast" one, so wait
+// for the ticks rather than betting on the frame rate.
+const lvlTicks = await waitFor(
+  () => page.evaluate(() => window.__studio.varNow('ticks')),
+  (n) => n >= 2,
+);
 const lvlMusic = await page.evaluate(() => window.__studio.musicNow());
-const lvlTicks = await page.evaluate(() => window.__studio.varNow('ticks'));
 await page.evaluate(() => window.__studio.tapLevel());
 const lvlTap = await page.evaluate(() => window.__studio.switchIsOn('tapped-ground'));
 // 'cleared' must NOT have fired while mobs are still alive.
@@ -1165,8 +1411,10 @@ await page.evaluate(() => {
   window.__studio.setScript("api.player('Hero', 300); api.title();");
   window.__studio.play();
 });
-await sleep(700);
-const titleShown = await page.evaluate(() => window.__studio.titleVisible());
+const titleShown = await waitFor(
+  () => page.evaluate(() => window.__studio.titleVisible()),
+  (v) => v === true,
+);
 await page.screenshot({ path: `${outDir}/st-14-title.png` });
 await page.evaluate(() => window.__studio.titlePick('new'));
 const titleGone = await page.evaluate(() => window.__studio.titleVisible());
@@ -1186,8 +1434,10 @@ await page.evaluate(() => {
   window.__studio.setScript("api.player('Hero', 300);");
   window.__studio.play();
 });
-await sleep(1200);
-const mazePlays = await page.evaluate(() => window.__studio.playHasTiles());
+const mazePlays = await waitFor(
+  () => page.evaluate(() => window.__studio.playHasTiles()),
+  (v) => v === true,
+);
 await page.evaluate(() => window.__studio.applyScriptNow('api.setTiles(api.gen.island())'));
 await sleep(300);
 const islandLive = await page.evaluate(() => window.__studio.playHasTiles());
@@ -1249,7 +1499,7 @@ const ok =
   placeOk && editOk && storyOk && levelsOk && playOk && stopOk && exportOk && importOk &&
   templatesOk && skillsOk && scoreOk && tilesOk && cameraOk && frameOk && combatOk && rangedOk &&
   patrolOk && chatOk && coinsOk && persistOk && libOk && eventsOk && genOk && uiOk && dbOk &&
-  questOk && levelEvOk && apiOk && keysOk && controlsOk && skillsBranchOk && gameGenOk && dropOk && artOk && originOk && abilityOk && menuOk && undoOk && hudOk && dialogueOk && platformOk && multiOk && netOk &&
+  questOk && levelEvOk && apiOk && keysOk && controlsOk && skillsBranchOk && gameGenOk && dropOk && artOk && originOk && abilityOk && menuOk && undoOk && hudOk && dialogueOk && platformOk && multiOk && ringOk && toolbarOk && attackOk && layersOk && netOk &&
   errors.length === 0;
 console.log(
   JSON.stringify(
@@ -1275,7 +1525,11 @@ console.log(
       controlsOk, defRight, reboundRight, rx0, rxOldKey, rxNewKey, addedCustom, killBuiltin, killCustom, conflicts,
       dialogueOk, dlgAt, dlgFirst, dlgWho, dlgSecond, dlgWork, coins0, coins1,
       platformOk, restY, onGround, leftX, fellY,
-      multiOk, msNames, msTitle, msDragged, msNudged, msYs, msXs, msMarquee, msTotal, msBand, msTowed,
+      attackOk, atkMob, atkAimed, atkSpread, atkRing, sawWindup, sawDash, sawSlam, atkLegacy,
+      layersOk, layBack, layOver, layMain, layClean, layPlays, layOverPlays, layWalkedThrough, layRound,
+      ringOk, ringFlat, ringPanned, ringDeep,
+      toolbarOk, barWide, barMid, barNarrow, barPanelOpen, barPanelHas, barPanelShut,
+      multiOk, msNames, msTitle, bandNames, msDragged, msNudged, msYs, msXs, msMarquee, msTotal, msBand, msTowed,
       msCopied, msEmpty, msPasted, msAfter, msDeleted, msUndone, msAll, msDup, msUniqueNames,
       undoOk, undoBefore, undoAdded, undoWhat, afterUndo1, afterUndo2, afterRedo, undoHeroX, beforeKey, afterKey,
       hudOk, moved, heartsAt, scoreAt, heartsSafe,

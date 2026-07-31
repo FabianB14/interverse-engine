@@ -20,15 +20,28 @@ import { generateRows } from './gen.js';
 import type { GeneratorKind } from './gen.js';
 import { slugify } from './publish.js';
 import {
+  TILE_LAYERS,
   TILE_SIZE,
+  anyTiles,
   buildTileLayer,
   colsFor,
   emptyRows,
+  isTileLayerId,
   normalizeRows,
   rowsFor,
   setTileChar,
   tileCharAt,
+  tileLayerSpec,
 } from './tiles.js';
+import type { TileLayerId } from './tiles.js';
+
+/** A rectangle in design/world space. */
+export interface Box {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
 
 const SAVE_KEY = 'interverse.studio.project';
 const LIB_INDEX = 'interverse.studio.library';
@@ -40,7 +53,7 @@ class EditScene extends Scene {
   views = new Map<string, Container>();
   ring = new Graphics();
   world = new Container();
-  private tileLayer: Container | null = null;
+  private tileLayers = new Map<TileLayerId, Container>();
   private frameG = new Graphics();
   private frameLabel: Text | null = null;
 
@@ -132,18 +145,31 @@ class EditScene extends Scene {
     this.world.position.set(-this.editor.panX, -this.editor.panY);
   }
 
-  /** Rebuild the painted-tile layer (sits just above the background). */
+  /** Rebuild the painted tile layers. Behind and main sit just above the
+   *  background; the "in front" layer goes on top of the actors — dimmed,
+   *  because in the EDITOR you still have to be able to see what you are
+   *  moving underneath it. */
   refreshTiles(): void {
     // Scene transitions are async — before onEnter the stage is empty and
     // onEnter will call us again, so bail rather than mis-index.
     if (!this.world.children.length) return;
-    this.tileLayer?.destroy({ children: true });
-    this.tileLayer = null;
-    if (this.def.tiles) {
-      this.tileLayer = buildTileLayer(this.def.tiles).view;
-      this.tileLayer.eventMode = 'none';
-      this.world.addChildAt(this.tileLayer, Math.min(1, this.world.children.length));
+    for (const c of this.tileLayers.values()) c.destroy({ children: true });
+    this.tileLayers.clear();
+    for (const spec of TILE_LAYERS) {
+      const rows = this.def[spec.key];
+      if (!rows || !anyTiles(rows)) continue;
+      const view = buildTileLayer(rows).view;
+      view.eventMode = 'none';
+      if (spec.id === 'over') {
+        view.alpha = 0.65;
+        view.zIndex = 2e9;
+        this.world.addChild(view);
+      } else {
+        this.world.addChildAt(view, Math.min(spec.id === 'back' ? 1 : 2, this.world.children.length));
+      }
+      this.tileLayers.set(spec.id, view);
     }
+    this.bringRingToFront();
   }
 
   /** Live 2.5D preview in the EDITOR: depth-scale + sort while view=depth. */
@@ -184,11 +210,19 @@ class EditScene extends Scene {
     }
   }
 
+  /** Keep the highlight above the art it highlights. It must stay a child of
+   *  `world` — the stage does not scroll, so a ring parked there detaches
+   *  from its actor the moment you pan. */
+  bringRingToFront(): void {
+    this.ring.zIndex = 3e9;
+    this.world.addChild(this.ring);
+  }
+
   syncView(def: EntityDef): void {
     // Cheap + correct: rebuild the one view (defs are tiny).
     this.removeViewFor(def.id);
     this.addViewFor(def);
-    this.world.addChild(this.ring); // keep the ring on top
+    this.bringRingToFront();
   }
 }
 
@@ -338,8 +372,9 @@ export class StudioEditor {
   setWorldSize(w: number, h: number): void {
     this.scene.worldW = w;
     this.scene.worldH = h;
-    if (this.scene.tiles) {
-      this.scene.tiles = normalizeRows(this.scene.tiles, colsFor(w), rowsFor(h));
+    const scene = this.scene as unknown as Record<string, string[] | undefined>;
+    for (const spec of TILE_LAYERS) {
+      if (scene[spec.key]) scene[spec.key] = normalizeRows(scene[spec.key], colsFor(w), rowsFor(h));
     }
     this.panX = 0;
     this.panY = 0;
@@ -351,6 +386,27 @@ export class StudioEditor {
 
   /** Active tile character while painting; null = normal select/drag mode. */
   tileChar: string | null = null;
+  /** 🥞 Which layer the brush writes to. */
+  paintLayer: TileLayerId = 'main';
+
+  setPaintLayer(id: string): TileLayerId {
+    if (isTileLayerId(id)) this.paintLayer = id;
+    return this.paintLayer;
+  }
+
+  /** The rows for a layer, created on demand — a layer nobody paints on
+   *  never exists, and so never bloats a saved game. */
+  private layerRows(id: TileLayerId = this.paintLayer): string[] {
+    const key = tileLayerSpec(id).key;
+    const scene = this.scene as unknown as Record<string, string[] | undefined>;
+    scene[key] ??= emptyRows(colsFor(this.scene.worldW), rowsFor(this.scene.worldH));
+    return scene[key]!;
+  }
+
+  /** Read-only peek that does NOT create the layer. */
+  private layerRowsIfAny(id: TileLayerId): string[] | undefined {
+    return (this.scene as unknown as Record<string, string[] | undefined>)[tileLayerSpec(id).key];
+  }
   private painting = false;
   private tileRefreshTimer = 0;
 
@@ -390,9 +446,9 @@ export class StudioEditor {
     const cols = colsFor(this.scene.worldW);
     const rows = rowsFor(this.scene.worldH);
     if (col < 0 || row < 0 || col >= cols || row >= rows) return;
-    this.scene.tiles ??= emptyRows(cols, rows);
-    if (tileCharAt(this.scene.tiles, col, row) === ch) return;
-    setTileChar(this.scene.tiles, col, row, ch);
+    const target = this.layerRows();
+    if (tileCharAt(target, col, row) === ch) return;
+    setTileChar(target, col, row, ch);
     // Throttled rebuild while the stroke is in flight; final on pointerup.
     if (!this.tileRefreshTimer) {
       this.tileRefreshTimer = window.setTimeout(() => {
@@ -405,21 +461,26 @@ export class StudioEditor {
   /** 🎲 Procedural generation into this level's paint layer. */
   generateTiles(kind: GeneratorKind): void {
     this.editLabel = 'generate tiles';
-    this.scene.tiles = generateRows(kind, colsFor(this.scene.worldW), rowsFor(this.scene.worldH));
+    const scene = this.scene as unknown as Record<string, string[] | undefined>;
+    scene[tileLayerSpec(this.paintLayer).key] = generateRows(
+      kind,
+      colsFor(this.scene.worldW),
+      rowsFor(this.scene.worldH),
+    );
     this.editScene?.refreshTiles();
     this.touch();
   }
 
-  setTile(col: number, row: number, ch: string): void {
+  setTile(col: number, row: number, ch: string, layer?: string): void {
     this.editLabel = 'paint';
-    this.scene.tiles ??= emptyRows(colsFor(this.scene.worldW), rowsFor(this.scene.worldH));
-    setTileChar(this.scene.tiles, col, row, ch);
+    setTileChar(this.layerRows(layer && isTileLayerId(layer) ? layer : this.paintLayer), col, row, ch);
     this.editScene?.refreshTiles();
     this.touch();
   }
 
-  tileAt(col: number, row: number): string {
-    return this.scene.tiles ? tileCharAt(this.scene.tiles, col, row) : '.';
+  tileAt(col: number, row: number, layer?: string): string {
+    const rows = this.layerRowsIfAny(layer && isTileLayerId(layer) ? layer : this.paintLayer);
+    return rows ? tileCharAt(rows, col, row) : '.';
   }
 
   // ---------------------------------------------------------------- scenes
@@ -561,7 +622,7 @@ export class StudioEditor {
     def.name = name;
     this.scene.entities.push(def);
     this.editScene?.addViewFor(def);
-    this.editScene?.stage.addChild(this.editScene.ring);
+    this.editScene?.bringRingToFront();
     this.select(def.id);
     this.touch();
     return def;
@@ -669,6 +730,7 @@ export class StudioEditor {
       this.scene.entities.push(d);
       this.editScene?.addViewFor(d);
     }
+    this.editScene?.bringRingToFront();
     this.selectMany(made.map((d) => d.id));
     this.touch();
     return made.length;
@@ -683,6 +745,7 @@ export class StudioEditor {
       this.scene.entities.push(d);
       this.editScene?.addViewFor(d);
     }
+    this.editScene?.bringRingToFront();
     this.selectMany(made.map((d) => d.id));
     this.touch();
     return made.length;
@@ -796,14 +859,19 @@ export class StudioEditor {
       const v = this.editScene?.views.get(def.id);
       if (!v) continue;
       const b = v.getLocalBounds();
+      // Read the scale off the VIEW, not the def: a 2.5D level scales actors
+      // by their depth, so a ring sized from def.scale alone floats off the
+      // art it is supposed to be hugging.
+      const sx = v.scale.x || def.scale;
+      const sy = v.scale.y || def.scale;
       // The last-clicked one is brighter: it is what the inspector edits.
       const primary = def.id === this.selectedId;
       ring
         .roundRect(
-          def.x + (b.x - 6) * def.scale,
-          def.y + (b.y - 6) * def.scale,
-          (b.width + 12) * def.scale,
-          (b.height + 12) * def.scale,
+          def.x + b.x * sx - 6,
+          def.y + b.y * sy - 6,
+          b.width * sx + 12,
+          b.height * sy + 12,
           10,
         )
         .stroke({ color: 0xc77dff, width: primary ? 3 : 2, alpha: primary ? 0.9 : 0.5 });
@@ -815,6 +883,29 @@ export class StudioEditor {
         .rect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(a.x - b.x), Math.abs(a.y - b.y))
         .stroke({ color: 0x8affc1, width: 2, alpha: 0.8 });
     }
+  }
+
+  /** The ring's box and the primary actor's box, both in WORLD space, so a
+   *  test can assert the highlight is actually around the art. */
+  selectionBoxes(): { ring: Box; view: Box } | null {
+    const def = this.selected;
+    const ring = this.editScene?.ring;
+    const v = def ? this.editScene?.views.get(def.id) : null;
+    if (!def || !ring || !v) return null;
+    const r = ring.getLocalBounds();
+    const lb = v.getLocalBounds();
+    const box = (x: number, y: number, w: number, h: number): Box => ({
+      x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h),
+    });
+    return {
+      ring: box(r.x, r.y, r.width, r.height),
+      view: box(
+        def.x + lb.x * v.scale.x,
+        def.y + lb.y * v.scale.y,
+        lb.width * v.scale.x,
+        lb.height * v.scale.y,
+      ),
+    };
   }
 
   // ---------------------------------------------------------- coordinates

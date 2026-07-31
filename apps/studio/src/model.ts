@@ -4,7 +4,9 @@
  * games ship the same JSON + runtime. Keep every field concrete (with a
  * default) so the inspector and the AI copilot can edit anything safely.
  */
-import { colsFor, normalizeRows, rowsFor } from './tiles.js';
+import { TILE_LAYERS, anyTiles, colsFor, normalizeRows, rowsFor } from './tiles.js';
+import { isAttackPattern } from './attacks.js';
+import type { AttackPattern } from './attacks.js';
 
 export type EntityKind =
   | 'blob' // playable-looking character
@@ -203,8 +205,10 @@ export interface EntityDef {
   xp: number;
   moveSpeed: number;
   behavior: MobBehavior;
-  /** Ranged: fire a projectile at the player every N secs (0 = never). */
+  /** Ranged: run the attack pattern every N secs (0 = never). */
   shootEvery: number;
+  /** ⚔ What the attack looks like. 'contact' = walk into the player only. */
+  attack: AttackPattern;
   /** Behaviors / juice. */
   wobble: boolean;
   popIn: boolean;
@@ -249,6 +253,10 @@ export interface SceneDef {
   worldH: number;
   /** Painted tile grid (worldW/40 x worldH/40 chars) — optional per level. */
   tiles?: string[];
+  /** 🥞 Decorative tile layers: behind everything, and over the actors.
+   *  Absent when unpainted, so a game that never uses them costs nothing. */
+  tilesBack?: string[];
+  tilesOver?: string[];
   /** Scene script (the Code tab) — runs when the scene starts in Play mode. */
   script: string;
   /** ⚡ Level events — the same blocks actors carry, owned by the level
@@ -510,6 +518,7 @@ export function defaultEntity(kind: EntityKind, x: number, y: number): EntityDef
     moveSpeed: 120,
     behavior: 'chase',
     shootEvery: 0,
+    attack: 'contact',
     wobble: kind === 'blob' || kind === 'npc' || kind === 'mob' || kind === 'boss',
     popIn: true,
     tapSound: kind === 'button' ? 'blip' : '',
@@ -537,6 +546,8 @@ export function defaultEntity(kind: EntityKind, x: number, y: number): EntityDef
       base.xp = 50;
       base.moveSpeed = 90;
       base.behavior = 'guard';
+      base.attack = 'ring';
+      base.shootEvery = 2.6;
       break;
     case 'crate':
       base.color = 0x4a3826;
@@ -681,14 +692,34 @@ export function parseProject(json: string): ProjectDef {
     s.worldH = Math.max(720, Math.min(2560, Number(s.worldH) || 1280));
     // 2.5D boards are one landscape screen tall — the journey runs long-ways.
     if (s.view === 'depth') s.worldH = 720;
-    if (s.tiles !== undefined) s.tiles = normalizeRows(s.tiles, colsFor(s.worldW), rowsFor(s.worldH));
+    for (const layer of TILE_LAYERS) {
+      const rows = (s as unknown as Record<string, unknown>)[layer.key];
+      if (rows === undefined) continue;
+      const fixed = normalizeRows(rows, colsFor(s.worldW), rowsFor(s.worldH));
+      // An empty decorative layer is the same as not having one — drop it
+      // rather than writing a screenful of dots into every saved file.
+      if (layer.key !== 'tiles' && !anyTiles(fixed)) delete (s as unknown as Record<string, unknown>)[layer.key];
+      else (s as unknown as Record<string, unknown>)[layer.key] = fixed;
+    }
     s.script ??= '';
     s.entities ||= [];
     for (const e of s.entities) {
+      // Read these BEFORE the defaults are merged in: telling an old project
+      // apart from a new one is exactly a question about what it did or did
+      // not say, and after the merge everything says everything.
+      const said = e as { attack?: unknown; shootEvery?: unknown };
+      const saidAttack = said.attack;
+      const saidTimer = Number(said.shootEvery) > 0;
+      const isOldFile = 'attack' in said === false && 'shootEvery' in said;
       const d = defaultEntity(e.kind ?? 'blob', e.x ?? 360, e.y ?? 640);
       Object.assign(d, e);
       Object.assign(e, d);
       if (!['chase', 'patrol', 'wander', 'guard'].includes(e.behavior)) e.behavior = 'chase';
+      // Projects made before attack patterns existed said "shoots every N"
+      // and meant one aimed shot, so that is exactly what they keep meaning.
+      if (!isAttackPattern(saidAttack)) {
+        e.attack = isOldFile || saidAttack !== undefined ? (saidTimer ? 'aimed' : 'contact') : d.attack;
+      }
       e.clips = (Array.isArray(e.clips) ? e.clips : []).filter(
         (c) => !!c && typeof c === 'object' && typeof c.name === 'string' && Number.isFinite(c.from) && Number.isFinite(c.to),
       );

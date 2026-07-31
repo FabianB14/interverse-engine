@@ -3,6 +3,7 @@ import type { StudioEditor } from './editor.js';
 import { HATS, HELD_ITEMS } from './cosmetics.js';
 import { cmdMenuLabel, cmdSpec, cmdsFor, triggerLabel, triggersFor } from './cmds.js';
 import { EFFECT_LABEL, abilityList, createAbility, grantTo } from './abilities.js';
+import { ATTACK_SPECS, attackSpec } from './attacks.js';
 import type { Scope } from './cmds.js';
 import { danglingDialogueLinks, dialogueFromLines } from './model.js';
 import type { EntityDef, EventAction, EventDef } from './model.js';
@@ -189,7 +190,51 @@ export function wireInspector(editor: StudioEditor, hooks: InspectorHooks): void
       num('Contact damage', 'damage');
       num('XP reward', 'xp');
       num('Move speed', 'moveSpeed');
-      num('Shoot every (secs, 0=never)', 'shootEvery', 0.1);
+      // ⚔ Attack pattern + how often. The hint under the menu says what the
+      // player will actually see, because "spread" means nothing on its own.
+      const atk = document.createElement('select');
+      for (const a of ATTACK_SPECS) {
+        const o = document.createElement('option');
+        o.value = a.id;
+        o.textContent = `${a.emoji} ${a.label}`;
+        if (def.attack === a.id) o.selected = true;
+        atk.appendChild(o);
+      }
+      const atkHint = document.createElement('div');
+      atkHint.className = 'muted';
+      atkHint.style.cssText = 'font-size:12px;margin:-4px 0 8px';
+      const showAtk = (): void => {
+        const spec = attackSpec(def.attack);
+        atkHint.textContent = spec.hint;
+        // "Every N secs" is meaningless for an enemy that only bumps you.
+        timeRow.style.display = spec.timed ? '' : 'none';
+        if (spec.timed && def.shootEvery <= 0) {
+          def.shootEvery = 2;
+          timeInput.value = '2';
+        }
+      };
+      atk.onchange = () => {
+        def.attack = atk.value as EntityDef['attack'];
+        showAtk();
+        editor.touch();
+      };
+      field('⚔ Attack', atk);
+      body.appendChild(atkHint);
+      const timeInput = document.createElement('input');
+      timeInput.type = 'number';
+      timeInput.step = '0.1';
+      timeInput.value = String(def.shootEvery);
+      timeInput.oninput = () => {
+        def.shootEvery = Number(timeInput.value) || 0;
+        editor.touch();
+      };
+      const timeRow = document.createElement('div');
+      timeRow.className = 'field';
+      const timeLabel = document.createElement('label');
+      timeLabel.textContent = 'Attack every (secs)';
+      timeRow.append(timeLabel, timeInput);
+      body.appendChild(timeRow);
+      showAtk();
       const beh = document.createElement('select');
       for (const opt of ['chase', 'patrol', 'wander', 'guard'] as const) {
         const o = document.createElement('option');
@@ -660,6 +705,8 @@ export function wireInspector(editor: StudioEditor, hooks: InspectorHooks): void
       const gate = document.createElement('input');
       gate.type = 'text';
       gate.placeholder = 'only if switch… (blank = always)';
+      gate.title =
+        'Name a switch and this event only runs while that switch is ON. Turn switches on with the "Turn switch ON" action. Blank = always run.';
       gate.style.flex = '1';
       gate.value = ev.ifSwitch ?? '';
       gate.oninput = () => {
@@ -683,7 +730,9 @@ export function wireInspector(editor: StudioEditor, hooks: InspectorHooks): void
       vgates.style.marginTop = '4px';
       const vGate = document.createElement('input');
       vGate.type = 'text';
-      vGate.placeholder = 'needs variable… (blank = always)';
+      vGate.placeholder = 'needs counter… (blank = always)';
+      vGate.title =
+        'Name a counter and this event only runs once it has reached the number beside it. Count up with the "Add to variable" action. Blank = always run.';
       vGate.style.flex = '1';
       vGate.value = ev.ifVar ?? '';
       vGate.oninput = () => {
@@ -692,7 +741,7 @@ export function wireInspector(editor: StudioEditor, hooks: InspectorHooks): void
       };
       const vMin = document.createElement('input');
       vMin.type = 'number';
-      vMin.title = 'at least';
+      vMin.title = 'at least this many';
       vMin.style.width = '56px';
       vMin.value = String(ev.ifVarAtLeast ?? 1);
       vMin.oninput = () => {
@@ -724,6 +773,10 @@ export function wireInspector(editor: StudioEditor, hooks: InspectorHooks): void
           const t = document.createElement('input');
           t.type = 'text';
           t.style.flex = '1';
+          // Say what belongs in here — it is a message for one command and a
+          // level name for the next, and the box itself cannot tell you.
+          t.placeholder = spec.placeholder ?? '';
+          t.title = spec.placeholder ?? '';
           t.value = a.text ?? '';
           t.oninput = () => {
             a.text = t.value;
@@ -743,7 +796,8 @@ export function wireInspector(editor: StudioEditor, hooks: InspectorHooks): void
         } else if (spec.params === 'varn') {
           const vn = document.createElement('input');
           vn.type = 'text';
-          vn.placeholder = 'variable';
+          vn.placeholder = spec.placeholder ?? 'counter name';
+          vn.title = 'Any name you like. The same name means the same counter.';
           vn.style.width = '90px';
           vn.value = a.text ?? '';
           vn.oninput = () => {

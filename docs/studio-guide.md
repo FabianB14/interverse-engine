@@ -51,6 +51,21 @@ edit is the real engine, live — press **▶ Play** at any moment.
 - Your project **autosaves** on this device. **Export** downloads a
   `.interverse.json` you can back up, share, or publish (see §7).
 
+## 1¼ · ⋯ The toolbar, on any size screen
+
+The top bar holds more than fits on a laptop, so it adapts instead of
+running off the edge:
+
+1. With room to spare, every control shows its full label.
+2. Tighter, the labels drop and the icons stay (each one has a tooltip).
+3. Tighter still, whole controls move into the **⋯ More** menu, grouped by
+   what they belong to — 🗺 This level, 📦 Whole project, 🎮 Game options,
+   📁 File.
+
+What goes first is least-important-first: File before Game options before
+project tools before the level controls you build with. **▶ Play**, the
+level picker, ✚ New, ↶ undo and the project name never move.
+
 ## 1½ · ↶ Undo and redo
 
 Every edit can be taken back: **↶ / ↷** in the toolbar, or **Ctrl/⌘+Z** and
@@ -294,6 +309,28 @@ touch them up by hand afterwards. From code the same generators power
 endless games: `api.setTiles(api.gen.dungeon())` rebuilds the level
 live, collision included.
 
+### 🥞 Layers
+
+Terrain paints onto one of three layers, chosen at the top of the paintbox:
+
+| Layer | Where it draws | Blocks players |
+| --- | --- | --- |
+| ⬓ Behind | Under everything — ground, paths, rugs | No |
+| ⬛ Main | The level itself | **Yes**, for solid tiles |
+| ⬒ In front | Over the actors — treetops, roofs, mist | No |
+
+Only the **Main** layer collides. That is a rule, not a default: terrain
+that could quietly block the player is exactly the confusion layers exist
+to remove, so "solid" only appears on a swatch while you are painting Main.
+
+The ⬒ In front layer is what lets a character walk *behind* a tree canopy
+or a roof. In the editor it is drawn faded so you can still see what you
+are placing underneath it; in Play it is solid-looking and actors pass
+beneath it.
+
+A layer you never paint on is not saved at all, so games that do not use
+them cost nothing.
+
 ## 4 · Animations, VFX, SFX
 
 - **Wobble** — idle animation toggle (inspector).
@@ -354,7 +391,8 @@ pick a **trigger** — 👆 When tapped · 🚶 When the player touches it ·
 from a list: 💬 Say message, 🪙 Give coins, ⭐ Add score, ✨ Grant XP,
 ❤ Heal hearts, 🔊 Play sound, 🐣 Spawn a thing, 🗑 Remove this,
 🚪 Go to level, 🔛/⏹ Turn a switch on/off, 🔢 Add to variable,
-🛒 Open shop, 🎒 Open inventory, 🏆 Win, 💀 Lose.
+🛒 Open shop, 🎒 Open inventory, ⚙ Open settings, ⏸ Pause,
+🏠 Title screen, 🏆 Win, 💀 Lose.
 
 **🎥 Camera direction** (code): `api.camera.panTo(x, y, secs)` parks the
 camera somewhere (a door opening across the map), `api.camera.follow('Hero')`
@@ -362,6 +400,33 @@ returns it, `.shake(power, secs)` for impacts, `.letterbox(true)` for
 cutscene bars. And **imported models animate themselves**: clips named
 `idle` / `walk` / `jump` auto-switch as players and mobs move — a state
 machine with zero wiring.
+
+### What goes in each box
+
+An action row is **[ action ] [ box ]**, and the box means something
+different for every action. Hovering it says so; here is the whole list:
+
+| Action | The box holds |
+| --- | --- |
+| 💬 Say message | The line of dialogue. `YOU ESCAPED!` |
+| 🚪 Go to level… | The level's **name**, exactly as it appears in the level picker. `Village` |
+| 🔛 / ⏹ Turn switch ON/OFF | A **switch name** you invent. `gate-open` |
+| 🔢 Add to variable | A **counter name** you invent, plus how much to add. `lanterns` `+1` |
+| 🏆 Win / 💀 Lose | The banner text shown on the end screen. `ROOM CLEAR` |
+| 🐣 Spawn a thing | What to spawn. `crate` |
+| 🪙 ⭐ ✨ ❤ (coins, score, XP, heal) | Just a number — no text box. |
+| 🔊 🎵 ✨ 🎁 (sound, music, effect, item) | A menu, not free text. |
+| 🛒 🎒 ⚙ ⏸ 🏠 🗑 | Nothing — they take no settings. |
+
+Switch and counter names are yours to invent: there is no list to register
+them in, and **the same name anywhere means the same thing**. That is how
+one actor's action reaches another actor's condition.
+
+The two boxes *above* the actions are conditions on the whole event, not
+actions:
+
+- **only if switch…** — a switch name. Blank means always run.
+- **needs counter… ≥ n** — a counter name and a number. Blank means always.
 
 Three extras make real quests possible:
 - **only if switch…** — the event runs only while a named switch is ON.
@@ -569,6 +634,28 @@ awards a skill point** into `api.skills`, so leveling and your skill tree
 are one system. `api.xp.add(n)` grants XP from quests; `api.level()` reads
 the current level. The **Blob Arena** template shows the whole loop:
 slimes with different AI, two mapped abilities, hearts, XP, and a boss.
+
+### ⚔ How an enemy attacks
+
+Pick a pattern on any 👾 monster or 👹 boss, and set **Attack every (secs)**:
+
+| Pattern | What the player sees |
+| --- | --- |
+| 👊 Just touch me | No special attack — bumping into the player costs a heart. |
+| 🎯 Aimed shot | One shot straight at them. Easy to sidestep. |
+| 🔱 Spread shot | Three in a fan — sidestepping is not enough. |
+| 💨 Burst fire | Three quick shots, then a long pause. Punishes standing still. |
+| 💥 Ring of shots | Shots in every direction. Find the gap and run. Good for bosses. |
+| 🐗 Charge | Winds up, then rushes where the player **was**. |
+| 🌊 Ground slam | A shockwave rolls outward. It only hurts as the ring passes. |
+
+Every attack **telegraphs** first: the enemy stops and a ring closes in
+around it. That wind-up is the player's whole chance to react, so the
+engine owns it — you cannot turn it off, and aim is only taken at the *end*
+of it, which is what makes stepping aside actually work. An enraged boss
+telegraphs faster, but never so fast that the tell disappears.
+
+Enemies that only walk into you (👊) ignore the timer entirely.
 
 ### Saving — your game, and your players' progress
 

@@ -30,6 +30,10 @@ export interface CmdSpec {
   scopes: readonly Scope[];
   /** Compact label for a Flow node row, e.g. '🪙+3'. */
   short: (a: EventAction) => string;
+  /** What belongs in the free-text box. It means something different for
+   *  every command — a message, a level name, a switch — and an empty box
+   *  with no hint is the single most confusing thing in the event editor. */
+  placeholder?: string;
 }
 
 const BOTH: readonly Scope[] = ['entity', 'level'];
@@ -39,6 +43,7 @@ export const CMD_SPECS: readonly CmdSpec[] = [
     cmd: 'say', emoji: '💬', label: 'Say message', params: 'text', scopes: BOTH,
     keywords: ['talk', 'dialogue', 'text', 'speak'],
     short: (a) => `💬"${(a.text ?? '').slice(0, 12)}"`,
+    placeholder: 'what this character says',
   },
   {
     cmd: 'coins', emoji: '🪙', label: 'Give coins', params: 'n', scopes: BOTH,
@@ -84,6 +89,7 @@ export const CMD_SPECS: readonly CmdSpec[] = [
     cmd: 'var', emoji: '🔢', label: 'Add to variable', params: 'varn', scopes: BOTH,
     keywords: ['counter', 'count', 'tally', 'quest'],
     short: (a) => `🔢${a.text ?? ''}+${a.n ?? 1}`,
+    placeholder: 'counter name, e.g. lanterns',
   },
   {
     cmd: 'shop', emoji: '🛒', label: 'Open shop', params: 'none', scopes: BOTH,
@@ -114,6 +120,7 @@ export const CMD_SPECS: readonly CmdSpec[] = [
     cmd: 'spawn', emoji: '🐣', label: 'Spawn a thing', params: 'spawn', scopes: BOTH,
     keywords: ['create', 'make', 'add actor'],
     short: (a) => `🐣${a.text ?? 'crate'}`,
+    placeholder: 'what to spawn, e.g. crate',
   },
   {
     cmd: 'remove', emoji: '🗑', label: 'Remove this', params: 'none', scopes: ['entity'],
@@ -124,26 +131,31 @@ export const CMD_SPECS: readonly CmdSpec[] = [
     cmd: 'goto', emoji: '🚪', label: 'Go to level…', params: 'text', scopes: BOTH,
     keywords: ['door', 'travel', 'scene', 'change level'],
     short: (a) => `🚪${a.text ?? ''}`,
+    placeholder: 'level name, e.g. Village',
   },
   {
     cmd: 'switchOn', emoji: '🔛', label: 'Turn switch ON', params: 'text', scopes: BOTH,
     keywords: ['flag', 'gate', 'unlock'],
     short: (a) => `🔛${a.text ?? ''}`,
+    placeholder: 'switch name, e.g. gate-open',
   },
   {
     cmd: 'switchOff', emoji: '⏹', label: 'Turn switch OFF', params: 'text', scopes: BOTH,
     keywords: ['flag', 'gate', 'lock'],
     short: (a) => `⏹${a.text ?? ''}`,
+    placeholder: 'switch name, e.g. gate-open',
   },
   {
     cmd: 'win', emoji: '🏆', label: 'Win the game', params: 'text', scopes: BOTH,
     keywords: ['victory', 'complete', 'finish'],
     short: () => '🏆win',
+    placeholder: 'banner text, e.g. YOU ESCAPED!',
   },
   {
     cmd: 'lose', emoji: '💀', label: 'Lose the game', params: 'text', scopes: BOTH,
     keywords: ['defeat', 'game over', 'fail'],
     short: () => '💀lose',
+    placeholder: 'banner text, e.g. GAME OVER',
   },
 ];
 
