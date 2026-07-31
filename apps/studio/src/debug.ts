@@ -74,6 +74,13 @@ export interface StudioDebug {
   whereText: () => string;
   syncState: () => string;
   projectHasSecrets: () => string[];
+  setDialogue: (name: string, tree: unknown) => boolean;
+  tapEntity: (name: string) => boolean;
+  dialogueAt: () => string | null;
+  dialogueOptions: () => string[];
+  dialoguePick: (i: number) => boolean;
+  dialogueAdvance: () => boolean;
+  playerGrounded: () => boolean;
   openHud: () => void;
   hudNow: () => unknown;
   hudMove: (part: string, x: number, y: number) => { anchor: string; dx: number; dy: number };

@@ -229,6 +229,16 @@ Tiles marked *solid* (water, rock, trees, brick) **block players** in Play
 mode automatically — paint a maze and it just works. The Garden Explorer
 template ships with a painted garden to start from.
 
+**Ledges and platformers.** Paint the **Ledge (jump-through)** tile and
+turn **Gravity** on, and the level becomes a real platformer: solid tiles
+(rock, brick, water, trees) are floors and walls you collide with, and
+ledges are one-way — you land on top but jump up through them from below.
+Hold ⬇ while jumping to drop through one.
+
+A gravity level with **no tiles painted** keeps the original single flat
+ground line, so every platformer built before this still plays exactly as
+it did.
+
 **🎲 Generate a level** (bottom of the paintbox) builds one for you:
 **Maze** (rock walls, fully-connected dirt paths), **Dungeon** (brick
 walls, stone rooms joined by corridors), **Island** (grassy heart, sandy
@@ -389,6 +399,32 @@ and resize from the corner, so the Code window or the Flow map can be as
 big as you like while the canvas keeps the full width underneath. **⇲**
 docks it again, and whichever state you left it in is remembered on this
 device.
+
+## 4¾ · 💬 Branching conversations
+
+Select an NPC → **💬 Conversation** in the inspector → **🌿 Make it
+branching**. Your existing Story lines become the first nodes, so nothing
+is lost.
+
+Each node is a line the character says. Add **+ reply** to give the player
+something to say back, and pick where each reply goes from a dropdown of
+your nodes (or **— end —** to finish the conversation). A node with no
+replies just flows on to whichever node you point "then →" at.
+
+Two things make it a real conversation rather than a menu:
+
+- **only if…** on a reply hides it until a named switch is ON. The reply
+  that unlocks it can be the one that sets the switch.
+- **Replies run ⚡ actions** — the same blocks events use. A reply can pay
+  you coins, give an item, open the shop, set a switch or send you to
+  another level.
+
+Conditions are checked **as each line appears**, not once at the start, so
+a choice you make early really does change what you can say next.
+
+Nodes that point at something that no longer exists are flagged (⚠ goes
+nowhere) — the classic way a dialogue tree breaks, and invisible if you
+just read it top to bottom.
 
 ## 5 · Stories (narratives)
 

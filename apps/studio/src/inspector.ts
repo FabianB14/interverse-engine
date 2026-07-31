@@ -4,6 +4,7 @@ import { HATS, HELD_ITEMS } from './cosmetics.js';
 import { cmdMenuLabel, cmdSpec, cmdsFor, triggerLabel, triggersFor } from './cmds.js';
 import { EFFECT_LABEL, abilityList, createAbility, grantTo } from './abilities.js';
 import type { Scope } from './cmds.js';
+import { danglingDialogueLinks, dialogueFromLines } from './model.js';
 import type { EntityDef, EventAction, EventDef } from './model.js';
 
 const hex = (n: number): string => `#${n.toString(16).padStart(6, '0')}`;
@@ -261,6 +262,7 @@ export function wireInspector(editor: StudioEditor, hooks: InspectorHooks): void
       body.appendChild(hint);
     }
 
+    renderDialogue(def);
     renderAbilities(def);
     renderEvents(def, 'entity');
 
@@ -270,6 +272,190 @@ export function wireInspector(editor: StudioEditor, hooks: InspectorHooks): void
     del.textContent = '🗑 Delete';
     del.onclick = () => editor.removeEntity(def.id);
     body.appendChild(del);
+  };
+
+  /** 💬 Branching conversation: nodes, and the choices that link them. */
+  const renderDialogue = (def: EntityDef): void => {
+    if (def.kind !== 'npc' && def.kind !== 'blob') return;
+    const head = document.createElement('div');
+    head.className = 'muted';
+    head.style.margin = '12px 0 4px';
+    head.textContent = '💬 Conversation';
+    body.appendChild(head);
+
+    if (!def.dialogue) {
+      const hint = document.createElement('div');
+      hint.className = 'muted';
+      hint.style.fontSize = '11px';
+      hint.textContent = 'Uses the plain Story lines. Turn it into a branching conversation to add choices.';
+      const make = document.createElement('button');
+      make.className = 'btn';
+      make.style.marginTop = '4px';
+      make.textContent = '🌿 Make it branching';
+      make.onclick = () => {
+        // Start from whatever lines exist, so nothing is lost.
+        def.dialogue = dialogueFromLines(def.lines);
+        editor.editLabel = 'add conversation';
+        editor.touch();
+        render();
+      };
+      body.append(hint, make);
+      return;
+    }
+
+    const d = def.dialogue;
+    const touchAndRender = (): void => {
+      editor.touch();
+      render();
+    };
+    const ids = d.nodes.map((n) => n.id);
+    const bad = danglingDialogueLinks(d);
+    if (bad.length) {
+      const warn = document.createElement('div');
+      warn.className = 'muted';
+      warn.style.cssText = 'font-size:11px;color:#ffd166';
+      warn.textContent = `⚠ goes nowhere: ${bad.join(', ')}`;
+      body.appendChild(warn);
+    }
+
+    /** A "where does this go" picker — every node, plus "end". */
+    const target = (value: string, onPick: (v: string) => void): HTMLSelectElement => {
+      const sel = document.createElement('select');
+      sel.style.maxWidth = '110px';
+      for (const v of ['', ...ids]) {
+        const o = document.createElement('option');
+        o.value = v;
+        o.textContent = v === '' ? '— end —' : v;
+        if (v === value) o.selected = true;
+        sel.appendChild(o);
+      }
+      sel.onchange = () => {
+        onPick(sel.value);
+        editor.touch();
+      };
+      return sel;
+    };
+
+    d.nodes.forEach((node, ni) => {
+      const box = document.createElement('div');
+      box.style.cssText = 'border:1px solid #35304d;border-radius:8px;padding:6px;margin-bottom:6px';
+
+      const top = document.createElement('div');
+      top.className = 'row';
+      const tag = document.createElement('span');
+      tag.className = 'muted';
+      tag.style.cssText = 'font-size:11px;width:34px';
+      tag.textContent = node.id;
+      const startMark = document.createElement('button');
+      startMark.className = 'btn';
+      startMark.style.cssText = 'padding:1px 5px;font-size:10px';
+      startMark.textContent = d.start === node.id ? '▶ start' : 'start?';
+      startMark.title = 'Begin the conversation here';
+      startMark.onclick = () => {
+        d.start = node.id;
+        touchAndRender();
+      };
+      const kill = document.createElement('button');
+      kill.className = 'btn';
+      kill.textContent = '✕';
+      kill.onclick = () => {
+        d.nodes.splice(ni, 1);
+        if (!d.nodes.length) delete def.dialogue;
+        else if (!d.nodes.some((n) => n.id === d.start)) d.start = d.nodes[0]!.id;
+        touchAndRender();
+      };
+      top.append(tag, startMark, kill);
+      box.appendChild(top);
+
+      const line = document.createElement('input');
+      line.type = 'text';
+      line.style.cssText = 'width:100%;margin-top:4px';
+      line.value = node.text;
+      line.placeholder = 'what they say';
+      line.oninput = () => {
+        node.text = line.value;
+        editor.editLabel = 'edit actor';
+        editor.touch();
+      };
+      box.appendChild(line);
+
+      if (!node.choices?.length) {
+        const row = document.createElement('div');
+        row.className = 'row';
+        row.style.marginTop = '4px';
+        const l = document.createElement('label');
+        l.className = 'muted';
+        l.style.fontSize = '11px';
+        l.textContent = 'then →';
+        row.append(l, target(node.next ?? '', (v) => {
+          if (v) node.next = v;
+          else delete node.next;
+        }));
+        box.appendChild(row);
+      }
+
+      for (const [ci, choice] of (node.choices ?? []).entries()) {
+        const row = document.createElement('div');
+        row.className = 'row';
+        row.style.cssText = 'margin-top:4px;flex-wrap:wrap;gap:4px';
+        const t = document.createElement('input');
+        t.type = 'text';
+        t.style.flex = '1';
+        t.value = choice.text;
+        t.placeholder = 'the player says…';
+        t.oninput = () => {
+          choice.text = t.value;
+          editor.editLabel = 'edit actor';
+          editor.touch();
+        };
+        const gate = document.createElement('input');
+        gate.type = 'text';
+        gate.style.width = '86px';
+        gate.placeholder = 'only if…';
+        gate.title = 'Only offer this reply while that switch is ON';
+        gate.value = choice.ifSwitch ?? '';
+        gate.oninput = () => {
+          if (gate.value.trim()) choice.ifSwitch = gate.value.trim();
+          else delete choice.ifSwitch;
+          editor.touch();
+        };
+        const x = document.createElement('button');
+        x.className = 'btn';
+        x.textContent = '✕';
+        x.onclick = () => {
+          node.choices!.splice(ci, 1);
+          if (!node.choices!.length) delete node.choices;
+          touchAndRender();
+        };
+        row.append('↳', t, target(choice.to, (v) => (choice.to = v)), gate, x);
+        box.appendChild(row);
+      }
+
+      const addChoice = document.createElement('button');
+      addChoice.className = 'btn';
+      addChoice.style.cssText = 'margin-top:4px;font-size:11px';
+      addChoice.textContent = '+ reply';
+      addChoice.onclick = () => {
+        node.choices ??= [];
+        node.choices.push({ text: 'Sure.', to: '' });
+        delete node.next;
+        touchAndRender();
+      };
+      box.appendChild(addChoice);
+      body.appendChild(box);
+    });
+
+    const addNode = document.createElement('button');
+    addNode.className = 'btn';
+    addNode.textContent = '+ Add line';
+    addNode.onclick = () => {
+      const used = new Set(d.nodes.map((n) => n.id));
+      let i = d.nodes.length;
+      while (used.has(`n${i}`)) i++;
+      d.nodes.push({ id: `n${i}`, text: '…' });
+      touchAndRender();
+    };
+    body.appendChild(addNode);
   };
 
   /** ⚡ Abilities this actor OWNS. On the player they become on-screen

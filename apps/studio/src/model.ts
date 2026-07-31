@@ -86,6 +86,98 @@ export interface EventDef {
 
 export type TapSound = '' | 'pop' | 'blip' | 'chime' | 'buzz';
 
+/** 💬 One thing the player can say back. Choices are what turn a list of
+ *  lines into a conversation: they can be hidden until a switch is on, and
+ *  they run the SAME action blocks events use, so a reply can pay you,
+ *  open a shop, or set the flag that unlocks the next reply. */
+export interface DialogueChoiceDef {
+  text: string;
+  /** Node id to go to. Empty ends the conversation. */
+  to: string;
+  /** Only offered while this switch is ON. */
+  ifSwitch?: string;
+  /** Only offered while this variable is at least ifVarAtLeast. */
+  ifVar?: string;
+  ifVarAtLeast?: number;
+  actions?: EventAction[];
+}
+
+export interface DialogueNodeDef {
+  id: string;
+  /** Who is speaking — blank uses the actor's own name. */
+  speaker?: string;
+  text: string;
+  /** Where to go when there are no choices. Empty ends the conversation. */
+  next?: string;
+  choices?: DialogueChoiceDef[];
+}
+
+export interface DialogueDef {
+  start: string;
+  nodes: DialogueNodeDef[];
+}
+
+/** Turn the old flat `lines` into a node chain, so every existing NPC keeps
+ *  working and can be opened in the branching editor without conversion. */
+export function dialogueFromLines(lines: string[]): DialogueDef {
+  const list = lines.length ? lines : ['…'];
+  return {
+    start: 'n0',
+    nodes: list.map((text, i) => ({
+      id: `n${i}`,
+      text,
+      ...(i < list.length - 1 ? { next: `n${i + 1}` } : {}),
+    })),
+  };
+}
+
+export function normalizeDialogue(input: unknown): DialogueDef | null {
+  if (!input || typeof input !== 'object') return null;
+  const raw = input as Partial<DialogueDef>;
+  if (!Array.isArray(raw.nodes)) return null;
+  const nodes: DialogueNodeDef[] = [];
+  for (const n of raw.nodes) {
+    if (!n || typeof n !== 'object' || typeof n.id !== 'string' || !n.id) continue;
+    const node: DialogueNodeDef = { id: n.id, text: typeof n.text === 'string' ? n.text : '' };
+    if (typeof n.speaker === 'string' && n.speaker) node.speaker = n.speaker;
+    if (typeof n.next === 'string' && n.next) node.next = n.next;
+    const choices = (Array.isArray(n.choices) ? n.choices : [])
+      .filter((c): c is DialogueChoiceDef => !!c && typeof c === 'object' && typeof c.text === 'string')
+      .map((c) => {
+        const out: DialogueChoiceDef = { text: c.text, to: typeof c.to === 'string' ? c.to : '' };
+        if (c.ifSwitch) out.ifSwitch = String(c.ifSwitch);
+        if (c.ifVar) {
+          out.ifVar = String(c.ifVar);
+          out.ifVarAtLeast = Number(c.ifVarAtLeast) || 1;
+        }
+        const acts = (Array.isArray(c.actions) ? c.actions : []).filter(
+          (a) => !!a && typeof a === 'object' && EVENT_CMDS.includes(a.cmd) && a.cmd !== 'remove',
+        );
+        if (acts.length) out.actions = acts;
+        return out;
+      });
+    if (choices.length) node.choices = choices;
+    nodes.push(node);
+  }
+  if (!nodes.length) return null;
+  const start = typeof raw.start === 'string' && nodes.some((n) => n.id === raw.start) ? raw.start : nodes[0]!.id;
+  return { start, nodes };
+}
+
+/** Ids a node points at that do not exist — a dead end the author cannot
+ *  see by reading, which is the classic way a dialogue tree breaks. */
+export function danglingDialogueLinks(d: DialogueDef): string[] {
+  const ids = new Set(d.nodes.map((n) => n.id));
+  const bad: string[] = [];
+  for (const n of d.nodes) {
+    if (n.next && !ids.has(n.next)) bad.push(`${n.id} → ${n.next}`);
+    for (const c of n.choices ?? []) {
+      if (c.to && !ids.has(c.to)) bad.push(`${n.id} → ${c.to}`);
+    }
+  }
+  return bad;
+}
+
 export interface EntityDef {
   id: string;
   kind: EntityKind;
@@ -122,8 +214,12 @@ export interface EntityDef {
   held: string;
   /** Named animation clips (kind 'image' spritesheets): frame ranges. */
   clips: { name: string; from: number; to: number; fps: number }[];
-  /** Story lines (kind 'npc') — said in order when tapped in Play mode. */
+  /** Story lines (kind 'npc') — said in order when tapped in Play mode.
+   *  Superseded by `dialogue` when that is present; kept so every existing
+   *  NPC keeps working untouched. */
   lines: string[];
+  /** 💬 Branching conversation: nodes, choices, conditions and actions. */
+  dialogue?: DialogueDef;
   /** ⚡ Ability ids this actor owns (see ProjectDef.db.abilities). When the
    *  actor is the player they become on-screen buttons automatically. */
   abilities: string[];
@@ -596,6 +692,9 @@ export function parseProject(json: string): ProjectDef {
       e.clips = (Array.isArray(e.clips) ? e.clips : []).filter(
         (c) => !!c && typeof c === 'object' && typeof c.name === 'string' && Number.isFinite(c.from) && Number.isFinite(c.to),
       );
+      const dlg = normalizeDialogue(e.dialogue);
+      if (dlg) e.dialogue = dlg;
+      else delete e.dialogue;
       e.abilities = (Array.isArray(e.abilities) ? e.abilities : []).filter((a): a is string => typeof a === 'string' && !!a);
       e.skillTree = typeof e.skillTree === 'string' ? e.skillTree : '';
       e.events = normalizeEvents(e.events, 'entity');

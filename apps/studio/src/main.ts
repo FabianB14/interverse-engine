@@ -21,6 +21,7 @@ import { TILE_TYPES } from './tiles.js';
 import { pushToGitHub, registerInWorld, slugify, store as pubStore } from './publish.js';
 import { getOrigin, originLabel, readFromGitHub, setOrigin, stripSecrets, syncIcon } from './origin.js';
 import type { Origin, SyncState } from './origin.js';
+import { normalizeDialogue } from './model.js';
 import type { EntityKind } from './model.js';
 import './debug.js';
 
@@ -1502,6 +1503,21 @@ async function main(): Promise<void> {
       const raw = JSON.parse(editor.exportJson()) as Record<string, unknown>;
       return ['origin', 'github', 'token', 'pat', 'secrets', 'apiKey', 'api_key'].filter((k) => k in raw);
     },
+    setDialogue: (name: string, tree: unknown) => {
+      const d = editor.entityByName(name);
+      if (!d) return false;
+      const norm = normalizeDialogue(tree);
+      if (norm) d.dialogue = norm;
+      else delete d.dialogue;
+      editor.touch();
+      return true;
+    },
+    tapEntity: (name: string) => editor.getPlayScene()?.tapEntity(name) ?? false,
+    dialogueAt: () => editor.getPlayScene()?.dialogueAt() ?? null,
+    dialogueOptions: () => editor.getPlayScene()?.dialogueOptions() ?? [],
+    dialoguePick: (i: number) => editor.getPlayScene()?.dialoguePick(i) ?? false,
+    dialogueAdvance: () => editor.getPlayScene()?.dialogueAdvance() ?? false,
+    playerGrounded: () => editor.getPlayScene()?.playerGrounded() ?? false,
     openHud: () => openHudEditor(hudHost),
     hudNow: () => editor.project.hud ?? null,
     hudMove: (part: string, x: number, y: number) => {

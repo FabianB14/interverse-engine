@@ -28,13 +28,13 @@ import { DialogueBox, UIButton } from '@interverse/ui';
 import { fetchChainBalance } from '@interverse/platform';
 import { drawOutfit } from './cosmetics.js';
 import { drawIcon } from './icons.js';
-import { defaultControls, defaultEntity, defaultHud, hudPos } from './model.js';
-import type { AbilityDef, EntityDef, EntityKind, EventAction, EventDef, HudPart, ProjectDef, SceneDef, TapSound } from './model.js';
+import { defaultControls, defaultEntity, defaultHud, dialogueFromLines, hudPos } from './model.js';
+import type { AbilityDef, DialogueChoiceDef, DialogueDef, EntityDef, EntityKind, EventAction, EventDef, HudPart, ProjectDef, SceneDef, TapSound } from './model.js';
 import { SkillTree } from './skills.js';
 import type { SkillTreeDef } from './skills.js';
 import type { StudioNet } from './net.js';
 import { generateRows } from './gen.js';
-import { anyTiles, buildTileLayer } from './tiles.js';
+import { anyTiles, buildTileLayer, isPlatformChar } from './tiles.js';
 
 // ---- 🌐 localization: strings starting with @key resolve per-language ----
 let localeTable: Record<string, Record<string, string>> = {};
@@ -298,19 +298,6 @@ function playSound(s: TapSound): void {
   else if (s === 'buzz') audio.buzz();
 }
 
-function dialogueFor(def: EntityDef): DialogueData {
-  const nodes: DialogueData['nodes'] = {};
-  const lines = (def.lines.length ? def.lines : ['…']).map(tr);
-  lines.forEach((text, i) => {
-    nodes[`n${i}`] = {
-      speaker: def.name,
-      text,
-      ...(i < lines.length - 1 ? { next: `n${i + 1}` } : {}),
-    };
-  });
-  return { start: 'n0', nodes };
-}
-
 /** The API handed to scene scripts (the Code tab). */
 export interface ScriptApi {
   scene: Scene;
@@ -506,7 +493,10 @@ interface AbilityState {
   overlay: Graphics;
 }
 
-const ABILITY_R = 52; // button radius (≥84 design-unit touch target)
+const ABILITY_R = 52;
+/** Player collision box for tile platforming. */
+const PLAYER_HALF_W = 16;
+const PLAYER_HALF_H = 22; // button radius (≥84 design-unit touch target)
 
 /** Live play-through of a project scene: behaviors, taps, stories, script. */
 export class PlayScene extends Scene {
@@ -519,6 +509,8 @@ export class PlayScene extends Scene {
     speed: number;
     groundY: number;
     vy: number;
+    /** Standing on something this frame (tile platformer only). */
+    grounded: boolean;
     /** Brawler jump (2.5D + Gravity): height above the ground plane. */
     z: number;
     vz: number;
@@ -536,6 +528,10 @@ export class PlayScene extends Scene {
   private over = false;
   // Combat layer: mobs/bosses, hearts, abilities, XP/levels.
   private mobStates = new Map<string, MobState>();
+  /** 💬 Conversation in progress: node id, live choices, and how to resume. */
+  private dialogueNode: string | null = null;
+  private dialogueChoices: DialogueChoiceDef[] = [];
+  private dialogueDone: ((landed: string | null) => void) | null = null;
   /** ⚡ Level 'tap' events — fired by tapping empty ground. */
   private levelTaps: (() => void)[] = [];
   /** 🎮 action id -> the keys bound to it, from project.controls. */
@@ -767,7 +763,11 @@ export class PlayScene extends Scene {
     if (def.tapSound || def.kind === 'npc' || def.kind === 'button') {
       makeTappable(e, () => {
         playSound(def.tapSound);
-        if (def.kind === 'npc') this.openStory(dialogueFor(def));
+        if (def.kind === 'npc') {
+          // A branching tree wins; otherwise the old flat line list.
+          const tree = def.dialogue ?? dialogueFromLines(def.lines);
+          this.runDialogue(tree, { def, e });
+        }
       });
     }
     if (def.kind === 'mob' || def.kind === 'boss') this.registerMob(def, e);
@@ -1855,6 +1855,97 @@ export class PlayScene extends Scene {
     return { x: spot.x, y: spot.y, visible: spot.show };
   }
 
+  /** One frame of tile platforming: run, gravity, land, jump.
+   *
+   *  Axis-separated like every 2D platformer: move horizontally and resolve,
+   *  then vertically and resolve. Doing both at once is what produces the
+   *  classic "catches on a seam between two floor tiles" bug. */
+  private stepPlatformer(p: (typeof this.players)[number], mx: number, my: number, dt: number): void {
+    const map = this.tileMap!;
+    const e = p.entity;
+    const W = this.sceneDef.worldW;
+    const H = this.sceneDef.worldH;
+
+    if (mx) {
+      const moved = moveWithCollision(map, e.x, e.y, PLAYER_HALF_W, PLAYER_HALF_H, mx * p.speed * dt, 0);
+      e.x = Math.max(PLAYER_HALF_W, Math.min(W - PLAYER_HALF_W, moved.x));
+    }
+
+    // Jump only from the ground — and let a jump escape a ledge you are
+    // standing on, which is why the drop-through check reads `my`.
+    if (my < -0.4 && p.grounded) {
+      p.vy = -880;
+      p.grounded = false;
+      audio.blip(1.3);
+    }
+    p.vy += 2100 * dt;
+    const dy = p.vy * dt;
+    const feetFrom = e.y + PLAYER_HALF_H;
+    const solved = moveWithCollision(map, e.x, e.y, PLAYER_HALF_W, PLAYER_HALF_H, 0, dy);
+    let landedY: number | null = solved.y !== e.y + dy ? solved.y : null;
+
+    // One-way ledges: only while FALLING, and only if the feet were above
+    // the ledge's top edge a moment ago — otherwise you could never jump up
+    // through one, which is the whole point of a ledge.
+    if (p.vy > 0 && landedY === null && !(my > 0.5)) {
+      const top = this.platformTopBetween(e.x, feetFrom, feetFrom + dy);
+      if (top !== null) landedY = top - PLAYER_HALF_H;
+    }
+
+    if (landedY !== null && p.vy > 0) {
+      e.y = landedY;
+      p.vy = 0;
+      p.grounded = true;
+    } else if (landedY !== null) {
+      // Bonked a ceiling.
+      e.y = solved.y;
+      p.vy = 0;
+      p.grounded = false;
+    } else {
+      e.y = Math.min(H - PLAYER_HALF_H, e.y + dy);
+      p.grounded = false;
+      if (e.y >= H - PLAYER_HALF_H) {
+        p.vy = 0;
+        p.grounded = true;
+      }
+    }
+  }
+
+  /** Top edge of a one-way ledge the feet cross between y0 and y1. */
+  private platformTopBetween(x: number, y0: number, y1: number): number | null {
+    const rows = this.sceneDef.tiles;
+    if (!rows) return null;
+    const ts = this.tileMap?.tileSize ?? 40;
+    const col = Math.floor(x / ts);
+    const from = Math.floor(y0 / ts);
+    const to = Math.floor(y1 / ts);
+    for (let ty = from; ty <= to; ty++) {
+      const ch = rows[ty]?.[col];
+      if (!ch || !isPlatformChar(ch)) continue;
+      const top = ty * ts;
+      // Only count a ledge whose surface is actually being crossed.
+      if (top >= y0 - 1 && top <= y1) return top;
+    }
+    return null;
+  }
+
+  /** Headless hook: tap an actor, as a player would. */
+  tapEntity(name: string): boolean {
+    const def = this.sceneDef.entities.find((d) => d.name === name);
+    const e = this.byName.get(name);
+    if (!def || !e) return false;
+    if (def.kind === 'npc') {
+      this.runDialogue(def.dialogue ?? dialogueFromLines(def.lines), { def, e });
+      return true;
+    }
+    return false;
+  }
+
+  /** Headless hook: is the player standing on something? */
+  playerGrounded(): boolean {
+    return this.players[0]?.grounded ?? false;
+  }
+
   /** Is any key bound to this action currently down? */
   private held(actionId: string): boolean {
     const keys = this.binds.get(actionId);
@@ -1878,7 +1969,7 @@ export class PlayScene extends Scene {
     return this.switchesMap.get(name) ?? false;
   }
 
-  private openStory(data: DialogueData): void {
+  private openStory(data: DialogueData, onDone?: (landedNode: string | null) => void): void {
     if (!this.box) {
       this.box = new DialogueBox();
       this.box.position.set((this.game.viewWidth - 656) / 2, this.game.viewHeight - 330);
@@ -1887,6 +1978,105 @@ export class PlayScene extends Scene {
     const runner = new DialogueRunner(data);
     runner.start();
     this.box.open(runner);
+    this.dialogueDone = onDone ?? null;
+    if (!onDone) return;
+    // Watch for the runner leaving the node — that is either a tap-through
+    // or a pick, and the id it landed on says which.
+    let fired = false;
+    const watch = (): void => {
+      if (fired) return;
+      const at = runner.currentId;
+      if (at === 'cur') return;
+      fired = true;
+      this.dialogueDone = null;
+      onDone(at);
+    };
+    this.updaters.push(watch);
+  }
+
+  /** 💬 Run a branching conversation one node at a time.
+   *
+   *  Driving it node-by-node rather than handing the whole tree to the
+   *  engine runner is what makes conditions LIVE: a choice that sets a
+   *  switch can unlock a reply in the very next node, which cannot work if
+   *  the tree was filtered once up front.
+   */
+  private runDialogue(def: DialogueDef, owner: EventOwner | null, nodeId?: string): void {
+    const id = nodeId ?? def.start;
+    const node = def.nodes.find((n) => n.id === id);
+    if (!node) {
+      this.dialogueNode = null;
+      return;
+    }
+    this.dialogueNode = node.id;
+    const speaker = node.speaker || owner?.def.name || this.sceneDef.name;
+    // Only the choices whose conditions hold RIGHT NOW.
+    const offered = (node.choices ?? []).filter((c) => this.choiceAllowed(c));
+    this.dialogueChoices = offered;
+
+    const nodes: DialogueData['nodes'] = {
+      cur: {
+        speaker,
+        text: tr(node.text),
+        ...(offered.length
+          ? { choices: offered.map((c, i) => ({ text: tr(c.text), next: `pick${i}` })) }
+          : {}),
+      },
+    };
+    // Stub landing nodes tell us WHICH choice was taken.
+    offered.forEach((_, i) => {
+      nodes[`pick${i}`] = { text: '' };
+    });
+    this.openStory({ start: 'cur', nodes }, (landed) => {
+      if (landed && landed.startsWith('pick')) {
+        const choice = offered[Number(landed.slice(4))];
+        if (choice) {
+          for (const a of choice.actions ?? []) this.runActions(owner, [a]);
+          if (choice.to) {
+            this.runDialogue(def, owner, choice.to);
+            return;
+          }
+        }
+        this.dialogueNode = null;
+        return;
+      }
+      // No choices: follow `next`, or end.
+      if (node.next) this.runDialogue(def, owner, node.next);
+      else this.dialogueNode = null;
+    });
+  }
+
+  private choiceAllowed(c: DialogueChoiceDef): boolean {
+    if (c.ifSwitch && !this.switchesMap.get(c.ifSwitch)) return false;
+    if (c.ifVar && (this.varsMap.get(c.ifVar) ?? 0) < (c.ifVarAtLeast ?? 1)) return false;
+    return true;
+  }
+
+  /** Headless hooks for the conversation in progress. */
+  dialogueAt(): string | null {
+    return this.dialogueNode;
+  }
+
+  dialogueOptions(): string[] {
+    return this.dialogueChoices.map((c) => c.text);
+  }
+
+  /** Pick option n of the conversation, as if the player tapped it. */
+  dialoguePick(i: number): boolean {
+    const done = this.dialogueDone;
+    if (!done || i < 0 || i >= this.dialogueChoices.length) return false;
+    this.box?.close?.();
+    done(`pick${i}`);
+    return true;
+  }
+
+  /** Advance a choice-less line, as if the player tapped the box. */
+  dialogueAdvance(): boolean {
+    const done = this.dialogueDone;
+    if (!done || this.dialogueChoices.length) return false;
+    this.box?.close?.();
+    done(null);
+    return true;
   }
 
   private resolve(target: string | Entity): Entity | undefined {
@@ -1931,7 +2121,7 @@ export class PlayScene extends Scene {
         const e = this.byName.get(name);
         if (!e) return undefined;
         const pdef = this.sceneDef.entities.find((d) => d.name === name);
-        const p: (typeof this.players)[number] = { entity: e, speed, groundY: e.y, vy: 0, z: 0, vz: 0, shadow: null };
+        const p: (typeof this.players)[number] = { entity: e, speed, groundY: e.y, vy: 0, grounded: true, z: 0, vz: 0, shadow: null };
         if (pdef) p.def = pdef;
         this.players.push(p);
         if (this.sceneDef.view === 'depth' && this.sceneDef.gravity) {
@@ -2704,20 +2894,25 @@ export class PlayScene extends Scene {
       const H = this.sceneDef.worldH;
       if (this.sceneDef.gravity && !depth) {
         // Gravity physics: run left/right; up (or joystick up) jumps.
+        // A level with PAINTED TILES collides against them — walls block,
+        // floors hold you up, ledges are one-way. A level without tiles
+        // keeps the original flat ground line, so every game built before
+        // tile collision existed plays exactly as it did.
         for (const p of this.players) {
           if (p.entity.destroyed) continue;
-          if (mx) {
-            p.entity.x = Math.max(20, Math.min(W - 20, p.entity.x + mx * p.speed * dt));
-            this.face(p.entity, mx);
+          if (mx) this.face(p.entity, mx);
+          if (this.tileMap) this.stepPlatformer(p, mx, my, dt);
+          else {
+            if (mx) p.entity.x = Math.max(20, Math.min(W - 20, p.entity.x + mx * p.speed * dt));
+            p.grounded = p.entity.y >= p.groundY - 1;
+            if (my < -0.4 && p.grounded) {
+              p.vy = -880;
+              audio.blip(1.3);
+            }
+            p.vy += 2100 * dt;
+            p.entity.y = Math.min(p.groundY, p.entity.y + p.vy * dt);
+            if (p.entity.y >= p.groundY) p.vy = 0;
           }
-          const grounded = p.entity.y >= p.groundY - 1;
-          if (my < -0.4 && grounded) {
-            p.vy = -880;
-            audio.blip(1.3);
-          }
-          p.vy += 2100 * dt;
-          p.entity.y = Math.min(p.groundY, p.entity.y + p.vy * dt);
-          if (p.entity.y >= p.groundY) p.vy = 0;
         }
       } else {
         if (mx || my) {

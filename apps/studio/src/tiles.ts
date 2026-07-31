@@ -23,6 +23,10 @@ export interface TileType {
   name: string;
   color: number;
   solid: boolean;
+  /** One-way: you land on top but jump up through it from below. The
+   *  ledge every platformer is built out of. NOT solid, so top-down levels
+   *  and the engine's own collision walk straight through. */
+  platform?: boolean;
 }
 
 /** The paintbox. '.' erases back to the scene background. */
@@ -36,7 +40,13 @@ export const TILE_TYPES: TileType[] = [
   { ch: 'k', name: 'Rock wall', color: 0x5d5d6b, solid: true },
   { ch: 't', name: 'Tree', color: 0x2e5d38, solid: true },
   { ch: 'b', name: 'Brick wall', color: 0x7a4a3a, solid: true },
+  { ch: 'l', name: 'Ledge (jump-through)', color: 0x9a7b4f, solid: false, platform: true },
 ];
+
+/** Chars that are one-way platforms. */
+export const PLATFORM_CHARS: ReadonlySet<string> = new Set(TILE_TYPES.filter((t) => t.platform).map((t) => t.ch));
+
+export const isPlatformChar = (ch: string): boolean => PLATFORM_CHARS.has(ch);
 
 const IDS: Record<string, number> = { '.': 0 };
 TILE_TYPES.forEach((t, i) => (IDS[t.ch] = i + 1));
@@ -142,6 +152,14 @@ for (const t of TILE_TYPES) {
         g.circle(x + s * 0.66, y + s * 0.48, s * 0.22).fill(lighten(c, 0.08));
         break;
       }
+      case 'l':
+        // A plank you land on: a lit top lip and a shallow body, so it
+        // reads as something you stand ON rather than a wall you cannot
+        // pass — which is exactly how it behaves.
+        g.rect(x, y, s, s * 0.34).fill(c);
+        g.rect(x, y, s, 3).fill(lighten(c, 0.4));
+        g.rect(x, y + s * 0.34 - 2, s, 2).fill(darken(c, 0.5));
+        break;
       case 'b':
         g.rect(x, y, s, s).fill(c);
         g.rect(x, y + s / 2 - 1, s, 2).fill(darken(c, 0.45));

@@ -623,6 +623,88 @@ const gameGenOk =
   genPlays > 0 && genVisible === genPlays && genOver === false &&
   genMobs > 0 && genLive > genMobs && cozyMobs === 0;
 
+// BRANCHING DIALOGUE: choices, conditions that update mid-conversation,
+// and replies that run actions.
+await page.evaluate(() => window.__studio.loadTemplate('rpg'));
+await sleep(300);
+const npc = 'Elder';
+await page.evaluate((who) => {
+  window.__studio.setDialogue(who, {
+    start: 'greet',
+    nodes: [
+      {
+        id: 'greet',
+        text: 'Well met, traveller.',
+        choices: [
+          { text: 'Who are you?', to: 'who', actions: [{ cmd: 'switchOn', text: 'introduced' }] },
+          { text: 'Got work?', to: 'work', ifSwitch: 'introduced', actions: [{ cmd: 'coins', n: 5 }] },
+        ],
+      },
+      { id: 'who', text: 'The village elder.', next: 'greet' },
+      { id: 'work', text: 'Clear the crypt.' },
+    ],
+  });
+}, npc);
+await page.evaluate(() => window.__studio.play());
+await sleep(700);
+// Open the conversation the way a player does — by tapping the NPC.
+await page.evaluate((who) => window.__studio.tapEntity(who), npc);
+await sleep(400);
+const dlgAt = await page.evaluate(() => window.__studio.dialogueAt());
+// Only the unconditional reply is offered before the switch is set.
+const dlgFirst = await page.evaluate(() => window.__studio.dialogueOptions());
+const coins0 = await page.evaluate(() => window.__studio.coinsNow());
+await page.evaluate(() => window.__studio.dialoguePick(0));
+await sleep(300);
+const dlgWho = await page.evaluate(() => window.__studio.dialogueAt());
+await page.evaluate(() => window.__studio.dialogueAdvance());
+await sleep(300);
+// Back at greet, the gated reply has appeared because the pick set a switch.
+const dlgSecond = await page.evaluate(() => window.__studio.dialogueOptions());
+await page.evaluate(() => window.__studio.dialoguePick(1));
+await sleep(300);
+const dlgWork = await page.evaluate(() => window.__studio.dialogueAt());
+const coins1 = await page.evaluate(() => window.__studio.coinsNow());
+await page.screenshot({ path: `${outDir}/st-27-dialogue.png` });
+await page.evaluate(() => window.__studio.stop());
+await sleep(150);
+const dialogueOk =
+  dlgAt === 'greet' && dlgFirst.length === 1 && dlgWho === 'who' &&
+  dlgSecond.length === 2 && dlgWork === 'work' && coins1 === coins0 + 5;
+
+// TILE PLATFORMER: painted floors hold the player up, walls block, and a
+// ledge is one-way. A level with NO tiles keeps the old flat ground.
+await page.evaluate(() => {
+  window.__studio.loadTemplate('topdown');
+});
+await sleep(250);
+await page.evaluate(() => {
+  window.__studio.setGravity(true);
+  // A floor across the bottom, a ledge halfway up.
+  for (let c = 0; c < 18; c++) window.__studio.setTile(c, 28, 'b');
+  for (let c = 6; c < 12; c++) window.__studio.setTile(c, 20, 'l');
+  window.__studio.setScript("api.player('Hero', 300);");
+});
+await page.evaluate(() => window.__studio.select('Hero'));
+await page.evaluate(() => window.__studio.setProp('x', 360));
+await page.evaluate(() => window.__studio.setProp('y', 300));
+await page.evaluate(() => window.__studio.play());
+await sleep(1500);
+// It should have fallen and be standing on the ledge (row 20 -> y 800).
+const restY = await page.evaluate(() => window.__studio.getPlayPos('Hero').y);
+const onGround = await page.evaluate(() => window.__studio.playerGrounded());
+// Walking into the world edge must not escape the board.
+await page.keyboard.down('ArrowLeft');
+await sleep(900);
+await page.keyboard.up('ArrowLeft');
+const leftX = await page.evaluate(() => window.__studio.getPlayPos('Hero').x);
+const fellY = await page.evaluate(() => window.__studio.getPlayPos('Hero').y);
+await page.screenshot({ path: `${outDir}/st-28-platformer.png` });
+await page.evaluate(() => window.__studio.stop());
+await sleep(150);
+const platformOk =
+  restY > 700 && restY < 820 && onGround === true && leftX >= 0 && leftX < 360 && fellY > restY;
+
 // UNDO / REDO: an edit can be taken back, and taken back again.
 await page.evaluate(() => window.__studio.loadTemplate('topdown'));
 await sleep(300);
@@ -1061,7 +1143,7 @@ const ok =
   placeOk && editOk && storyOk && levelsOk && playOk && stopOk && exportOk && importOk &&
   templatesOk && skillsOk && scoreOk && tilesOk && cameraOk && frameOk && combatOk && rangedOk &&
   patrolOk && chatOk && coinsOk && persistOk && libOk && eventsOk && genOk && uiOk && dbOk &&
-  questOk && levelEvOk && apiOk && keysOk && controlsOk && skillsBranchOk && gameGenOk && dropOk && artOk && originOk && abilityOk && menuOk && undoOk && hudOk && netOk &&
+  questOk && levelEvOk && apiOk && keysOk && controlsOk && skillsBranchOk && gameGenOk && dropOk && artOk && originOk && abilityOk && menuOk && undoOk && hudOk && dialogueOk && platformOk && netOk &&
   errors.length === 0;
 console.log(
   JSON.stringify(
@@ -1085,6 +1167,8 @@ console.log(
       apiOk, apiN: apiAll.length, apiHit0: apiHit[0], inserted, scriptErr,
       keysOk, kx0, kxD, kxL, ky0, kyS,
       controlsOk, defRight, reboundRight, rx0, rxOldKey, rxNewKey, addedCustom, killBuiltin, killCustom, conflicts,
+      dialogueOk, dlgAt, dlgFirst, dlgWho, dlgSecond, dlgWork, coins0, coins1,
+      platformOk, restY, onGround, leftX, fellY,
       undoOk, undoBefore, undoAdded, undoWhat, afterUndo1, afterUndo2, afterRedo, undoHeroX, beforeKey, afterKey,
       hudOk, moved, heartsAt, scoreAt, heartsSafe,
       menuOk, pauseOpen, pausedMove, settingsOpen, menuClosed, resumed, gameTemplates,
