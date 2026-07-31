@@ -98,7 +98,7 @@ The player is at `z = 0`, so a curve never moves them.
 Two things to get right when you drive it, both learned the hard way:
 
 - **Draw the road in segments.** A single trapezoid from here to the horizon
-  can only ever be straight. Blob Rush slices it into 26 quads spaced by the
+  can only ever be straight. Blob Rush slices it into 40 quads spaced by the
   *square* of the fraction, so most of them land in the near half where the
   curve is legible rather than in the two-pixel band at the horizon.
 - **Let it commit.** The first cut changed target every 2600 units and eased
@@ -111,6 +111,50 @@ Store world positions as **absolute** distance from the start of the run and
 subtract the player's depth where you need it. Decrementing every object every
 frame is more work and accumulates float error into positions that no longer
 agree with the track that generated them.
+
+### Corners
+
+A bend sways the road while you keep facing the same way. A **corner** is the
+other thing: the path stops going where it was going, heads off at a right
+angle, and the camera swings round to follow it.
+
+```ts
+const frame = { ahead: distanceToCorner, dir: +1, yaw: yawFor(distanceToCorner, +1) };
+projectPath(lateral, depth, height, p, frame);
+```
+
+One piecewise map does all of it:
+
+| depth | where it goes |
+| --- | --- |
+| before the corner | straight ahead, as usual |
+| after the corner | sideways, starting from the corner's depth |
+
+So the road ahead visibly **ends** and a run of road crosses it left-to-right.
+That is what a right angle looks like from a hundred metres back, and it is a
+far better warning than an arrow: it shows the player the shape of the thing
+they have to do instead of symbolising it. Blob Rush still draws a small arrow
+for *which way*, but it is deliberately quiet now — the road is the signal.
+
+Then `yaw` rotates the world about the camera — a real rotation, not a pan.
+
+**The identity that makes it seamless.** The yaw completing and the player
+reaching the corner coincide exactly, so at that instant the turned frame and
+a fresh straight frame produce identical output. Drop the corner on that frame
+and nothing moves — no blend, no seam. There is a test for this in both
+directions, and it is the load-bearing property of the whole design.
+
+**Keep `TURN_ARC` short.** All of the yaw happens while the runner is still on
+the old road, and a camera that has turned 45° while its owner is running
+straight puts the ground under them at 45° too. That is correct for a head
+turning and wrong for a runner turning, and you can see it as the boards
+underfoot tilting. Under about a quarter-second of running confines it to a
+stub right under the player while the new road swings in to fill the frame —
+which is what a snap-turn at a junction actually looks like. A long luxurious
+swing shows the seam.
+
+Draw the road in **segments** (Blob Rush uses 40) or it cannot turn: a single
+trapezoid to the horizon is always straight.
 
 ## Lanes, jumps and slides
 
@@ -179,12 +223,36 @@ thing fair, and is it different from the last thing". Three rules enforce it:
 Four hazards, each with exactly one answer, in one table that both the
 collision test and any tutorial text read from — so they cannot drift apart:
 
-| Hazard | Answer |
-| --- | --- |
-| `block` | jump it, or go round |
-| `barrier` | slide under |
-| `pit` | jump — nothing else works |
-| `low` | slide; **jumping into an overhang is the mistake it exists to punish** |
+| Hazard | In Blob Rush | Answer |
+| --- | --- | --- |
+| `block` | a fallen log across the boards | jump it, or go round |
+| `barrier` | a branch caught on two stumps at chest height | slide under |
+| `pit` | boards rotted through into the water | jump — nothing else works |
+| `low` | a curtain of hanging vines | slide; **jumping into an overhang is the mistake it exists to punish** |
+
+### Making a hazard obvious
+
+Three signals, at three ranges, and they must not compete:
+
+1. **A stain on the boards in the blocked lane** — long range. The object is a
+   few pixels tall when it appears, but a stripe lying flat on the road keeps
+   its full width all the way out, so this is what tells you which lane to
+   leave while there is still time to leave it. Keep it faint.
+2. **The silhouette** — mid range. Things you go OVER sit solidly on the road;
+   things you go UNDER touch the ground *nowhere*. This does the real work.
+3. **The action colour** — everywhere. Amber means get over it, cyan means get
+   under it, on every hazard without exception. At speed, in a swamp where
+   everything is a shade of wet green, the player is not identifying a log
+   versus a branch — they are reading a colour, and they can do that from the
+   far end of the draw distance.
+
+Two mistakes worth not repeating, both found by looking rather than by
+assertion. Chevrons above each hazard started as two big ones apiece; with
+four hazards on screen the swamp disappeared behind a wall of arrows — **the
+warning has to be quieter than the thing it is warning about.** And the
+hazard art was scaled so a single obstacle was *wider than its own lane*,
+which made one blocked lane look like a wall and read as unfair. Author
+hazards to fit inside `LANE_WIDTH` with room to spare.
 
 ## Swipes
 
@@ -210,10 +278,11 @@ increasing depths and darkening hours rather than four unrelated biomes.
 Somewhere that gets stranger the further in you go is a place; a temple
 followed by a glacier is a slideshow.
 
-Zones swap on a corner: swipe the way the arrow points, the world whips round,
-and the road comes out leaning that way so the turn has a direction you can
-feel. Corners come about every 11000 units, and the road wanders between them,
-so you are usually running toward something you cannot fully see.
+Zones swap on a corner: the causeway ahead ends and another crosses it, you
+swipe the way it goes, the camera swings a full right angle to follow, and the
+road comes out leaning that way so the turn has a direction you can feel.
+Corners come about every 11000 units, and the road wanders between them, so
+you are usually running toward something you cannot fully see.
 
 Getting a corner wrong is the one mistake with no recovery — everything else
 is a stumble that costs speed and lets the chase meter tick up, and running

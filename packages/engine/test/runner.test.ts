@@ -7,8 +7,11 @@ import {
   LaneRider,
   RunnerMoves,
   SLIDE_SECS,
+  TURN_ARC,
   TrackBuilder,
   bendAt,
+  cornerDone,
+  cornerSpace,
   clampLane,
   collides,
   depthOf,
@@ -20,8 +23,9 @@ import {
   survives,
   swipeDir,
   wrapAngle,
+  yawFor,
 } from '../src/index.js';
-import type { Hazard } from '../src/index.js';
+import type { CornerFrame, Hazard } from '../src/index.js';
 
 /** Deterministic "random" so a generator test cannot flake. */
 function seeded(seed: number): () => number {
@@ -119,6 +123,97 @@ describe('the bend', () => {
       // The road swings, it does not stretch — a bend that widened lanes
       // would make the hitboxes lie.
       expect(r - l).toBeCloseTo(straightWidth, 6);
+    }
+  });
+});
+
+describe('corners', () => {
+  const at = (ahead: number, dir: number): CornerFrame => ({
+    ahead,
+    dir,
+    yaw: yawFor(ahead, dir),
+  });
+
+  it('leaves the road before the corner exactly as it was', () => {
+    const f = at(2000, 1);
+    const p = cornerSpace(50, 900, f);
+    expect(p.x).toBeCloseTo(50);
+    expect(p.z).toBeCloseTo(900);
+  });
+
+  it('sends the road off sideways past the corner', () => {
+    const f = { ahead: 2000, dir: 1, yaw: 0 };
+    // 500 beyond the corner, on the centre line: 500 to the right, at the
+    // corner's own depth. That is a right angle, seen from behind.
+    const p = cornerSpace(0, 2500, f);
+    expect(p.x).toBeCloseTo(500);
+    expect(p.z).toBeCloseTo(2000);
+  });
+
+  it('turns the other way for a left corner', () => {
+    const right = cornerSpace(0, 2500, { ahead: 2000, dir: 1, yaw: 0 });
+    const left = cornerSpace(0, 2500, { ahead: 2000, dir: -1, yaw: 0 });
+    expect(left.x).toBeCloseTo(-right.x);
+    expect(left.z).toBeCloseTo(right.z);
+  });
+
+  it('holds the camera still until the corner is close', () => {
+    expect(yawFor(4000, 1)).toBe(0);
+    expect(yawFor(TURN_ARC, 1)).toBe(0);
+    expect(Math.abs(yawFor(TURN_ARC * 0.5, 1))).toBeGreaterThan(0.1);
+    // Short enough that the ground under the runner barely has time to tilt.
+    expect(TURN_ARC).toBeLessThan(600);
+  });
+
+  it('comes to exactly a right angle as the corner arrives', () => {
+    expect(yawFor(0, 1)).toBeCloseTo(-Math.PI / 2);
+    expect(yawFor(0, -1)).toBeCloseTo(Math.PI / 2);
+  });
+
+  it('turns smoothly — no jump at either end of the swing', () => {
+    let prev = 0;
+    let biggestStep = 0;
+    for (let ahead = TURN_ARC; ahead >= 0; ahead -= TURN_ARC / 60) {
+      const y = yawFor(ahead, 1);
+      biggestStep = Math.max(biggestStep, Math.abs(y - prev));
+      prev = y;
+    }
+    // Over sixty frames of swing, no single one may lurch.
+    expect(biggestStep).toBeLessThan(0.06);
+  });
+
+  /**
+   * The one that matters: at the instant the corner arrives, the turned
+   * frame and a plain straight one must agree exactly. That identity is what
+   * lets the scene drop the corner with nothing on screen moving.
+   */
+  for (const dir of [1, -1]) {
+    it(`hands over to a straight frame with no seam (dir ${dir})`, () => {
+      const done = at(0, dir);
+      for (const lateral of [-190, 0, 190]) {
+        for (const depth of [200, 1500, 3800]) {
+          const turned = cornerSpace(lateral, depth, done);
+          const straight = cornerSpace(lateral, depth, null);
+          expect(turned.x).toBeCloseTo(straight.x, 6);
+          expect(turned.z).toBeCloseTo(straight.z, 6);
+        }
+      }
+    });
+  }
+
+  it('says when it is finished', () => {
+    expect(cornerDone({ ahead: 40, dir: 1, yaw: 0 })).toBe(false);
+    expect(cornerDone({ ahead: 0, dir: 1, yaw: 0 })).toBe(true);
+    expect(cornerDone({ ahead: -80, dir: 1, yaw: 0 })).toBe(true);
+  });
+
+  it('keeps a lane the same width right through the turn', () => {
+    for (const ahead of [2400, 1200, 400, 0]) {
+      const f = at(ahead, 1);
+      // Sample past the corner, where the road is running sideways.
+      const l = cornerSpace(-LANE_WIDTH / 2, ahead + 800, f);
+      const r = cornerSpace(LANE_WIDTH / 2, ahead + 800, f);
+      expect(Math.hypot(r.x - l.x, r.z - l.z)).toBeCloseTo(LANE_WIDTH, 6);
     }
   });
 });

@@ -20,8 +20,11 @@ export interface RunState {
   spin: number;
   /** How hard the road is currently curving, and which way. */
   bend: number;
-  /** True while the world is swinging round after a corner. */
-  sweeping: boolean;
+  /** Camera yaw in radians. Reaches ∓π/2 as a corner is rounded. */
+  yaw: number;
+  /** True once the corner has been committed to and the camera is coming
+   *  round; false again the moment it is behind you. */
+  turning: boolean;
 }
 
 export interface RushDebug {

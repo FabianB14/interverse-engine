@@ -85,9 +85,12 @@ export type { PartyMember } from './brawler/coop.js';
 // 🏃 Runner kit (§4.7) — the endless-runner pieces: a road drawn in
 // perspective, three lanes, jump/slide, swipes, and a fair track generator.
 export {
-  DEFAULT_PROJECTION, DRAW_DISTANCE, bendAt, depthIndex, depthOf, fogAlpha, project, visible,
+  DEFAULT_PROJECTION, DRAW_DISTANCE, bendAt, depthIndex, depthOf, fogAlpha, project,
+  projectPath, visible,
 } from './runner/perspective.js';
 export type { Projected, Projection } from './runner/perspective.js';
+export { TURN_ARC, cornerDone, cornerSpace, yawFor } from './runner/corner.js';
+export type { CornerFrame } from './runner/corner.js';
 export { LANE_COUNT, LANE_SNAP_SECS, LANE_WIDTH, LaneRider, clampLane, laneX } from './runner/lanes.js';
 export {
   BUFFER_SECS, FAST_FALL, JUMP_HEIGHT, JUMP_SECS, SLIDE_SECS, RunnerMoves, speedAt,

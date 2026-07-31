@@ -17,6 +17,9 @@
  * the road they are standing on.
  */
 
+import { cornerSpace } from './corner.js';
+import type { CornerFrame } from './corner.js';
+
 export interface Projection {
   /** Screen x the road vanishes toward. */
   cx: number;
@@ -99,6 +102,34 @@ export function project(
     // everything standing on the road — obstacles, coins, the road itself —
     // swings together instead of sliding against each other.
     x: p.cx + (x + bendAt(z, p.bend)) * scale,
+    y: p.horizonY + (p.groundY - p.horizonY) * scale - height * scale,
+    scale,
+  };
+}
+
+/**
+ * The whole path-to-screen chain, in one call.
+ *
+ * `lateral` is sideways offset from the road's centre line and `depth` is how
+ * far along the path the point is. Bend, corner and perspective are applied
+ * in that order — which is the only order that works, since the corner is a
+ * property of the path and the bend is a property of the road ON it.
+ *
+ * Everything that stands on the road should go through this, so that the road
+ * and the things on it cannot disagree about where the road is.
+ */
+export function projectPath(
+  lateral: number,
+  depth: number,
+  height: number,
+  p: Projection,
+  frame: CornerFrame | null = null,
+): Projected {
+  const lat = lateral + bendAt(depth, p.bend);
+  const cs = cornerSpace(lat, depth, frame);
+  const scale = depthOf(cs.z, p);
+  return {
+    x: p.cx + cs.x * scale,
     y: p.horizonY + (p.groundY - p.horizonY) * scale - height * scale,
     scale,
   };

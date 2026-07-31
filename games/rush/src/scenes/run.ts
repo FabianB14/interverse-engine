@@ -15,11 +15,16 @@
 import { Container, Graphics, Text } from 'pixi.js';
 import {
   DEFAULT_PROJECTION, DRAW_DISTANCE, HIT_DEPTH, LANE_WIDTH, LaneRider, RunnerMoves, Scene,
-  Swipe, TrackBuilder, audio, burst, collides, depthIndex, fogAlpha, laneX, project,
-  rollingBlob, speedAt, visible,
+  Swipe, TrackBuilder, audio, burst, collides, depthIndex, fogAlpha, laneX,
+  projectPath, rollingBlob, speedAt, visible, yawFor,
 } from '@interverse/engine';
-import type { Hazard, Pickup, Projection, RollingBlob, SwipeDir } from '@interverse/engine';
-import { ROAD_HALF, coinView, drawRoad, hazardView, propView, shadowView, skyOf } from '../art.js';
+import type {
+  CornerFrame, Hazard, Pickup, Projection, RollingBlob, SwipeDir,
+} from '@interverse/engine';
+import {
+  ROAD_HALF, coinView, drawLaneMark, drawRoad, hazardGlyph, hazardView, propView,
+  shadowView, skyOf,
+} from '../art.js';
 import { hatView } from '../hats.js';
 import type { HatView } from '../hats.js';
 import { BLOB_COLOR, DIM, GOLD, INK, MINT, ROSE, zone } from '../theme.js';
@@ -70,13 +75,29 @@ const BEND_MAX = 260;
 const BEND_EVERY = 4200;
 const BEND_EASE = 2.4;
 
-/** How long the world takes to swing round after a corner is taken. */
-const SWEEP_SECS = 0.45;
+/**
+ * The road is only allowed to turn a corner once you have committed to it.
+ *
+ * Before that it is drawn as a right angle you can SEE — the causeway ahead
+ * stops and a wall of road runs across it — which is a far better warning
+ * than any arrow, because it shows the player the shape of the thing they
+ * have to do rather than symbolising it.
+ */
 
 /** What one hit costs, and how fast running clean pays it back. Three hits
  *  in quick succession is the end; spaced out, they are survivable. */
 const CHASE_PER_HIT = 0.34;
 const CHASE_RECOVER = 0.055;
+
+/**
+ * How big one design unit of hazard art is on the road.
+ *
+ * The art is authored 1.24 units wide, so this has to be under
+ * LANE_WIDTH / 1.24 = 153 or a hazard spills into the lanes either side —
+ * which makes a single blocked lane look like a wall and is exactly why the
+ * first cut read as unfair.
+ */
+const HAZARD_UNIT = LANE_WIDTH * 0.7;
 
 const COIN_VALUE = 1;
 const STUMBLE_SECS = 0.5;
@@ -119,6 +140,7 @@ export class RunScene extends Scene {
   private world = new Container();
   private hudLayer = new Container();
   private roadG = new Graphics();
+  private laneMarkG = new Graphics();
   private sky!: Graphics;
   private proj: Projection = { ...DEFAULT_PROJECTION };
 
@@ -145,13 +167,19 @@ export class RunScene extends Scene {
   private turned = false;
   private turnSign = new Container();
   private turnSignKey = '';
+  /**
+   * The live corner, or null on a straight stretch.
+   *
+   * `ahead` is how far the corner is; the camera's yaw is derived from it, so
+   * the two can never disagree. When `ahead` reaches zero the yaw is exactly
+   * a right angle, and a fresh straight frame produces identical output —
+   * which is why the scene can drop this on that frame with nothing moving.
+   */
+  private corner: CornerFrame | null = null;
   /** Where the road is bending right now, and where it is heading. */
   private bend = 0;
   private bendTarget = 0;
   private bendNext = BEND_EVERY;
-  /** Counts down after a corner while the world swings round. */
-  private sweep = 0;
-  private sweepDir = 1;
   private over = false;
   private swipe!: Swipe;
   /**
@@ -198,7 +226,9 @@ export class RunScene extends Scene {
     this.stage.addChild(this.sky);
     this.world.sortableChildren = true;
     this.roadG.zIndex = -1e6;
-    this.world.addChild(this.roadG);
+    // Just above the road, below everything standing on it.
+    this.laneMarkG.zIndex = -9e5;
+    this.world.addChild(this.roadG, this.laneMarkG);
     this.stage.addChild(this.world);
 
     const profile = loadProfile();
@@ -386,7 +416,6 @@ export class RunScene extends Scene {
       this.bendTarget = sign * BEND_MAX * (0.35 + Math.random() * 0.65);
     }
     this.bend += (this.bendTarget - this.bend) * Math.min(1, BEND_EASE * dt);
-    if (this.sweep > 0) this.sweep = Math.max(0, this.sweep - dt);
   }
 
   /** Behind the camera is gone. A runner that keeps what it has passed is a
@@ -435,52 +464,87 @@ export class RunScene extends Scene {
     }
   }
 
+  /**
+   * The corner, every frame.
+   *
+   * The frame exists whether or not you have committed, so the road ahead is
+   * always drawn as the right angle it is. The YAW is what waits for the
+   * swipe — the camera does not start coming round until you have said you
+   * are taking it.
+   */
   private tickTurn(moved: number): void {
     this.turnZ -= moved;
-    if (this.turned) return;
-    // Ran past the corner without turning: that is a wall, and a wall is the
-    // one thing in this game that ends a run outright.
+    if (this.turnZ > DRAW_DISTANCE) {
+      this.corner = null;
+      return;
+    }
+    this.corner = {
+      ahead: this.turnZ,
+      dir: this.turnDir,
+      yaw: this.turned ? yawFor(this.turnZ, this.turnDir) : 0,
+    };
+    if (this.turned) {
+      // The camera has come all the way round: the turned frame and a plain
+      // straight one now produce identical output, so this swap moves
+      // nothing.
+      if (this.turnZ <= 0) this.passCorner();
+      return;
+    }
+    // Ran into the end of the road. A wall is the one thing in this game
+    // that ends a run outright.
     if (this.turnZ < -HIT_DEPTH) this.end('corner');
   }
 
+  /** Committing to the corner. All this does is unlock the camera — the
+   *  world is not rebuilt until you have actually got round it. */
   private takeCorner(): void {
     this.turned = true;
-    this.zoneN++;
     this.purse += 25;
-    this.shake = 0.4;
-    // The sweep, and a road that comes out of it already leaning the way you
-    // turned — so the corner has a direction you can feel rather than just a
-    // change of scenery.
-    this.sweep = SWEEP_SECS;
-    this.sweepDir = this.turnDir;
-    this.bend = this.turnDir * BEND_MAX * 1.15;
-    this.bendTarget = this.turnDir * BEND_MAX * 0.4;
-    this.bendNext = this.distance + BEND_EVERY;
-    this.banner(`${this.zone.name.toUpperCase()}!`, 1.6);
     audio.chime();
+    this.banner('TURN!', 0.8);
+  }
+
+  /** Round the corner and into somewhere new. */
+  private passCorner(): void {
+    this.corner = null;
+    this.turned = false;
+    this.zoneN++;
+    this.shake = 0.35;
+    // Out of the turn already leaning the way you went, so the corner has a
+    // direction you can feel and not just a change of scenery.
+    this.bend = this.turnDir * BEND_MAX * 1.1;
+    this.bendTarget = this.turnDir * BEND_MAX * 0.35;
+    this.bendNext = this.distance + BEND_EVERY;
+    this.turnZ = TURN_EVERY;
+    this.turnDir = Math.random() < 0.5 ? -1 : 1;
+    this.banner(`${this.zone.name.toUpperCase()}!`, 1.6);
     this.add(burst('confetti', this.proj.cx, this.proj.groundY - 120), this.hudLayer);
 
-    // Rebuild the world for the new zone. A corner is a hard cut, which is
-    // exactly why it is worth having: it is the only moment in an endless
-    // runner where everything is allowed to change at once.
-    for (const h of this.hazards) this.destroyView(h.view);
-    for (const c of this.coins) this.destroyView(c.view);
-    for (const p of this.props) this.destroyView(p.view);
-    this.hazards = [];
-    this.coins = [];
-    this.props = [];
-    this.propFrontier = 0;
-    this.builder = new TrackBuilder({ spacing: 620, density: 0.76 });
-    this.rider.snapTo(1);
+    // A corner is the one moment in an endless runner where everything is
+    // allowed to change at once — so the whole world is restyled for the new
+    // zone. Positions are untouched: only the colours cut, on exactly the
+    // frame the banner says where you are.
+    this.restyleWorld();
     this.sky.destroy();
     this.sky = skyOf(this.zone, this.game.viewWidth, this.proj.horizonY);
     this.stage.addChildAt(this.sky, 0);
     this.hudLayer.removeChildren();
     this.buildHud();
-    this.turnZ = TURN_EVERY;
-    this.turnDir = Math.random() < 0.5 ? -1 : 1;
-    this.turned = false;
-    this.fillTrack();
+  }
+
+  /** Swap every view for one in the current zone's colours, keeping the data
+   *  — and therefore every position — exactly as it was. */
+  private restyleWorld(): void {
+    for (const h of this.hazards) {
+      this.destroyView(h.view);
+      h.view = hazardView(h.data.kind, this.zone);
+      this.world.addChild(h.view);
+    }
+    for (const p of this.props) {
+      this.destroyView(p.view);
+      p.view = propView(this.zone);
+      this.world.addChild(p.view);
+    }
   }
 
   private destroyView(view: Container): void {
@@ -523,7 +587,9 @@ export class RunScene extends Scene {
     this.shake = 1;
     audio.buzz();
     this.add(burst('poof', this.proj.cx, this.proj.groundY - 140), this.hudLayer);
-    this.banner(this.chase > 0.66 ? 'LAST CHANCE!' : 'OOF!', 1);
+    // Say what would have worked. "OOF" tells the player they failed; the
+    // glyph tells them how not to, which is the only part they can use.
+    this.banner(this.chase > 0.66 ? 'LAST CHANCE!' : `${hazardGlyph(h.kind)} OOF!`, 1);
   }
 
   // -------------------------------------------------------------- drawing
@@ -535,24 +601,25 @@ export class RunScene extends Scene {
     this.proj.bend = this.bend;
     const p = this.proj;
     const far = DRAW_DISTANCE;
-    drawRoad(this.roadG, this.zone, this.distance, p, this.game.viewWidth, this.game.viewHeight, far);
+    drawRoad(
+      this.roadG, this.zone, this.distance, p, this.corner,
+      this.game.viewWidth, this.game.viewHeight, far,
+    );
+    this.drawLaneMarks(far);
 
-    // Shake and the corner sweep both move the whole world, not the camera
-    // maths — the road is redrawn from the projection every frame, so
-    // shifting that would fight with the geometry.
+    // Shake moves the whole world rather than the camera maths — the road is
+    // redrawn from the projection every frame, so shifting that would fight
+    // with the geometry. The TURN is not done this way: it is a real yaw
+    // inside the projection, which is why the road bends round it instead of
+    // the picture sliding sideways.
     const s = this.shake * this.shake * 9;
-    // The sweep is the body of the turn: the world whips the other way and
-    // settles. Without it a corner is a teleport with confetti on it.
-    const t = this.sweep / SWEEP_SECS;
-    const swing = -this.sweepDir * t * t * this.game.viewWidth * 0.4;
     this.world.position.set(
-      swing + (s ? (Math.random() - 0.5) * s : 0),
+      s ? (Math.random() - 0.5) * s : 0,
       s ? (Math.random() - 0.5) * s : 0,
     );
-    this.world.rotation = -this.sweepDir * t * t * 0.12;
 
     for (const h of this.hazards) {
-      this.placeAt(h.view, laneX(h.data.lane), this.rel(h.data.z), 0, LANE_WIDTH * 0.82, far);
+      this.placeAt(h.view, laneX(h.data.lane), this.rel(h.data.z), 0, HAZARD_UNIT, far);
     }
     for (const c of this.coins) {
       if (c.taken) continue;
@@ -570,13 +637,51 @@ export class RunScene extends Scene {
     this.drawTurnSign(far);
   }
 
+  /**
+   * Paint every blocked lane on the boards.
+   *
+   * An obstacle is a handful of pixels tall when it first appears, but a
+   * stripe lying flat on the road keeps its full width all the way out — so
+   * THIS, not the object, is what tells you which lane to leave while there
+   * is still time to leave it. Coloured by the answer: amber means get over
+   * it, cyan means get under it.
+   */
+  private drawLaneMarks(far: number): void {
+    this.laneMarkG.clear();
+    const half = LANE_WIDTH * 0.42;
+    for (const h of this.hazards) {
+      const z = this.rel(h.data.z);
+      if (z < -40 || z > far * 0.8) continue;
+      const a = fogAlpha(z, far);
+      if (a <= 0.02) continue;
+      const x = laneX(h.data.lane);
+      // A long flat patch reaching back toward the player, so it is visible
+      // as a lane and not as a line.
+      const z0 = Math.max(0, z - 260);
+      const z1 = z + 90;
+      drawLaneMark(this.laneMarkG, h.data.kind, [
+        projectPath(x - half, z0, 0, this.proj, this.corner),
+        projectPath(x + half, z0, 0, this.proj, this.corner),
+        projectPath(x + half, z1, 0, this.proj, this.corner),
+        projectPath(x - half, z1, 0, this.proj, this.corner),
+      ], a);
+    }
+  }
+
   /** Project a unit-sized view onto the road. */
   private placeAt(view: Container, x: number, z: number, height: number, unit: number, far: number): void {
     if (!visible(z, far)) {
       view.visible = false;
       return;
     }
-    const q = project(x, Math.max(0, z), height, this.proj);
+    const q = projectPath(x, Math.max(0, z), height, this.proj, this.corner);
+    // Past a corner the path runs sideways, so a point can end up beside or
+    // behind the camera even though its depth ALONG THE PATH is positive.
+    // Those must not be drawn, or they smear across the screen at scale 1.
+    if (q.scale <= 0.02 || q.scale > 6) {
+      view.visible = false;
+      return;
+    }
     view.visible = true;
     view.position.set(q.x, q.y);
     view.scale.set(unit * q.scale);
@@ -589,7 +694,7 @@ export class RunScene extends Scene {
     // makes speeding up, stumbling and stopping all look right for free.
     this.blob.roll(moved / 46);
     const radius = 46;
-    const q = project(this.rider.x, 0, this.moves.height, this.proj);
+    const q = projectPath(this.rider.x, 0, this.moves.height, this.proj, this.corner);
     // Squash for the slide; the crouch value is the state machine's, so the
     // art can never disagree with the hitbox.
     const squash = 1 - this.moves.crouch * 0.42;
@@ -606,7 +711,7 @@ export class RunScene extends Scene {
 
     // The shadow stays on the road while the blob leaves it, which is the
     // only cue that says how high you actually are.
-    const ground = project(this.rider.x, 0, 0, this.proj);
+    const ground = projectPath(this.rider.x, 0, 0, this.proj, this.corner);
     this.blobShadow.position.set(ground.x, ground.y);
     const shrink = 1 - Math.min(0.45, this.moves.height / 420);
     this.blobShadow.scale.set(radius * ground.scale * shrink);
@@ -614,9 +719,14 @@ export class RunScene extends Scene {
     void far;
   }
 
-  /** The corner sign: an arrow that grows as the turn arrives, and turns
-   *  green once a swipe would actually take it. Without it a corner is a
-   *  memory test, which is not the same thing as a skill. */
+  /**
+   * The corner sign.
+   *
+   * Small now, and deliberately. The road itself turns the right angle in
+   * plain view, which is the real warning — an arrow that competes with it
+   * for attention is an arrow that makes the road harder to read. All this
+   * has to add is WHICH WAY, and it goes green when a swipe would take it.
+   */
   private drawTurnSign(far: number): void {
     if (this.turned || !visible(this.turnZ, far)) {
       this.turnSign.visible = false;
@@ -639,10 +749,10 @@ export class RunScene extends Scene {
           .fill(armed ? MINT : GOLD),
       );
     }
-    const q = project(0, Math.max(0, this.turnZ), 240, this.proj);
+    const q = projectPath(0, Math.max(0, this.turnZ), 330, this.proj, this.corner);
     this.turnSign.visible = true;
     this.turnSign.position.set(q.x, q.y);
-    this.turnSign.scale.set(LANE_WIDTH * 1.5 * q.scale);
+    this.turnSign.scale.set(LANE_WIDTH * 0.55 * q.scale);
     this.turnSign.alpha = fogAlpha(this.turnZ, far);
     this.turnSign.zIndex = depthIndex(this.turnZ) + 0.5;
   }
@@ -652,9 +762,14 @@ export class RunScene extends Scene {
   private banner(text: string, secs: number): void {
     const t = label(text, 40, GOLD, '800');
     t.anchor.set(0.5);
-    t.position.set(this.game.viewWidth / 2, this.game.viewHeight * 0.3);
     this.hudLayer.addChild(t);
     this.banners.push({ t, life: secs });
+    // Stack rather than overlap. A corner and a stumble can land in the same
+    // second, and two messages printed on top of each other are worse than
+    // either of them alone.
+    this.banners.forEach((b, i) => {
+      b.t.position.set(this.game.viewWidth / 2, this.game.viewHeight * 0.3 + i * 46);
+    });
   }
 
   private tickBanners(dt: number): void {
@@ -686,11 +801,12 @@ export class RunScene extends Scene {
   debugState(): {
     metres: number; coins: number; lane: number; airborne: boolean; sliding: boolean;
     hazards: number; chase: number; turnZ: number; zone: string; speed: number; over: boolean;
-    spin: number; bend: number; sweeping: boolean;
+    spin: number; bend: number; yaw: number; turning: boolean;
   } {
     return {
       bend: Math.round(this.bend),
-      sweeping: this.sweep > 0,
+      yaw: Math.round((this.corner?.yaw ?? 0) * 1000) / 1000,
+      turning: this.turned,
       metres: Math.floor(this.distance / UNITS_PER_METRE),
       coins: this.purse,
       lane: this.rider.lane,

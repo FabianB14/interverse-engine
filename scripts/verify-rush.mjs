@@ -170,11 +170,17 @@ try {
   const turnDir = await page.evaluate(() => window.__rush.corner());
   await page.screenshot({ path: `${outDir}/rush-6-corner.png` });
   await page.evaluate((d) => window.__rush.swipe(d > 0 ? 'right' : 'left'), turnDir);
-  const swept = await waitFor(
-    () => page.evaluate(() => window.__rush.run()),
-    (r) => !!r && r.sweeping,
-    2000,
-  );
+  // The camera has to come round. In a headless browser the game loop runs
+  // far faster than realtime and the whole 420-unit arc can pass inside one
+  // sample, so poll hard and take the largest yaw seen rather than hoping to
+  // catch a particular frame.
+  let peakYaw = 0;
+  for (let i = 0; i < 60; i++) {
+    const r = await page.evaluate(() => window.__rush.run());
+    if (r) peakYaw = Math.max(peakYaw, Math.abs(r.yaw));
+    if (r && r.zone !== zoneBefore) break;
+    await sleep(16);
+  }
   const turned = await waitFor(
     () => page.evaluate(() => window.__rush.run()),
     (r) => !!r && r.zone !== zoneBefore,
@@ -183,6 +189,10 @@ try {
   // Coming out of a corner the road leans the way you turned, so the turn
   // has a direction you can feel and not just a change of scenery.
   const bendAfterTurn = turned?.bend ?? 0;
+  // The camera yaw ends flat again — the corner frame is dropped on exactly
+  // the frame a straight one produces identical output, so nothing is left
+  // rotated behind it.
+  const yawAfter = turned?.yaw ?? 99;
 
   // Getting the corner WRONG ends the run. That is the one mistake in this
   // game with no recovery, so it had better actually be one.
@@ -233,7 +243,7 @@ try {
     // …the corner moves you to a different one, the world swings round
     // rather than cutting, and the road comes out leaning the way you turned.
     !!turned && turned.zone !== zoneBefore &&
-    !!swept?.sweeping && Math.sign(bendAfterTurn) === Math.sign(turnDir);
+    peakYaw > 0.02 && yawAfter === 0 && Math.sign(bendAfterTurn) === Math.sign(turnDir);
   const missOk = ended === 'result';
   const bankOk = banked.best > 0 && banked.coins >= 250 && banked.runs === 1;
   const persistOk =
@@ -249,7 +259,7 @@ try {
     run0, roll0, roll1, spun, hatLevel,
     laneRight, laneClamped, jumped, landed, slid,
     early, later, bends, peakBend, bendSpread,
-    zoneBefore, turnDir, swept: !!swept?.sweeping, bendAfterTurn, turned, ended,
+    zoneBefore, turnDir, peakYaw, bendAfterTurn, yawAfter, turned, ended,
     banked, rerun, reloaded, errors,
   };
 } finally {

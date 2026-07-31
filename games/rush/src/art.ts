@@ -16,8 +16,8 @@
  */
 
 import { Container, Graphics } from 'pixi.js';
-import { LANE_WIDTH, darken, fogAlpha, lighten, project } from '@interverse/engine';
-import type { HazardKind, Projection } from '@interverse/engine';
+import { HAZARD_RULES, LANE_WIDTH, darken, fogAlpha, lighten, projectPath } from '@interverse/engine';
+import type { CornerFrame, HazardKind, Projection } from '@interverse/engine';
 import type { Zone } from './theme.js';
 
 /** Half-width of the drivable causeway, in design units. */
@@ -34,7 +34,7 @@ const STRIPE_LEN = 150;
  * half where the curve is actually legible. Evenly spaced slices spend
  * their whole budget on the two-pixel band by the horizon.
  */
-const SEGMENTS = 26;
+const SEGMENTS = 40;
 
 function segZ(i: number, far: number): number {
   const t = i / SEGMENTS;
@@ -81,6 +81,7 @@ export function drawRoad(
   zone: Zone,
   travelled: number,
   p: Projection,
+  frame: CornerFrame | null,
   w: number,
   h: number,
   far: number,
@@ -99,34 +100,35 @@ export function drawRoad(
     const a = fogAlpha(z, far) * 0.32;
     if (a <= 0.01) continue;
     for (const side of [-1, 1]) {
-      const q0 = project(side * (ROAD_HALF + 120), z, 0, p);
-      const q1 = project(side * (ROAD_HALF + 900), z + 240, 0, p);
+      const q0 = projectPath(side * (ROAD_HALF + 120), z, 0, p, frame);
+      const q1 = projectPath(side * (ROAD_HALF + 900), z + 240, 0, p, frame);
       g.ellipse((q0.x + q1.x) / 2, (q0.y + q1.y) / 2, 260 * q0.scale, 26 * q0.scale)
         .fill({ color: zone.waterLight, alpha: a });
     }
   }
 
-  // The causeway, sliced so it can bend. Each slice is a quad between two
-  // depths, and every corner goes through project(), so the bend is applied
-  // once in one place and the whole road agrees with it.
+  // The causeway, sliced so it can bend AND turn. Each slice is a quad
+  // between two depths and every corner of it goes through projectPath, so
+  // the bend and the right-angle corner are applied in one place and the
+  // whole road agrees with them.
   const kerb = 30;
   for (let i = 0; i < SEGMENTS; i++) {
     const z0 = segZ(i, far);
     const z1 = segZ(i + 1, far);
-    const a0 = project(-ROAD_HALF, z0, 0, p);
-    const b0 = project(ROAD_HALF, z0, 0, p);
-    const b1 = project(ROAD_HALF, z1, 0, p);
-    const a1 = project(-ROAD_HALF, z1, 0, p);
+    const a0 = projectPath(-ROAD_HALF, z0, 0, p, frame);
+    const b0 = projectPath(ROAD_HALF, z0, 0, p, frame);
+    const b1 = projectPath(ROAD_HALF, z1, 0, p, frame);
+    const a1 = projectPath(-ROAD_HALF, z1, 0, p, frame);
     // Alternate slices a shade apart: on a bending road this reads as the
     // planking of a boardwalk, and it makes the curve legible.
     const shade = i % 2 === 0 ? zone.road : darken(zone.road, 0.08);
     g.poly([a0.x, a0.y, b0.x, b0.y, b1.x, b1.y, a1.x, a1.y]).fill(shade);
     // Kerbs — the rotting timber edge that keeps you out of the water.
     for (const side of [-1, 1]) {
-      const c0 = project(side * ROAD_HALF, z0, 0, p);
-      const d0 = project(side * (ROAD_HALF + kerb), z0, 0, p);
-      const d1 = project(side * (ROAD_HALF + kerb), z1, 0, p);
-      const c1 = project(side * ROAD_HALF, z1, 0, p);
+      const c0 = projectPath(side * ROAD_HALF, z0, 0, p, frame);
+      const d0 = projectPath(side * (ROAD_HALF + kerb), z0, 0, p, frame);
+      const d1 = projectPath(side * (ROAD_HALF + kerb), z1, 0, p, frame);
+      const c1 = projectPath(side * ROAD_HALF, z1, 0, p, frame);
       g.poly([c0.x, c0.y, d0.x, d0.y, d1.x, d1.y, c1.x, c1.y]).fill(zone.roadEdge);
     }
   }
@@ -141,8 +143,8 @@ export function drawRoad(
       if (z1 <= 0) continue;
       const alpha = fogAlpha(z0, far) * 0.5;
       if (alpha <= 0.01) continue;
-      const s0 = project(lineX, Math.max(0, z0), 0, p);
-      const s1 = project(lineX, z1, 0, p);
+      const s0 = projectPath(lineX, Math.max(0, z0), 0, p, frame);
+      const s1 = projectPath(lineX, z1, 0, p, frame);
       const halfNear = 9 * s0.scale;
       const halfFar = 9 * s1.scale;
       g.poly([
@@ -156,7 +158,7 @@ export function drawRoad(
   // over the road too — that is what makes distance feel like distance.
   for (let i = 0; i < 6; i++) {
     const z = far * (0.45 + i * 0.09);
-    const q = project(0, z, 0, p);
+    const q = projectPath(0, z, 0, p, frame);
     g.rect(0, q.y - 30 * q.scale, w, 74 * q.scale + 6)
       .fill({ color: zone.mist, alpha: 0.05 + i * 0.035 });
   }
@@ -228,59 +230,155 @@ export function propView(zone: Zone): Container {
 }
 
 /**
+ * The two answers, and the colour each one is always drawn in.
+ *
+ * Every hazard carries the colour of the thing you must DO about it. That is
+ * the single biggest readability win available here: at speed, in a swamp
+ * where everything is a shade of wet green, the player is not identifying a
+ * log versus a branch — they are reading amber-means-up, cyan-means-down, and
+ * they can do that from the far end of the draw distance.
+ */
+export const JUMP_TINT = 0xffb03a;
+export const SLIDE_TINT = 0x5fd7ff;
+
+export function hazardTint(kind: HazardKind): number {
+  return HAZARD_RULES[kind].jump ? JUMP_TINT : SLIDE_TINT;
+}
+
+export function hazardGlyph(kind: HazardKind): string {
+  return HAZARD_RULES[kind].jump ? '⤒' : '⤓';
+}
+
+/**
  * An obstacle, drawn once at unit scale (1 = one lane width).
  *
- * Each one has to say how it is beaten from a hundred metres away, so the
- * shapes are deliberately not subtle: things you go OVER are solid and low,
- * things you go UNDER hang from above with nothing beneath them, and a gap in
- * the boards has no geometry at all above the road.
+ * All of it grew here rather than being delivered: logs, roots, branches and
+ * broken boards. A traffic barrier in a swamp is a thing the player has to
+ * decode before they can react to it, and at this speed there is no time for
+ * a second thought.
+ *
+ * The silhouette rule still does the real work — things you go OVER sit
+ * solidly on the boards, things you go UNDER touch the ground NOWHERE — and
+ * the action tint is the confirmation, not the message.
  */
 export function hazardView(kind: HazardKind, zone: Zone): Container {
   const c = new Container();
   const g = new Graphics();
   const w = 0.62;
+  const bark = 0x6b5230;
+  const barkDark = 0x4a3822;
   switch (kind) {
-    case 'block':
-      // A mossy crate washed up on the boards.
-      g.roundRect(-w, -0.62, w * 2, 0.62, 0.05).fill(0x6b5230);
-      g.rect(-w, -0.62, w * 2, 0.09).fill(0x8a6b42);
-      g.rect(-0.06, -0.62, 0.12, 0.62).fill(0x4f3d24);
-      g.rect(-w, -0.36, w * 2, 0.08).fill(0x4f3d24);
-      g.ellipse(-0.3, -0.6, 0.26, 0.07).fill({ color: 0x5c7a4a, alpha: 0.8 });
-      g.ellipse(0.34, -0.61, 0.2, 0.06).fill({ color: 0x5c7a4a, alpha: 0.6 });
+    case 'block': {
+      // A fallen log lying across the boards. Solid, low, obviously on the
+      // ground: you go over it.
+      g.roundRect(-w, -0.52, w * 2, 0.46, 0.23).fill(bark);
+      g.roundRect(-w, -0.52, w * 2, 0.14, 0.07).fill(lighten(bark, 0.18));
+      // End grain, so it reads as a cut log rather than a pipe.
+      g.ellipse(-w, -0.29, 0.09, 0.23).fill(0x8a6b42);
+      g.ellipse(-w, -0.29, 0.045, 0.13).fill(barkDark);
+      // Moss along the top — this thing has been here a while.
+      g.ellipse(-0.28, -0.5, 0.3, 0.07).fill({ color: 0x5c7a4a, alpha: 0.85 });
+      g.ellipse(0.3, -0.51, 0.22, 0.06).fill({ color: 0x5c7a4a, alpha: 0.7 });
+      // A stub of branch sticking up, breaking the straight line.
+      g.poly([0.1, -0.5, 0.2, -0.5, 0.3, -0.78, 0.24, -0.8]).fill(barkDark);
+      g.rect(-w, -0.08, w * 2, 0.09).fill({ color: JUMP_TINT, alpha: 0.95 });
       break;
+    }
 
-    case 'barrier':
-      // A fallen log on two stumps: legs plus a bar at head height, and the
-      // gap underneath IS the message.
-      g.rect(-w, -0.9, 0.14, 0.9).fill(0x4f3d24);
-      g.rect(w - 0.14, -0.9, 0.14, 0.9).fill(0x4f3d24);
-      g.roundRect(-w - 0.06, -0.94, w * 2 + 0.12, 0.26, 0.13).fill(0x7a5c38);
-      g.roundRect(-w - 0.06, -0.9, w * 2 + 0.12, 0.08, 0.04).fill({ color: 0x6b8a4a, alpha: 0.9 });
+    case 'barrier': {
+      // A branch fallen across at chest height, caught on two broken stumps.
+      // The gap underneath IS the message.
+      //
+      // Drawn as a tapering, sagging, knotted limb rather than a straight
+      // bar: the first cut was a flat slab on two legs and read, unmistakably,
+      // as a park bench. A branch has to be thicker at one end, bent, and
+      // have things growing off it.
+      g.poly([-w, 0, -w + 0.15, 0, -w + 0.12, -0.8, -w + 0.02, -0.8]).fill(barkDark);
+      g.poly([w, 0, w - 0.15, 0, w - 0.12, -0.76, w - 0.02, -0.76]).fill(barkDark);
+      // Thick at the left, thin at the right, sagging in the middle.
+      g.poly([
+        -w, -1.0, -w * 0.4, -0.9, 0.1, -0.82, w, -0.82,
+        w, -0.72, 0.1, -0.7, -w * 0.4, -0.74, -w, -0.78,
+      ]).fill(bark);
+      g.ellipse(-w, -0.89, 0.06, 0.11).fill(0x8a6b42);
+      // A knot, and a snapped-off stub — irregularity is what stops a shape
+      // reading as furniture.
+      g.circle(-0.16, -0.82, 0.06).fill(barkDark);
+      g.poly([0.02, -0.84, 0.12, -1.02, 0.06, -1.04, -0.03, -0.86]).fill(barkDark);
+      // Twigs and leaves off it, above the line you have to duck under.
+      g.poly([-0.3, -0.9, -0.42, -1.22, -0.36, -1.24, -0.24, -0.92]).fill(barkDark);
+      g.ellipse(-0.43, -1.28, 0.12, 0.07).fill(zone.prop);
+      g.ellipse(-0.3, -1.12, 0.09, 0.05).fill(lighten(zone.prop, 0.1));
+      g.poly([0.34, -0.82, 0.48, -1.1, 0.42, -1.12, 0.28, -0.84]).fill(barkDark);
+      g.ellipse(0.5, -1.16, 0.11, 0.06).fill(zone.prop);
+      g.rect(-w, -0.68, w * 2, 0.08).fill({ color: SLIDE_TINT, alpha: 0.95 });
       break;
+    }
 
-    case 'low':
-      // A hanging mat of moss and branches. It touches the ground NOWHERE,
+    case 'low': {
+      // A curtain of hanging vines and moss. It touches the ground NOWHERE,
       // so jumping is obviously the wrong answer.
-      g.roundRect(-w, -1.6, w * 2, 0.5, 0.08).fill(darken(zone.prop, 0.25));
-      for (let i = 0; i < 7; i++) {
-        const x = -w + 0.1 + i * ((w * 2 - 0.2) / 6);
-        g.rect(x, -1.16, 0.05, 0.16 + ((i * 5) % 4) * 0.06).fill({ color: zone.prop, alpha: 0.85 });
+      g.poly([-w, -1.62, w, -1.58, w, -1.3, -w, -1.34]).fill(lighten(zone.prop, 0.05));
+      for (let i = 0; i < 9; i++) {
+        const x = -w + 0.06 + i * ((w * 2 - 0.12) / 8);
+        const len = 0.2 + ((i * 5) % 4) * 0.07;
+        g.rect(x, -1.34, 0.045, len).fill({ color: zone.prop, alpha: 0.9 });
+        g.ellipse(x + 0.022, -1.34 + len, 0.05, 0.035).fill({ color: zone.prop, alpha: 0.9 });
       }
-      g.rect(-w, -1.18, w * 2, 0.07).fill(0xffd166);
+      g.rect(-w, -1.24, w * 2, 0.08).fill({ color: SLIDE_TINT, alpha: 0.95 });
       break;
+    }
 
     default:
-      // A gap in the boards, straight down into the water. No geometry above
-      // the road at all.
+      // Boards rotted straight through into the water. No geometry at all
+      // above the road, so there is nothing to duck under.
       g.ellipse(0, 0, w, 0.2).fill(darken(zone.water, 0.55));
       g.ellipse(0, -0.02, w * 0.86, 0.15).fill(0x000000);
       g.ellipse(-0.16, -0.03, 0.16, 0.05).fill({ color: zone.waterLight, alpha: 0.45 });
-      g.ellipse(0, 0, w, 0.2).stroke({ color: 0x4f3d24, width: 0.06 });
+      // Splintered board ends around the hole.
+      g.poly([-w, -0.05, -w + 0.16, -0.12, -w + 0.2, 0.02, -w + 0.02, 0.06]).fill(barkDark);
+      g.poly([w, -0.05, w - 0.18, -0.13, w - 0.22, 0.01, w - 0.02, 0.06]).fill(barkDark);
+      g.ellipse(0, 0, w, 0.2).stroke({ color: JUMP_TINT, width: 0.075 });
       break;
   }
+  // ONE small chevron above it, pointing the way out. The first cut drew two
+  // big ones per hazard and, with four hazards on screen, the swamp vanished
+  // behind a wall of arrows — the warning has to be quieter than the thing
+  // it is warning about. Geometry rather than text, so it stays crisp at the
+  // ~130x scale a unit-authored view is blown up to.
+  const up = HAZARD_RULES[kind].jump;
+  const y = up ? -0.95 : -2.02;
+  const d = up ? -1 : 1;
+  g.poly([
+    -0.15, y, 0, y + 0.13 * d, 0.15, y,
+    0.15, y + 0.08 * d, 0, y + 0.21 * d, -0.15, y + 0.08 * d,
+  ]).fill({ color: hazardTint(kind), alpha: 0.9 });
+
   c.addChild(g);
   return c;
+}
+
+/**
+ * The mark painted on the boards in a blocked lane.
+ *
+ * The obstacle itself is a few pixels tall when it first appears, but a
+ * stripe lying flat on the road keeps its width all the way out — so this,
+ * not the object, is what tells you WHICH LANE is blocked while there is
+ * still time to leave it. Drawn per-frame with the road, because it has to
+ * follow the bend and the corner exactly.
+ */
+export function drawLaneMark(
+  g: Graphics,
+  kind: HazardKind,
+  corners: { x: number; y: number }[],
+  alpha: number,
+): void {
+  const pts: number[] = [];
+  for (const p of corners) pts.push(p.x, p.y);
+  // Faint. It is a stain on the boards that you read without looking at —
+  // any stronger and it stops being a warning and starts being scenery you
+  // try to avoid stepping on.
+  g.poly(pts).fill({ color: hazardTint(kind), alpha: alpha * 0.3 });
 }
 
 /** A coin. Flipped by scaling x, which is cheaper than rotating and reads
