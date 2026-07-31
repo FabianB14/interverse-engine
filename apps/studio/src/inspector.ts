@@ -18,7 +18,65 @@ export function wireInspector(editor: StudioEditor, hooks: InspectorHooks): void
   const title = document.getElementById('insp-title')!;
   const body = document.getElementById('insp-body')!;
 
+  /** More than one actor picked: the useful things are the ones that only
+   *  make sense in bulk — tidy them up, copy them, delete them. Editing
+   *  properties still belongs to the primary (last-clicked) actor. */
+  const renderGroup = (): void => {
+    const defs = editor.selection;
+    title.textContent = `⬚ ${defs.length} actors selected`;
+    body.innerHTML = '';
+    const hint = document.createElement('div');
+    hint.className = 'muted';
+    hint.style.cssText = 'font-size:12px;margin-bottom:8px';
+    hint.textContent = 'Drag any of them to move the whole group. Arrow keys nudge; hold Shift for a whole tile.';
+    body.appendChild(hint);
+
+    const bar = (label: string, buttons: [string, string, () => void][]): void => {
+      const head = document.createElement('div');
+      head.className = 'pal-head';
+      head.textContent = label;
+      body.appendChild(head);
+      const row = document.createElement('div');
+      row.className = 'row';
+      row.style.cssText = 'flex-wrap:wrap;gap:4px;margin-bottom:6px';
+      for (const [text, tip, fn] of buttons) {
+        const b = document.createElement('button');
+        b.className = 'btn';
+        b.textContent = text;
+        b.title = tip;
+        b.onclick = fn;
+        row.appendChild(b);
+      }
+      body.appendChild(row);
+    };
+
+    bar('Line them up', [
+      ['⇤', 'Align left edges', () => editor.align('left')],
+      ['⇥', 'Align right edges', () => editor.align('right')],
+      ['⤒', 'Align tops', () => editor.align('top')],
+      ['⤓', 'Align bottoms', () => editor.align('bottom')],
+      ['↔', 'Centre horizontally', () => editor.align('centerX')],
+      ['↕', 'Centre vertically', () => editor.align('centerY')],
+      ['≡', 'Space them evenly', () => editor.distribute()],
+    ]);
+    bar('Do to all of them', [
+      ['⧉ Duplicate', 'Copy them next to themselves (Ctrl+D)', () => editor.duplicate()],
+      ['📋 Copy', 'Copy (Ctrl+C) — paste into any level', () => editor.copy()],
+      ['🗑 Delete', 'Delete them all (Del)', () => editor.deleteSelected()],
+    ]);
+
+    const list = document.createElement('div');
+    list.className = 'muted';
+    list.style.cssText = 'font-size:12px;margin-top:6px;line-height:1.6';
+    list.textContent = defs.map((d) => d.name).join(', ');
+    body.appendChild(list);
+  };
+
   const render = (): void => {
+    if (!editor.playing && editor.selectedIds.length > 1) {
+      renderGroup();
+      return;
+    }
     const def = editor.selected;
     if (!def) {
       // Nothing selected is not nothing to edit — this is the LEVEL, and

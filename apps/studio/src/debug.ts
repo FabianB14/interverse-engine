@@ -174,6 +174,22 @@ export interface StudioDebug {
   libraryList: () => { id: string; name: string; updated: number }[];
   libraryOpen: (id: string) => boolean;
   libraryDelete: (id: string) => void;
+  /** ⬚ multi-select + 📋 clipboard */
+  selectedNames: () => string[];
+  selectAdd: (name: string) => boolean;
+  selectAll: () => number;
+  marqueeSelect: (x0: number, y0: number, x1: number, y1: number) => number;
+  copySel: () => number;
+  cutSel: () => number;
+  pasteSel: (x?: number, y?: number) => number;
+  duplicateSel: () => number;
+  deleteSel: () => number;
+  nudgeSel: (dx: number, dy: number) => number;
+  alignSel: (edge: 'left' | 'right' | 'top' | 'bottom' | 'centerX' | 'centerY') => number;
+  distributeSel: () => number;
+  dragSel: (name: string, x: number, y: number) => boolean;
+  inspectorTitle: () => string;
+  designAt: (clientX: number, clientY: number) => { x: number; y: number };
 }
 
 declare global {

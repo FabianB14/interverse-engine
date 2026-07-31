@@ -5,6 +5,10 @@
  * the world through this class.
  */
 import { History } from './history.js';
+import {
+  CLIPBOARD_KEY, alignDefs, cloneForPaste, distributeDefs, isMarquee, toggleIn, withinMarquee,
+} from './clipboard.js';
+import type { AlignEdge } from './clipboard.js';
 import { Container, Graphics, Text } from 'pixi.js';
 import { Scene, createGame, darken, lighten } from '@interverse/engine';
 import type { Game } from '@interverse/engine';
@@ -161,8 +165,7 @@ class EditScene extends Scene {
     v.cursor = 'pointer';
     v.on('pointerdown', (ev) => {
       ev.stopPropagation();
-      this.editor.select(def.id);
-      this.editor.beginDrag(def, ev.globalX, ev.globalY);
+      this.editor.pickEntity(def, ev.globalX, ev.globalY);
     });
     this.world.addChild(v);
     this.views.set(def.id, v);
@@ -192,13 +195,20 @@ class EditScene extends Scene {
 export class StudioEditor {
   project: ProjectDef;
   sceneId: string;
-  selectedId: string | null = null;
+  /** The selection. `selectedId` stays as "the one the inspector edits" —
+   *  the last one clicked — so every existing single-select path keeps
+   *  working while multi-select rides alongside it. */
+  selectedIds: string[] = [];
   playing = false;
   game!: Game;
 
   private editScene: EditScene | null = null;
   private playScene: PlayScene | null = null;
-  private drag: { def: EntityDef; dx: number; dy: number } | null = null;
+  /** A drag carries the WHOLE selection: dx/dy is the grab offset for the
+   *  actor under the pointer, and `others` their offsets relative to it. */
+  private drag: { def: EntityDef; dx: number; dy: number; others: { def: EntityDef; ox: number; oy: number }[] } | null = null;
+  /** Marquee in progress (design coords). */
+  marquee: { a: { x: number; y: number }; b: { x: number; y: number } } | null = null;
   private saveTimer = 0;
 
   /** Panels subscribe to refresh themselves. */
@@ -249,16 +259,37 @@ export class StudioEditor {
         this.paintAt(p.x, p.y);
         return;
       }
+      if (this.marquee) {
+        this.marquee.b = this.toDesign(ev.clientX, ev.clientY);
+        this.refreshRing();
+        return;
+      }
       if (!this.drag) return;
       const p = this.toDesign(ev.clientX, ev.clientY);
       this.editLabel = 'move';
       this.drag.def.x = Math.round(p.x - this.drag.dx);
       this.drag.def.y = Math.round(p.y - this.drag.dy);
-      const v = this.editScene?.views.get(this.drag.def.id);
-      v?.position.set(this.drag.def.x, this.drag.def.y);
+      this.editScene?.views.get(this.drag.def.id)?.position.set(this.drag.def.x, this.drag.def.y);
+      // Everything else in the selection rides along, keeping its spacing.
+      for (const o of this.drag.others) {
+        o.def.x = Math.round(this.drag.def.x + o.ox);
+        o.def.y = Math.round(this.drag.def.y + o.oy);
+        this.editScene?.views.get(o.def.id)?.position.set(o.def.x, o.def.y);
+      }
       this.refreshRing();
     });
     window.addEventListener('pointerup', () => {
+      if (this.marquee) {
+        const { a, b } = this.marquee;
+        this.marquee = null;
+        if (isMarquee(a, b)) {
+          const hit = withinMarquee(this.scene.entities, a, b);
+          this.selectMany(this.marqueeAdditive ? [...this.selectedIds, ...hit] : hit);
+        } else if (!this.marqueeAdditive) {
+          this.select(null);
+        }
+        this.refreshRing();
+      }
       if (this.painting) {
         this.painting = false;
         this.editScene?.refreshTiles();
@@ -338,9 +369,18 @@ export class StudioEditor {
       const p = this.toDesignFromGlobal(gx, gy);
       this.paintAt(p.x, p.y);
     } else {
-      this.select(null);
+      // Empty ground: start a marquee. It only becomes a marquee once the
+      // pointer actually travels, so a plain click still just deselects.
+      const p = this.toDesignFromGlobal(gx, gy);
+      this.marquee = { a: p, b: p };
+      this.marqueeAdditive = this.additiveKey;
     }
   }
+
+  /** Held ctrl/shift at the moment of the gesture — set by main.ts, which
+   *  owns the DOM events that know about modifier keys. */
+  additiveKey = false;
+  private marqueeAdditive = false;
 
   paintAt(x: number, y: number): void {
     const ch = this.tileChar;
@@ -399,7 +439,7 @@ export class StudioEditor {
   switchScene(id: string): void {
     if (!this.project.scenes.some((s) => s.id === id)) return;
     this.sceneId = id;
-    this.selectedId = null;
+    this.selectedIds = [];
     this.panX = 0;
     this.panY = 0;
     if (this.playing) this.openPlayScene(this.scene);
@@ -438,7 +478,7 @@ export class StudioEditor {
 
   private beginPlay(): void {
     this.playing = true;
-    this.selectedId = null;
+    this.selectedIds = [];
     this.openPlayScene(this.scene);
     this.onSelection();
     this.onPlayState();
@@ -529,12 +569,19 @@ export class StudioEditor {
 
   removeEntity(id: string): void {
     this.editLabel = 'delete actor';
+    if (!this.dropEntity(id)) return;
+    if (this.selectedIds.includes(id)) this.select(null);
+    this.touch();
+  }
+
+  /** Remove without recording — so deleting a whole selection is ONE undo,
+   *  not one per actor. */
+  private dropEntity(id: string): boolean {
     const i = this.scene.entities.findIndex((e) => e.id === id);
-    if (i < 0) return;
+    if (i < 0) return false;
     this.scene.entities.splice(i, 1);
     this.editScene?.removeViewFor(id);
-    if (this.selectedId === id) this.select(null);
-    this.touch();
+    return true;
   }
 
   updateEntity(def: EntityDef): void {
@@ -548,40 +595,226 @@ export class StudioEditor {
     return this.scene.entities.find((e) => e.name === name);
   }
 
+  get selectedId(): string | null {
+    return this.selectedIds[this.selectedIds.length - 1] ?? null;
+  }
+
   get selected(): EntityDef | null {
     return this.scene.entities.find((e) => e.id === this.selectedId) ?? null;
   }
 
-  select(id: string | null): void {
-    this.selectedId = id;
+  /** Every selected actor, in scene order. */
+  get selection(): EntityDef[] {
+    const ids = new Set(this.selectedIds);
+    return this.scene.entities.filter((e) => ids.has(e.id));
+  }
+
+  /** `additive` is ctrl/shift-click: toggle rather than replace. */
+  select(id: string | null, additive = false): void {
+    if (id === null) this.selectedIds = [];
+    else if (additive) this.selectedIds = toggleIn(this.selectedIds, id);
+    else this.selectedIds = [id];
     this.refreshRing();
     this.onSelection();
+  }
+
+  selectMany(ids: readonly string[]): void {
+    this.selectedIds = [...new Set(ids)];
+    this.refreshRing();
+    this.onSelection();
+  }
+
+  selectAll(): void {
+    this.selectMany(this.scene.entities.map((e) => e.id));
+  }
+
+  /** Copy the selection. Kept in localStorage too, so it survives a reload
+   *  and can be pasted into a project open in another tab. */
+  copy(): number {
+    const defs = this.selection;
+    if (!defs.length) return 0;
+    this.clip = structuredClone(defs);
+    try {
+      localStorage.setItem(CLIPBOARD_KEY, JSON.stringify(this.clip));
+    } catch {
+      /* quota — the in-memory copy still works */
+    }
+    return defs.length;
+  }
+
+  cut(): number {
+    const n = this.copy();
+    if (n) this.deleteSelected();
+    return n;
+  }
+
+  private clipboard(): EntityDef[] {
+    if (this.clip.length) return this.clip;
+    try {
+      const raw = JSON.parse(localStorage.getItem(CLIPBOARD_KEY) ?? '[]') as EntityDef[];
+      return Array.isArray(raw) ? raw : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /** Paste into the CURRENT level — which may not be the one they were
+   *  copied from, and is the main reason paste exists. */
+  paste(at?: { x: number; y: number }): number {
+    const defs = this.clipboard();
+    if (!defs.length) return 0;
+    this.editLabel = 'paste';
+    const made = cloneForPaste(defs, this.scene, at ? { at } : {});
+    for (const d of made) {
+      this.scene.entities.push(d);
+      this.editScene?.addViewFor(d);
+    }
+    this.selectMany(made.map((d) => d.id));
+    this.touch();
+    return made.length;
+  }
+
+  duplicate(): number {
+    const defs = this.selection;
+    if (!defs.length) return 0;
+    this.editLabel = 'duplicate';
+    const made = cloneForPaste(defs, this.scene);
+    for (const d of made) {
+      this.scene.entities.push(d);
+      this.editScene?.addViewFor(d);
+    }
+    this.selectMany(made.map((d) => d.id));
+    this.touch();
+    return made.length;
+  }
+
+  deleteSelected(): number {
+    const ids = [...this.selectedIds];
+    if (!ids.length) return 0;
+    this.editLabel = ids.length > 1 ? `delete ${ids.length} actors` : 'delete actor';
+    let n = 0;
+    for (const id of ids) if (this.dropEntity(id)) n++;
+    this.selectMany([]);
+    this.touch();
+    return n;
+  }
+
+  /** Arrow-key nudge, and the align/distribute tools. */
+  nudge(dx: number, dy: number): number {
+    const defs = this.selection;
+    if (!defs.length) return 0;
+    this.editLabel = 'move';
+    for (const d of defs) {
+      d.x = Math.max(20, Math.min(this.scene.worldW - 20, d.x + dx));
+      d.y = Math.max(20, Math.min(this.scene.worldH - 20, d.y + dy));
+      this.editScene?.views.get(d.id)?.position.set(d.x, d.y);
+    }
+    this.refreshRing();
+    this.touch();
+    return defs.length;
+  }
+
+  align(edge: AlignEdge): number {
+    const defs = this.selection;
+    this.editLabel = 'align';
+    const n = alignDefs(defs, edge);
+    if (n) this.afterBulkMove(defs);
+    return n;
+  }
+
+  distribute(): number {
+    const defs = this.selection;
+    this.editLabel = 'align';
+    const n = distributeDefs(defs);
+    if (n) this.afterBulkMove(defs);
+    return n;
+  }
+
+  /** Move one actor to a point and carry the rest of the selection with it —
+   *  the same thing a canvas drag does, reachable without a pointer. */
+  dragSelectionTo(def: EntityDef, x: number, y: number): void {
+    const others = this.selection
+      .filter((d) => d.id !== def.id)
+      .map((d) => ({ def: d, ox: d.x - def.x, oy: d.y - def.y }));
+    this.editLabel = 'move';
+    def.x = Math.round(x);
+    def.y = Math.round(y);
+    for (const o of others) {
+      o.def.x = Math.round(def.x + o.ox);
+      o.def.y = Math.round(def.y + o.oy);
+    }
+    this.afterBulkMove([def, ...others.map((o) => o.def)]);
+  }
+
+  private afterBulkMove(defs: EntityDef[]): void {
+    for (const d of defs) this.editScene?.views.get(d.id)?.position.set(d.x, d.y);
+    this.refreshRing();
+    this.touch();
+  }
+
+  private clip: EntityDef[] = [];
+
+  /**
+   * Pointer-down on an actor. Three cases, and getting the middle one wrong
+   * is what makes multi-select feel broken elsewhere: clicking an actor that
+   * is ALREADY part of a group must not collapse the group, or you can never
+   * drag the group you just made.
+   */
+  pickEntity(def: EntityDef, gx: number, gy: number): void {
+    if (this.playing) return;
+    if (this.additiveKey) {
+      this.select(def.id, true);
+      // Ctrl-clicking a selected actor removes it — there is nothing to drag.
+      if (!this.selectedIds.includes(def.id)) return;
+    } else if (!this.selectedIds.includes(def.id)) {
+      this.select(def.id);
+    } else {
+      // Already in the selection: promote it to primary (the one the
+      // inspector edits) and keep everyone else.
+      this.selectedIds = [...this.selectedIds.filter((i) => i !== def.id), def.id];
+      this.refreshRing();
+      this.onSelection();
+    }
+    this.beginDrag(def, gx, gy);
   }
 
   beginDrag(def: EntityDef, gx: number, gy: number): void {
     if (this.playing) return;
     const p = this.toDesignFromGlobal(gx, gy);
-    this.drag = { def, dx: p.x - def.x, dy: p.y - def.y };
+    const others = this.selection
+      .filter((d) => d.id !== def.id)
+      .map((d) => ({ def: d, ox: d.x - def.x, oy: d.y - def.y }));
+    this.drag = { def, dx: p.x - def.x, dy: p.y - def.y, others };
   }
 
   refreshRing(): void {
     const ring = this.editScene?.ring;
     if (!ring) return;
     ring.clear();
-    const def = this.selected;
-    if (!def) return;
-    const v = this.editScene?.views.get(def.id);
-    if (!v) return;
-    const b = v.getLocalBounds();
-    ring
-      .roundRect(
-        def.x + (b.x - 6) * def.scale,
-        def.y + (b.y - 6) * def.scale,
-        (b.width + 12) * def.scale,
-        (b.height + 12) * def.scale,
-        10,
-      )
-      .stroke({ color: 0xc77dff, width: 3, alpha: 0.9 });
+    const sel = this.selection;
+    for (const def of sel) {
+      const v = this.editScene?.views.get(def.id);
+      if (!v) continue;
+      const b = v.getLocalBounds();
+      // The last-clicked one is brighter: it is what the inspector edits.
+      const primary = def.id === this.selectedId;
+      ring
+        .roundRect(
+          def.x + (b.x - 6) * def.scale,
+          def.y + (b.y - 6) * def.scale,
+          (b.width + 12) * def.scale,
+          (b.height + 12) * def.scale,
+          10,
+        )
+        .stroke({ color: 0xc77dff, width: primary ? 3 : 2, alpha: primary ? 0.9 : 0.5 });
+    }
+    // The marquee, while one is being dragged.
+    if (this.marquee) {
+      const { a, b } = this.marquee;
+      ring
+        .rect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(a.x - b.x), Math.abs(a.y - b.y))
+        .stroke({ color: 0x8affc1, width: 2, alpha: 0.8 });
+    }
   }
 
   // ---------------------------------------------------------- coordinates
@@ -710,9 +943,14 @@ export class StudioEditor {
   }
 
   importJson(json: string): void {
+    // Undo restores the whole project, so without this it would also throw
+    // you back to the first level — taking back an edit should not move you.
+    // A genuinely different project has no scene with this id, so loading a
+    // template still lands on its start scene.
+    const keep = this.sceneId;
     this.project = parseProject(json);
-    this.sceneId = this.project.startScene;
-    this.selectedId = null;
+    this.sceneId = this.project.scenes.some((s) => s.id === keep) ? keep : this.project.startScene;
+    this.selectedIds = [];
     this.openEditScene();
     // Loading a template or a file is a big step you should be able to take
     // back — but a restore driven BY undo must not record itself.

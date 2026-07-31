@@ -65,6 +65,53 @@ takes two undos. Loading a template is itself undoable.
 Ctrl+Z inside the Code window belongs to the Code window, so you never
 lose a line of script to an editor undo.
 
+## 1¾ · ⬚ Selecting several things at once
+
+Levels are built out of groups — a row of crates, a wall of trees, a
+cluster of pickups — so you can pick and move several actors as one.
+
+- **Rubber-band**: drag on empty ground. A green rectangle follows the
+  pointer and everything inside it is selected when you let go. A plain
+  click (no travel) still just clears the selection.
+- **Ctrl/⌘-click** or **Shift-click** an actor to add or remove it from
+  the selection, on the canvas or in the 🌲 Hierarchy. Shift-clicking in
+  the Hierarchy takes the whole run between your last pick and this one.
+- **Ctrl/⌘+A** selects everything in the level.
+
+The last one you clicked is drawn with a brighter ring — that is the
+**primary**, and it is what the inspector's property fields edit. Drag any
+member and the whole group travels with it, spacing intact.
+
+With more than one selected, the inspector becomes a group panel:
+
+| Action | What it does |
+| --- | --- |
+| ⇤ ⇥ ⤒ ⤓ | Line them up on an edge |
+| ↔ ↕ | Centre them on an axis |
+| ≡ | Space them evenly (along whichever axis they are most spread out on) |
+| ⧉ Duplicate · 📋 Copy · 🗑 Delete | Do it to all of them |
+
+**Arrow keys** nudge the selection by one unit; hold **Shift** for a whole
+tile (32).
+
+### 📋 Copy, cut, paste
+
+`Ctrl/⌘+C`, `Ctrl/⌘+X`, `Ctrl/⌘+V`, and `Ctrl/⌘+D` to duplicate in place.
+`Delete` (or Backspace) removes the whole selection in **one** undo step.
+
+Paste drops the copies **under your pointer**, keeping the group's
+internal arrangement, and it works **across levels** — copy a lamp-post
+row in one level, switch level, paste. Copies get their own ids and
+non-colliding names (`Crate`, `Crate 2`, `Crate 3`) so scripts and events
+that refer to actors by name keep pointing at the right one. Anything
+pasted outside the world bounds is pulled back inside rather than lost.
+
+The clipboard also lives in your browser storage, so it survives a reload
+and you can paste into a project open in another tab.
+
+Inside the Code window, Ctrl+C/V belong to the text — the editor never
+steals them from a field you are typing in.
+
 ## 2 · Build the scene
 
 The left panel starts with the **🌲 Hierarchy** — every level and its

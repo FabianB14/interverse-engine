@@ -739,6 +739,110 @@ const undoOk =
   afterUndo1 === undoBefore + 1 && afterUndo2 === undoBefore && afterRedo === undoBefore + 1 &&
   undoHeroX === 500 && afterKey === beforeKey - 1;
 
+// MULTI-SELECT + CLIPBOARD: pick several actors, move them as one group,
+// tidy them up, and copy them into a different level.
+await page.evaluate(() => window.__studio.loadTemplate('topdown'));
+await sleep(300);
+const msA = await page.evaluate(() => window.__studio.addEntity('crate', 200, 300));
+const msB = await page.evaluate(() => window.__studio.addEntity('crate', 240, 300));
+const msC = await page.evaluate(() => window.__studio.addEntity('crate', 500, 360));
+await page.evaluate((n) => window.__studio.select(n), msA);
+await page.evaluate((n) => window.__studio.selectAdd(n), msB);
+await page.evaluate((n) => window.__studio.selectAdd(n), msC);
+const msNames = await page.evaluate(() => window.__studio.selectedNames());
+const msTitle = await page.evaluate(() => window.__studio.inspectorTitle());
+// Dragging one carries the rest, spacing intact.
+await page.evaluate((n) => window.__studio.dragSel(n, 300, 500), msA);
+const msDragged = await page.evaluate((n) => window.__studio.getEntity(n), msB);
+// Arrow keys nudge the whole selection.
+await page.keyboard.press('ArrowRight');
+await page.keyboard.press('ArrowRight');
+const msNudged = await page.evaluate((n) => window.__studio.getEntity(n).x, msB);
+// Tidy: align tops, then space them evenly along the long axis.
+await page.evaluate(() => window.__studio.alignSel('top'));
+const msYs = await page.evaluate(() =>
+  window.__studio.selectedNames().map((n) => window.__studio.getEntity(n).y),
+);
+await page.evaluate(() => window.__studio.distributeSel());
+const msXs = await page.evaluate(() =>
+  window.__studio.selectedNames().map((n) => window.__studio.getEntity(n).x),
+);
+await page.screenshot({ path: `${outDir}/st-29-multiselect.png` });
+// A marquee over the whole board takes everything.
+const msMarquee = await page.evaluate(() => window.__studio.marqueeSelect(-50, -50, 9000, 9000));
+const msTotal = await page.evaluate(() => window.__studio.entityCount());
+// And the same thing with a REAL mouse: rubber-band across empty ground,
+// then drag one of the caught actors and watch the group travel with it.
+// Invert the editor's own client->design mapping from two samples.
+const s0 = await page.evaluate(() => window.__studio.designAt(200, 200));
+const s1 = await page.evaluate(() => window.__studio.designAt(400, 400));
+const msScale = 200 / (s1.x - s0.x);
+const toClient = (x, y) => ({ x: 200 + (x - s0.x) * msScale, y: 200 + (y - s0.y) * msScale });
+await page.evaluate(() => window.__studio.marqueeSelect(-1, -1, -1, -1)); // start from nothing
+const bandFrom = toClient(250, 440);
+const bandTo = toClient(520, 560);
+await page.mouse.move(bandFrom.x, bandFrom.y);
+await page.mouse.down();
+await page.mouse.move((bandFrom.x + bandTo.x) / 2, (bandFrom.y + bandTo.y) / 2, { steps: 4 });
+await page.mouse.move(bandTo.x, bandTo.y, { steps: 4 });
+await page.screenshot({ path: `${outDir}/st-30-marquee.png` });
+await page.mouse.up();
+await sleep(150);
+const msBand = await page.evaluate(() => window.__studio.selectedNames());
+const posOf = () =>
+  page.evaluate(() =>
+    window.__studio.selectedNames().map((n) => {
+      const e = window.__studio.getEntity(n);
+      return [e.x, e.y];
+    }),
+  );
+// Drag one of them 100 right / 60 down; every other one must follow exactly.
+const msBefore = await posOf();
+const grab = toClient(302, 500);
+await page.mouse.move(grab.x, grab.y);
+await page.mouse.down();
+await page.mouse.move(grab.x + 100 * msScale, grab.y + 60 * msScale, { steps: 6 });
+await page.mouse.up();
+await sleep(150);
+const msAfterDrag = await posOf();
+const msTowed = msAfterDrag.map(([x, y], i) => [x - msBefore[i][0], y - msBefore[i][1]]);
+// Copy here, paste into a level that has never seen them.
+await page.evaluate((n) => window.__studio.select(n), msA);
+await page.evaluate((n) => window.__studio.selectAdd(n), msB);
+await page.evaluate((n) => window.__studio.selectAdd(n), msC);
+const msCopied = await page.evaluate(() => window.__studio.copySel());
+await page.evaluate(() => window.__studio.addScene('Paste Target'));
+const msEmpty = await page.evaluate(() => window.__studio.entityCount());
+const msPasted = await page.evaluate(() => window.__studio.pasteSel(360, 640));
+const msAfter = await page.evaluate(() => window.__studio.entityCount());
+// Delete the whole selection, and take it back with ONE undo.
+await page.keyboard.press('Delete');
+await sleep(150);
+const msDeleted = await page.evaluate(() => window.__studio.entityCount());
+await page.evaluate(() => window.__studio.undo());
+const msUndone = await page.evaluate(() => window.__studio.entityCount());
+// Ctrl+A then Ctrl+D from the keyboard, like a real author.
+await page.keyboard.press('Control+a');
+const msAll = await page.evaluate(() => window.__studio.selectedNames().length);
+await page.keyboard.press('Control+d');
+await sleep(200);
+const msDup = await page.evaluate(() => window.__studio.entityCount());
+const msUniqueNames = await page.evaluate(() => {
+  const json = JSON.parse(window.__studio.exportJson());
+  const scene = json.scenes.find((s) => s.name === 'Paste Target');
+  return new Set(scene.entities.map((e) => e.name)).size === scene.entities.length;
+});
+const multiOk =
+  msNames.length === 3 && msTitle.includes('3 actors') &&
+  msDragged.x === 340 && msDragged.y === 500 && msNudged === 342 &&
+  msYs.join() === '500,500,500' && msXs.join() === '302,452,602' &&
+  msMarquee === msTotal &&
+  msBand.includes(msA) && msBand.includes(msB) && !msBand.includes(msC) &&
+  msTowed.every(([dx, dy]) => Math.abs(dx - 100) <= 1 && Math.abs(dy - 60) <= 1) &&
+  msCopied === 3 && msPasted === 3 && msAfter === msEmpty + 3 &&
+  msDeleted === msEmpty && msUndone === msEmpty + 3 &&
+  msAll === msUndone && msDup === msUndone * 2 && msUniqueNames === true;
+
 // HUD LAYOUT: a piece moved in the editor lands there in the running game,
 // and safe areas push it clear of a notch.
 await page.evaluate(() => window.__studio.loadTemplate('action'));
@@ -988,7 +1092,9 @@ await page.evaluate(() =>
 );
 const lvlEvN = await page.evaluate(() => window.__studio.levelEventCount());
 await page.evaluate(() => window.__studio.play());
-await sleep(800);
+// Long enough that a slow headless frame rate still clears several 0.2s
+// ticks — this is a "does the timer run", not a "how fast" assertion.
+await sleep(1800);
 const lvlMusic = await page.evaluate(() => window.__studio.musicNow());
 const lvlTicks = await page.evaluate(() => window.__studio.varNow('ticks'));
 await page.evaluate(() => window.__studio.tapLevel());
@@ -1080,7 +1186,7 @@ await page.evaluate(() => {
   window.__studio.setScript("api.player('Hero', 300);");
   window.__studio.play();
 });
-await sleep(700);
+await sleep(1200);
 const mazePlays = await page.evaluate(() => window.__studio.playHasTiles());
 await page.evaluate(() => window.__studio.applyScriptNow('api.setTiles(api.gen.island())'));
 await sleep(300);
@@ -1143,7 +1249,7 @@ const ok =
   placeOk && editOk && storyOk && levelsOk && playOk && stopOk && exportOk && importOk &&
   templatesOk && skillsOk && scoreOk && tilesOk && cameraOk && frameOk && combatOk && rangedOk &&
   patrolOk && chatOk && coinsOk && persistOk && libOk && eventsOk && genOk && uiOk && dbOk &&
-  questOk && levelEvOk && apiOk && keysOk && controlsOk && skillsBranchOk && gameGenOk && dropOk && artOk && originOk && abilityOk && menuOk && undoOk && hudOk && dialogueOk && platformOk && netOk &&
+  questOk && levelEvOk && apiOk && keysOk && controlsOk && skillsBranchOk && gameGenOk && dropOk && artOk && originOk && abilityOk && menuOk && undoOk && hudOk && dialogueOk && platformOk && multiOk && netOk &&
   errors.length === 0;
 console.log(
   JSON.stringify(
@@ -1169,6 +1275,8 @@ console.log(
       controlsOk, defRight, reboundRight, rx0, rxOldKey, rxNewKey, addedCustom, killBuiltin, killCustom, conflicts,
       dialogueOk, dlgAt, dlgFirst, dlgWho, dlgSecond, dlgWork, coins0, coins1,
       platformOk, restY, onGround, leftX, fellY,
+      multiOk, msNames, msTitle, msDragged, msNudged, msYs, msXs, msMarquee, msTotal, msBand, msTowed,
+      msCopied, msEmpty, msPasted, msAfter, msDeleted, msUndone, msAll, msDup, msUniqueNames,
       undoOk, undoBefore, undoAdded, undoWhat, afterUndo1, afterUndo2, afterRedo, undoHeroX, beforeKey, afterKey,
       hudOk, moved, heartsAt, scoreAt, heartsSafe,
       menuOk, pauseOpen, pausedMove, settingsOpen, menuClosed, resumed, gameTemplates,

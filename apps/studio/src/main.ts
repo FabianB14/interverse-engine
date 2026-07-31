@@ -6,6 +6,7 @@ import { wireFlow } from './flow.js';
 import { wireCodePane } from './codepane.js';
 import { wireControls } from './controls.js';
 import { isEditorUndoTarget } from './history.js';
+import { isEditorClipboardTarget, withinMarquee } from './clipboard.js';
 import { ensureHud, moveHudPart, openHudEditor } from './hud.js';
 import { createAbility, grantTo, openAbilityEditor } from './abilities.js';
 import {
@@ -145,6 +146,74 @@ async function main(): Promise<void> {
     const redo = e.shiftKey || e.key.toLowerCase() === 'y';
     if (redo) editor.redo();
     else editor.undo();
+    refreshHistory();
+  });
+
+  // ------------------------------------------------- ⬚ multi-select + 📋
+  // Modifier state at the moment of the gesture. Capture phase, so it is
+  // already correct when Pixi's own pointerdown handler runs.
+  window.addEventListener(
+    'pointerdown',
+    (e) => {
+      editor.additiveKey = e.shiftKey || e.ctrlKey || e.metaKey;
+    },
+    true,
+  );
+  // Where a paste should land: under the pointer, like every other editor.
+  let lastPoint: { x: number; y: number } | null = null;
+  center.addEventListener('pointermove', (e) => {
+    lastPoint = editor.toDesign(e.clientX, e.clientY);
+  });
+  // Bulk edits happen with one keystroke and are easy to do by accident, so
+  // they say what they did rather than silently changing the level.
+  const toast = document.createElement('div');
+  toast.id = 'toast';
+  toast.style.cssText =
+    'position:absolute;bottom:14px;left:50%;transform:translateX(-50%);background:#1b1a26;color:#e9e6ff;' +
+    'border:1px solid #3a3550;border-radius:999px;padding:6px 14px;font-size:13px;font-weight:700;' +
+    'pointer-events:none;display:none;z-index:40';
+  center.appendChild(toast);
+  let toastTimer = 0;
+  const say = (msg: string): void => {
+    toast.textContent = msg;
+    toast.style.display = 'block';
+    clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(() => (toast.style.display = 'none'), 1400);
+  };
+  window.addEventListener('keydown', (e) => {
+    if (editor.playing) return;
+    // A focused text field owns its own copy/paste — never steal it.
+    if (!isEditorClipboardTarget(document.activeElement)) return;
+    const mod = e.ctrlKey || e.metaKey;
+    const key = e.key.toLowerCase();
+    if (mod && key === 'c') {
+      const n = editor.copy();
+      if (n) say(`📋 Copied ${n} actor${n > 1 ? 's' : ''}`);
+    } else if (mod && key === 'x') {
+      const n = editor.cut();
+      if (n) say(`✂ Cut ${n} actor${n > 1 ? 's' : ''}`);
+    } else if (mod && key === 'v') {
+      const n = editor.paste(lastPoint ?? undefined);
+      if (n) say(`📋 Pasted ${n} actor${n > 1 ? 's' : ''}`);
+    } else if (mod && key === 'd') {
+      const n = editor.duplicate();
+      if (n) say(`⧉ Duplicated ${n} actor${n > 1 ? 's' : ''}`);
+    } else if (mod && key === 'a') {
+      editor.selectAll();
+      say(`⬚ Selected ${editor.selectedIds.length} actors`);
+    } else if (key === 'delete' || key === 'backspace') {
+      const n = editor.deleteSelected();
+      if (n) say(`🗑 Deleted ${n} actor${n > 1 ? 's' : ''}`);
+      else return;
+    } else if (key.startsWith('arrow')) {
+      // Nudge by 1, or a whole tile with shift held.
+      const step = e.shiftKey ? 32 : 1;
+      const d = { arrowleft: [-step, 0], arrowright: [step, 0], arrowup: [0, -step], arrowdown: [0, step] }[key]!;
+      if (!editor.nudge(d[0]!, d[1]!)) return;
+    } else {
+      return;
+    }
+    e.preventDefault();
     refreshHistory();
   });
 
@@ -1037,10 +1106,24 @@ async function main(): Promise<void> {
       if (!active) continue;
       for (const ent of scene.entities) {
         const er = document.createElement('div');
-        const sel = editor.selectedId === ent.id;
+        const sel = editor.selectedIds.includes(ent.id);
         er.style.cssText = `cursor:pointer;padding:1px 4px 1px 20px;border-radius:6px;font-size:13px;${sel ? 'background:var(--panel2);color:var(--accent)' : ''}`;
         er.textContent = `${KIND_EMOJI[ent.kind] ?? '·'} ${ent.name}${ent.events.length ? ' ⚡' : ''}`;
-        er.onclick = () => editor.select(ent.id);
+        // Ctrl/⌘-click adds one; shift-click takes the run between the last
+        // pick and this one, the way every file list works.
+        er.onclick = (e) => {
+          if (e.shiftKey && editor.selectedId) {
+            const ids = scene.entities.map((x) => x.id);
+            const from = ids.indexOf(editor.selectedId);
+            const to = ids.indexOf(ent.id);
+            if (from >= 0 && to >= 0) {
+              const [lo, hi] = from < to ? [from, to] : [to, from];
+              editor.selectMany([...editor.selectedIds, ...ids.slice(lo, hi + 1)]);
+              return;
+            }
+          }
+          editor.select(ent.id, e.ctrlKey || e.metaKey);
+        };
         hier.appendChild(er);
       }
     }
@@ -1692,6 +1775,39 @@ async function main(): Promise<void> {
     libraryList: () => editor.libraryList(),
     libraryOpen: (id: string) => editor.openFromLibrary(id),
     libraryDelete: (id: string) => editor.deleteFromLibrary(id),
+    selectedNames: () => editor.selection.map((d) => d.name),
+    selectAdd: (name: string) => {
+      const def = editor.entityByName(name);
+      if (def) editor.select(def.id, true);
+      return !!def;
+    },
+    selectAll: () => {
+      editor.selectAll();
+      return editor.selectedIds.length;
+    },
+    marqueeSelect: (x0: number, y0: number, x1: number, y1: number) => {
+      editor.selectMany(withinMarquee(editor.scene.entities, { x: x0, y: y0 }, { x: x1, y: y1 }));
+      return editor.selectedIds.length;
+    },
+    copySel: () => editor.copy(),
+    cutSel: () => editor.cut(),
+    pasteSel: (x?: number, y?: number) =>
+      editor.paste(x === undefined || y === undefined ? undefined : { x, y }),
+    duplicateSel: () => editor.duplicate(),
+    deleteSel: () => editor.deleteSelected(),
+    nudgeSel: (dx: number, dy: number) => editor.nudge(dx, dy),
+    alignSel: (edge) => editor.align(edge),
+    distributeSel: () => editor.distribute(),
+    dragSel: (name: string, x: number, y: number) => {
+      const def = editor.entityByName(name);
+      if (!def) return false;
+      editor.dragSelectionTo(def, x, y);
+      return true;
+    },
+    inspectorTitle: () => $('insp-title').textContent ?? '',
+    // Lets a test drive the canvas with a REAL pointer: it needs to know
+    // where a design coordinate lands on screen.
+    designAt: (clientX: number, clientY: number) => editor.toDesign(clientX, clientY),
   };
 
   // Player boot: ?load=<url-to-project-json> (+ &play=1 to jump straight in).
