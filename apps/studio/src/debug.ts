@@ -68,6 +68,15 @@ export interface StudioDebug {
   chatBridged: () => boolean;
   coinsNow: () => number;
   setEvents: (name: string, events: unknown) => boolean;
+  skillBranchCount: () => number;
+  skillRank: (id: string) => number;
+  skillInvest: (id: string) => boolean;
+  skillCanInvest: (id: string) => string;
+  skillSpentIn: (branch: string) => number;
+  skillRespec: () => number;
+  skillOpen: () => void;
+  skillIsOpen: () => boolean;
+  skillLayout: () => { mode: string; cols: number; cell: number; fit: number };
   bindKey: (action: string, key: string) => boolean;
   unbindKey: (action: string, key: string) => boolean;
   keysOf: (action: string) => string[];

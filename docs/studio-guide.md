@@ -415,23 +415,42 @@ and 🎵/🔊 volume bars — gameplay stays paused until they choose.
 
 ### Skill trees
 
+**🌳 Skills** are branch-based, like a Borderlands character sheet.
+`api.skills.define()` takes named **branches**, each with a colour, an
+optional big hex **action skill**, and a grid of skills in **tiers**:
+
 ```js
 api.skills.define({
-  title: 'CHAMPION PATHS',
+  title: 'VAULT HUNTER',
   points: 1,
-  nodes: [
-    { id: 'strength', name: 'Strength', emoji: '💪', cost: 1 },
-    { id: 'blade', name: 'Blade Arts', emoji: '⚔️', cost: 2, requires: ['strength'] },
-  ],
+  pointsPerTier: 5,          // points spent IN a branch to open its next tier
+  branches: [{
+    id: 'brawl', name: 'BRAWLER', color: 0xff6b6b,
+    action: { id: 'rampage', name: 'Rampage', emoji: 'fire', cost: 1, maxRank: 1, tier: 0 },
+    nodes: [
+      { id: 'muscle', name: 'Muscle', emoji: 'sword', cost: 1, maxRank: 5, tier: 0 },
+      { id: 'cleave', name: 'Cleave', emoji: 'sword', cost: 1, maxRank: 3, tier: 1 },
+    ],
+  }],
 });
-api.skills.addPoints(1);          // grant points (quests, training, ...)
-api.skills.open();                // show the tree overlay
-api.skills.isUnlocked('blade');   // gate your gameplay on skills
-api.skills.onUnlock((id) => {});  // react to unlocks
 ```
 
-Node positions are laid out automatically from `requires` chains — linear
-paths and branching trees both work. Unlocks persist per project.
+- **maxRank** makes a skill investable several times — the `0/5` badge.
+- **Tier gating is per branch**: spending five points in GUNSLINGER does
+  nothing for BRAWLER's tier 1. That is the rule that makes a build a
+  choice rather than a checklist, and locked tiers say exactly what opens
+  them.
+- **↺ RESPEC** refunds every point, so experimenting is free.
+- Icons use the built-in art ids (`sword fire bolt snow shield boot heart
+  star`); any other string is drawn as an emoji.
+- Three branches do not fit across a 720-wide portrait phone, so portrait
+  shows **one branch with a switcher** and landscape shows them side by
+  side; either way the panel shrinks to fit rather than running off screen.
+- Older `api.skills.define({ title, points, nodes })` trees keep working
+  exactly as before — they become a single branch with tiers read from
+  the `requires` chain and no point gate.
+
+The **Vault Hunter** template is the worked example.
 
 ## 7¾ · Where your game lives (and what MCP is for)
 

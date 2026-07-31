@@ -963,6 +963,15 @@ async function main(): Promise<void> {
       editor.touch();
       return true;
     },
+    skillBranchCount: () => editor.getPlayScene()?.skillTree()?.branchCount() ?? 0,
+    skillRank: (id: string) => editor.getPlayScene()?.skillTree()?.rankOf(id) ?? 0,
+    skillInvest: (id: string) => editor.getPlayScene()?.skillTree()?.invest(id) ?? false,
+    skillCanInvest: (id: string) => editor.getPlayScene()?.skillTree()?.canInvest(id) ?? 'needsRequires',
+    skillSpentIn: (b: string) => editor.getPlayScene()?.skillTree()?.spentIn(b) ?? 0,
+    skillRespec: () => editor.getPlayScene()?.skillTree()?.respec() ?? 0,
+    skillOpen: () => editor.getPlayScene()?.skillTree()?.open(),
+    skillIsOpen: () => editor.getPlayScene()?.skillTree()?.isOpen ?? false,
+    skillLayout: () => editor.getPlayScene()?.skillTree()?.layout() ?? { mode: 'single', cols: 0, cell: 0, fit: 1 },
     bindKey: (action: string, key: string) => controlsUi.bind(action, key),
     unbindKey: (action: string, key: string) => controlsUi.unbind(action, key),
     keysOf: (action: string) => controlsUi.keysOf(action),

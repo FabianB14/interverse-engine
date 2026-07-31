@@ -8,6 +8,8 @@ import { Graphics } from 'pixi.js';
 
 export const ICON_IDS = ['sword', 'fire', 'bolt', 'snow', 'shield', 'boot', 'heart', 'star'] as const;
 export type IconId = (typeof ICON_IDS)[number];
+/** Does this string name a drawable icon (rather than being an emoji)? */
+export const isIconId = (v: string): v is IconId => (ICON_IDS as readonly string[]).includes(v);
 
 /** Draw an icon centered on (0,0) fitting a `size`-wide box. Unknown ids
  *  fall back to a star so a typo still renders something tappable. */

@@ -436,9 +436,72 @@ function quest(): ProjectDef {
   return p;
 }
 
+/** 🌳 Vault Hunter — the branched skill tree showcase (Borderlands-style):
+ *  three coloured paths, multi-rank cells, and tiers that only open once
+ *  you have committed points to THAT path. */
+function vault(): ProjectDef {
+  const s = defaultScene('Arena');
+  s.background = 0x1a1226;
+  s.entities.push(
+    E('blob', 'Hunter', 360, 900, { color: 0xffd166 }),
+    E('text', 'Title', 360, 180, { text: 'VAULT HUNTER', fontSize: 44, color: 0xffd166 }),
+    E('text', 'Hint', 360, 250, { text: 'Beat monsters → earn points → tap SKILLS', fontSize: 20, color: 0x9a97b8 }),
+    E('button', 'SKILLS', 360, 1150, { text: '🌳 SKILLS' }),
+    E('mob', 'Skag', 200, 520, { hp: 3, xp: 8 }),
+    E('mob', 'Rakk', 560, 520, { hp: 3, xp: 8 }),
+  );
+  s.script = S([
+    "api.player('Hunter', 320);",
+    'api.hearts(3);',
+    'api.levels({ xpPerLevel: 8 });',
+    "api.music.play('battle');",
+    "api.ability('Slash', { icon: 'sword', cooldown: 0.5, key: 'q' }, function () { api.meleeAttack(140, 1); });",
+    'api.skills.define({',
+    "  title: 'VAULT HUNTER',",
+    '  points: 1,',
+    '  pointsPerTier: 5,',
+    '  branches: [',
+    '    {',
+    "      id: 'brawl', name: 'BRAWLER', color: 0xff6b6b,",
+    "      action: { id: 'rampage', name: 'Rampage', emoji: 'fire', cost: 1, maxRank: 1, tier: 0 },",
+    '      nodes: [',
+    "        { id: 'muscle', name: 'Muscle', emoji: 'sword', cost: 1, maxRank: 5, tier: 0 },",
+    "        { id: 'thick', name: 'Thick Skin', emoji: 'shield', cost: 1, maxRank: 5, tier: 0 },",
+    "        { id: 'cleave', name: 'Cleave', emoji: 'sword', cost: 1, maxRank: 3, tier: 1 },",
+    "        { id: 'fury', name: 'Fury', emoji: 'fire', cost: 1, maxRank: 3, tier: 2 },",
+    '      ],',
+    '    },',
+    '    {',
+    "      id: 'gun', name: 'GUNSLINGER', color: 0x6bc7ff,",
+    "      action: { id: 'turret', name: 'Turret', emoji: 'bolt', cost: 1, maxRank: 1, tier: 0 },",
+    '      nodes: [',
+    "        { id: 'steady', name: 'Steady', emoji: 'bolt', cost: 1, maxRank: 5, tier: 0 },",
+    "        { id: 'quick', name: 'Quick Hands', emoji: 'boot', cost: 1, maxRank: 5, tier: 0 },",
+    "        { id: 'pierce', name: 'Pierce', emoji: 'bolt', cost: 1, maxRank: 3, tier: 1 },",
+    '      ],',
+    '    },',
+    '    {',
+    "      id: 'siren', name: 'SIREN', color: 0xc77dff,",
+    "      action: { id: 'phase', name: 'Phaselock', emoji: 'snow', cost: 1, maxRank: 1, tier: 0 },",
+    '      nodes: [',
+    "        { id: 'mend', name: 'Mend', emoji: 'heart', cost: 1, maxRank: 5, tier: 0 },",
+    "        { id: 'spark', name: 'Spark', emoji: 'star', cost: 1, maxRank: 5, tier: 0 },",
+    "        { id: 'storm', name: 'Storm', emoji: 'snow', cost: 1, maxRank: 3, tier: 1 },",
+    '      ],',
+    '    },',
+    '  ],',
+    '});',
+    "api.onTap('SKILLS', function () { api.skills.open(); });",
+    'api.skills.onUnlock(function () { api.sfx.chime(); });',
+    "api.onDefeat(function () { api.skills.addPoints(1); api.vfx('confetti', 360, 640); });",
+  ]);
+  return project('Vault Hunter', [s]);
+}
+
 export const TEMPLATES: TemplateDef[] = [
   { id: 'blank', name: 'Blank', emoji: '⬜', view: '2D', blurb: 'An empty canvas with one hero.', make: () => project('My Game', [(() => { const s = defaultScene('Level 1'); s.entities.push(E('blob', 'Hero', 360, 640)); return s; })()]) },
   { id: 'topdown', name: 'Garden Explorer', emoji: '🧭', view: 'Top-down', blurb: 'Walk anywhere, collect the fireflies. Cozy-action starter.', make: topDown },
+  { id: 'vault', name: 'Vault Hunter', emoji: '🌳', view: 'Branching skill tree', blurb: 'Three coloured skill paths with multi-rank skills and tier gates.', make: vault },
   { id: 'quest', name: "Hero's Errand", emoji: '🏰', view: 'Menu → Quest', blurb: 'Menu screen, shop, chests, a gated door and a boss — built from event blocks.', make: quest },
   { id: 'side25', name: 'Sunset Street', emoji: '🌇', view: '2.5D · 3 screens wide', blurb: 'A long street to journey down — depth scaling + camera follow built in.', make: side25 },
   { id: 'side', name: 'Hilltop Hop', emoji: '⛰️', view: 'Gravity run · wide', blurb: 'Run and JUMP across a 3-screen world — gravity is a level physics toggle.', make: sideView },

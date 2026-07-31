@@ -1695,7 +1695,7 @@ export class PlayScene extends Scene {
 
   makeApi(): ScriptApi {
     if (!this.skillsTree)
-      this.skillsTree = new SkillTree(this, this.project.name, () => this.game.viewWidth);
+      this.skillsTree = new SkillTree(this, this.project.name, () => this.game.viewWidth, () => this.game.viewHeight);
     return {
       scene: this,
       game: this.game,

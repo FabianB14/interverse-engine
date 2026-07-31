@@ -136,7 +136,7 @@ await page.screenshot({ path: `${outDir}/st-3-final.png` });
 // scene script runs without erroring or instantly game-overing, and (the
 // vanish-on-play regression) every spawned entity is VISIBLY rendering
 // after the pop-in settles.
-const templateIds = ['topdown', 'quest', 'side25', 'side', 'runner', 'slash', 'action', 'cozy', 'rpg'];
+const templateIds = ['topdown', 'quest', 'vault', 'side25', 'side', 'runner', 'slash', 'action', 'cozy', 'rpg'];
 const templates = {};
 for (const id of templateIds) {
   await page.evaluate((t) => window.__studio.loadTemplate(t), id);
@@ -491,6 +491,46 @@ const dbOk =
 await page.evaluate(() => window.__studio.stop());
 await sleep(150);
 
+// BRANCHED SKILL TREE: three coloured paths, multi-rank cells, and tiers
+// that only open once enough points are spent IN THAT branch.
+await page.evaluate(() => window.__studio.loadTemplate('vault'));
+await sleep(300);
+await page.evaluate(() => window.__studio.play());
+await sleep(800);
+const brN = await page.evaluate(() => window.__studio.skillBranchCount());
+await page.evaluate(() => window.__studio.skillAddPoints(12));
+await page.evaluate(() => window.__studio.skillOpen());
+const skOpen = await page.evaluate(() => window.__studio.skillIsOpen());
+const layout = await page.evaluate(() => window.__studio.skillLayout());
+// Multi-rank: invest three times in one cell.
+await page.evaluate(() => {
+  window.__studio.skillInvest('muscle');
+  window.__studio.skillInvest('muscle');
+  window.__studio.skillInvest('muscle');
+});
+const rank3 = await page.evaluate(() => window.__studio.skillRank('muscle'));
+// Spend in a DIFFERENT branch — the brawler tier must stay shut.
+await page.evaluate(() => {
+  for (let i = 0; i < 5; i++) window.__studio.skillInvest('steady');
+});
+const crossBranch = await page.evaluate(() => window.__studio.skillCanInvest('cleave'));
+// Now finish the 5 in brawler and it opens.
+await page.evaluate(() => {
+  window.__studio.skillInvest('muscle');
+  window.__studio.skillInvest('muscle');
+});
+const sameBranch = await page.evaluate(() => window.__studio.skillCanInvest('cleave'));
+const spentBrawl = await page.evaluate(() => window.__studio.skillSpentIn('brawl'));
+const refunded = await page.evaluate(() => window.__studio.skillRespec());
+const afterRespec = await page.evaluate(() => window.__studio.skillRank('muscle'));
+await page.screenshot({ path: `${outDir}/st-18-skills.png` });
+const skillsBranchOk =
+  brN === 3 && skOpen === true && layout.cols >= 1 && layout.fit > 0.5 && layout.cell >= 60 && rank3 === 3 &&
+  crossBranch === 'needsTier' && sameBranch === 'ok' && spentBrawl === 5 &&
+  refunded === 10 && afterRespec === 0;
+await page.evaluate(() => window.__studio.stop());
+await sleep(150);
+
 // KEYBOARD: real key presses must move the hero. Nothing in this playtest
 // pressed a key before, so a movement regression could ship green.
 await page.evaluate(() => window.__studio.loadTemplate('topdown'));
@@ -729,7 +769,7 @@ const ok =
   placeOk && editOk && storyOk && levelsOk && playOk && stopOk && exportOk && importOk &&
   templatesOk && skillsOk && scoreOk && tilesOk && cameraOk && frameOk && combatOk && rangedOk &&
   patrolOk && chatOk && coinsOk && persistOk && libOk && eventsOk && genOk && uiOk && dbOk &&
-  questOk && levelEvOk && apiOk && keysOk && controlsOk && netOk &&
+  questOk && levelEvOk && apiOk && keysOk && controlsOk && skillsBranchOk && netOk &&
   errors.length === 0;
 console.log(
   JSON.stringify(
@@ -753,6 +793,7 @@ console.log(
       apiOk, apiN: apiAll.length, apiHit0: apiHit[0], inserted, scriptErr,
       keysOk, kx0, kxD, kxL, ky0, kyS,
       controlsOk, defRight, reboundRight, rx0, rxOldKey, rxNewKey, addedCustom, killBuiltin, killCustom, conflicts,
+      skillsBranchOk, brN, skOpen, layout, rank3, crossBranch, sameBranch, spentBrawl, refunded, afterRespec,
       netOk, playersA, playersB, remotesB, moveOk, remotePosB, stateB,
       errors: errors.slice(0, 6),
     },
