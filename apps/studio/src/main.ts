@@ -3,6 +3,8 @@ import { StudioEditor } from './editor.js';
 import { wireInspector } from './inspector.js';
 import { wireChat } from './chat.js';
 import { wireFlow } from './flow.js';
+import { wireCodePane } from './codepane.js';
+import { STARTER_SCRIPT } from './apidocs.js';
 import { PALETTE } from './palette.js';
 import { TEMPLATES } from './templates.js';
 import { TILE_TYPES } from './tiles.js';
@@ -759,22 +761,32 @@ async function main(): Promise<void> {
 
   // ------------------------------------------------------------ code tab
   const codeText = $<HTMLTextAreaElement>('code-text');
+  const codePane = wireCodePane(codeText, () => {
+    editor.scene.script = codeText.value;
+    editor.touch();
+  });
   const refreshCode = (): void => {
     codeText.value = editor.scene.script;
-    codeText.placeholder = `// This code runs when "${editor.scene.name}" starts in Play mode.\n// Try:\n// api.entity('Hero').x = 100\n// api.onUpdate((dt) => { api.entity('Hero').rotation += dt })\n// api.sfx.chime()`;
+    // An empty Code window used to be a blinking cursor with no clue what
+    // "api" was. Show a runnable starter instead — greyed, so it is clearly
+    // a suggestion until the author types.
+    codeText.placeholder = STARTER_SCRIPT.replace('the level starts', `"${editor.scene.name}" starts`);
   };
   codeText.oninput = () => {
     editor.scene.script = codeText.value;
     editor.touch();
   };
   $('btn-apply-code').onclick = () => {
+    // Blank script + untouched starter = run the starter, so the very first
+    // Apply does something instead of nothing.
+    if (!codeText.value.trim()) codeText.value = STARTER_SCRIPT;
     editor.scene.script = codeText.value;
     editor.touch();
+    codePane.showError(null);
     if (editor.playing) editor.runScriptNow(codeText.value);
     else editor.play();
   };
-  editor.onScriptError = (err) =>
-    alert(`Script error: ${err instanceof Error ? err.message : String(err)}`);
+  editor.onScriptError = (err) => codePane.showError(err);
 
   // ----------------------------------------------------------- story tab
   const storyText = $<HTMLTextAreaElement>('story-text');
@@ -939,6 +951,10 @@ async function main(): Promise<void> {
       editor.touch();
       return true;
     },
+    apiSearch: (q: string) => codePane.search(q),
+    apiInsert: (name: string) => codePane.insert(name),
+    codeText: () => codeText.value,
+    scriptError: () => codePane.errorText(),
     setLevelEvents: (events: unknown) => {
       editor.scene.events = events as NonNullable<typeof editor.scene.events>;
       editor.touch();

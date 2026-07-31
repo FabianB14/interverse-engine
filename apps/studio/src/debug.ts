@@ -68,6 +68,10 @@ export interface StudioDebug {
   chatBridged: () => boolean;
   coinsNow: () => number;
   setEvents: (name: string, events: unknown) => boolean;
+  apiSearch: (q: string) => string[];
+  apiInsert: (name: string) => boolean;
+  codeText: () => string;
+  scriptError: () => string;
   setLevelEvents: (events: unknown) => boolean;
   levelEventCount: () => number;
   tapLevel: () => boolean;

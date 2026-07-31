@@ -491,6 +491,26 @@ const dbOk =
 await page.evaluate(() => window.__studio.stop());
 await sleep(150);
 
+// SCRIPTING PALETTE: the 🔍 command dock finds api calls, inserts working
+// code at the cursor, and script failures render in the panel (not alert()).
+const apiAll = await page.evaluate(() => window.__studio.apiSearch(''));
+const apiHit = await page.evaluate(() => window.__studio.apiSearch('coin'));
+const apiFuzzy = await page.evaluate(() => window.__studio.apiSearch('apmusic'));
+await page.evaluate(() => window.__studio.setScript(''));
+const inserted = await page.evaluate(() => window.__studio.apiInsert('api.hearts'));
+const codeAfter = await page.evaluate(() => window.__studio.codeText());
+// A bad script must surface in the panel with a readable hint, not a dialog.
+await page.evaluate(() => window.__studio.play());
+await sleep(400);
+await page.evaluate(() => window.__studio.applyScriptNow('apu.player("Hero")'));
+await sleep(200);
+const scriptErr = await page.evaluate(() => window.__studio.scriptError());
+await page.evaluate(() => window.__studio.stop());
+await sleep(150);
+const apiOk =
+  apiAll.length > 30 && apiHit[0] === 'api.coins' && apiFuzzy.includes('api.music') &&
+  inserted === true && codeAfter.includes('api.hearts(3)') && /apu/.test(scriptErr);
+
 // LEVEL EVENTS: the level itself carries ⚡ events — start music, tick a
 // timer, tap empty ground, and win when the last enemy goes down.
 await page.evaluate(() => window.__studio.loadTemplate('action'));
@@ -650,7 +670,7 @@ const ok =
   placeOk && editOk && storyOk && levelsOk && playOk && stopOk && exportOk && importOk &&
   templatesOk && skillsOk && scoreOk && tilesOk && cameraOk && frameOk && combatOk && rangedOk &&
   patrolOk && chatOk && coinsOk && persistOk && libOk && eventsOk && genOk && uiOk && dbOk &&
-  questOk && levelEvOk && netOk &&
+  questOk && levelEvOk && apiOk && netOk &&
   errors.length === 0;
 console.log(
   JSON.stringify(
@@ -671,6 +691,7 @@ console.log(
       dbOk, hierN, linkOk, linkSwitch, itemN1, itemN0, coinsBeforeUse, coinsAfterUse, bought, trEs,
       questOk, qScene0, qShop, qVar1, qStillVillage, qVar2, qScene2,
       levelEvOk, lvlEvN, lvlMusic, lvlTicks, lvlTap, lvlMobs, lvlEarly, lvlCleared,
+      apiOk, apiN: apiAll.length, apiHit0: apiHit[0], inserted, scriptErr,
       netOk, playersA, playersB, remotesB, moveOk, remotePosB, stateB,
       errors: errors.slice(0, 6),
     },

@@ -12,6 +12,13 @@
  * quietly shipping a lie.
  */
 
+import type { ScriptApi } from './runtime.js';
+
+/** Members deliberately left out of the palette: raw engine handles that
+ *  are escape hatches for people already writing real code, not commands a
+ *  beginner should be offered. Listing them keeps the guard below honest. */
+type Undocumented = 'scene' | 'game' | 'verium';
+
 export interface ApiEntry {
   /** Group shown in the palette. */
   category: string;
@@ -201,6 +208,13 @@ export const API_DOCS: ApiEntry[] = [
   },
   {
     category: '📈 Progress',
+    name: 'api.level',
+    signature: 'api.level() → number',
+    blurb: 'Which level the player has reached (needs api.levels first).',
+    snippet: 'const lvl = api.level();',
+  },
+  {
+    category: '📈 Progress',
     name: 'api.coins',
     signature: 'api.coins.get() · .add(n) · .spend(n) → boolean',
     blurb: 'The coin wallet. spend() returns false when the player cannot afford it.',
@@ -364,6 +378,27 @@ export const API_DOCS: ApiEntry[] = [
   },
 ];
 
+/** The api members this catalogue documents, checked against the real
+ *  interface. `satisfies` proves every name here exists on ScriptApi; the
+ *  Uncovered line below proves the reverse — add a member to ScriptApi and
+ *  this file stops compiling until it is either catalogued or explicitly
+ *  listed as an escape hatch. Documentation cannot silently rot. */
+const DOCUMENTED_ROOTS = [
+  'player', 'ability', 'onTap', 'entity', 'entities', 'spawn', 'remove', 'tween', 'patrol',
+  'overlap', 'every', 'after', 'onUpdate', 'random', 'hearts', 'meleeAttack', 'hurt', 'hpOf',
+  'onDefeat', 'score', 'levels', 'xp', 'level', 'coins', 'vars', 'switches', 'skills', 'goto',
+  'gen', 'setTiles', 'camera', 'say', 'title', 'gameOver', 'items', 'shop', 'vfx', 'outfit',
+  'playClip', 'music', 'sfx', 'save', 't', 'setLang', 'net',
+] as const satisfies readonly (keyof ScriptApi)[];
+
+type Uncovered = Exclude<keyof ScriptApi, (typeof DOCUMENTED_ROOTS)[number] | Undocumented>;
+const _everyApiMemberIsAccountedFor: [Uncovered] extends [never] ? true : Uncovered = true;
+void _everyApiMemberIsAccountedFor;
+
+/** The second segment of every catalogued name, e.g. 'api.camera.shake' →
+ *  'camera'. The unit test asserts these are exactly DOCUMENTED_ROOTS. */
+export const documentedRoots = (): string[] => [...DOCUMENTED_ROOTS];
+
 /** Shown in an empty Code window so the first thing an author sees is an
  *  explanation rather than a blinking cursor. */
 export const STARTER_SCRIPT = `// This is the Code window. It runs once when the level starts.
@@ -376,14 +411,18 @@ api.say('Guide', 'Welcome!');   // a dialogue box
 // Try: api.hearts(3) · api.score.add(1) · api.music.play('adventure')
 `;
 
-/** Subsequence fuzzy match — 'apcoin' finds api.coins. Returns a score
- *  (lower is better) or -1 when the query does not fit at all. */
-function fuzzyScore(haystack: string, needle: string): number {
+/** Match a query against one field. A literal substring always beats a
+ *  scattered subsequence — typing 'music' should surface api.music, not
+ *  every blurb whose letters happen to spell it. Returns a score (lower is
+ *  better) or -1 when the query does not fit at all. */
+function fieldScore(haystack: string, needle: string): number {
   if (!needle) return 0;
   const h = haystack.toLowerCase();
   const n = needle.toLowerCase();
+  const literal = h.indexOf(n);
+  if (literal >= 0) return literal;
   let hi = 0;
-  let score = 0;
+  let score = 100; // any subsequence match ranks below every literal one
   let lastHit = -1;
   for (const ch of n) {
     const found = h.indexOf(ch, hi);
@@ -402,10 +441,11 @@ export function searchApi(query: string, limit = 60): ApiEntry[] {
   if (!q) return API_DOCS.slice(0, limit);
   const hits: { entry: ApiEntry; score: number }[] = [];
   for (const entry of API_DOCS) {
-    // Name matches beat blurb matches, so weight the blurb hit.
-    const byName = fuzzyScore(entry.name, q);
-    const byBlurb = fuzzyScore(entry.blurb, q);
-    const score = byName >= 0 ? byName : byBlurb >= 0 ? byBlurb + 200 : -1;
+    // Name first, then the prose. The signature counts because the preset
+    // lists ('confetti', 'adventure') only ever appear there.
+    const byName = fieldScore(entry.name, q);
+    const byText = fieldScore(`${entry.blurb} ${entry.signature}`, q);
+    const score = byName >= 0 ? byName : byText >= 0 ? byText + 1000 : -1;
     if (score >= 0) hits.push({ entry, score });
   }
   hits.sort((a, b) => a.score - b.score || a.entry.name.localeCompare(b.entry.name));

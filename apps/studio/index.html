@@ -385,6 +385,82 @@
         display: none;
         z-index: 6;
       }
+
+      /* --- S3: scripting palette (the api dock beside the Code window) --- */
+      #api-dock {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        width: 268px;
+        min-width: 268px;
+      }
+      #api-search {
+        background: var(--panel2);
+        color: inherit;
+        border: 1px solid #35304d;
+        border-radius: 8px;
+        padding: 6px 8px;
+        font: inherit;
+      }
+      #api-list {
+        flex: 1;
+        overflow-y: auto;
+        border: 1px solid #35304d;
+        border-radius: 8px;
+        background: var(--panel2);
+        min-height: 0;
+      }
+      .api-cat {
+        font-size: 11px;
+        letter-spacing: 0.04em;
+        opacity: 0.6;
+        padding: 6px 8px 2px;
+        position: sticky;
+        top: 0;
+        background: var(--panel2);
+      }
+      .api-item {
+        padding: 5px 8px;
+        cursor: pointer;
+        font-size: 12px;
+        border-left: 2px solid transparent;
+      }
+      .api-item:hover,
+      .api-item.on {
+        background: #2b2640;
+        border-left-color: var(--accent);
+      }
+      .api-item b {
+        font-weight: 700;
+      }
+      #api-help {
+        font-size: 11px;
+        max-height: 132px;
+        overflow-y: auto;
+        border-top: 1px solid #35304d;
+        padding-top: 6px;
+      }
+      #api-help code {
+        display: block;
+        white-space: pre-wrap;
+        background: #16121f;
+        border-radius: 6px;
+        padding: 5px 6px;
+        margin-top: 4px;
+        font-size: 11px;
+      }
+      #code-error {
+        display: none;
+        font-size: 12px;
+        border-radius: 8px;
+        padding: 6px 8px;
+        background: #3a1d24;
+        border: 1px solid #7a3040;
+        color: #ffc9d2;
+      }
+      #code-error.on {
+        display: block;
+      }
     </style>
   </head>
   <body>
@@ -446,13 +522,16 @@
           <button id="btn-minimize" title="Minimize this panel">▾</button>
         </div>
         <div class="tabpane active" data-pane="code">
-          <textarea id="code-text" style="flex: 1" spellcheck="false"></textarea>
-          <div style="display: flex; flex-direction: column; gap: 8px; width: 180px">
+          <div style="flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0">
+            <textarea id="code-text" style="flex: 1" spellcheck="false"></textarea>
+            <div id="code-error"></div>
+          </div>
+          <div id="api-dock">
             <button class="btn primary" id="btn-apply-code">Apply to game</button>
-            <div class="muted" style="font-size: 12px">
-              Runs when the scene starts (and right now, live).<br /><br />
-              <b>api</b>.entity(name) · api.onUpdate(fn) · api.sfx.pop() · api.goto('Level 2') ·
-              api.spawn(kind, x, y)
+            <input id="api-search" type="search" placeholder="🔍 Find a command…" autocomplete="off" />
+            <div id="api-list"></div>
+            <div id="api-help" class="muted">
+              Click any command to drop a working line into your script.
             </div>
           </div>
         </div>

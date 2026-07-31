@@ -429,6 +429,24 @@ interverse-engine repo through the `interverse` MCP server (studio_*
 tools) to build features, fix bugs, and drive the dev cycle. Your game
 projects never need MCP; they're data files in the places above.
 
+### Finding your way around the api
+
+The Code window has a **🔍 Find a command** dock down its right side —
+every call the engine offers, grouped (Player, Actors, Timing, Combat,
+Progress, World, Screens, Items, Looks, Audio, Save, Language,
+Multiplayer). Type to filter (it matches names, descriptions and the
+preset lists, so "confetti" finds the particle call), click an entry to
+read its signature and example, and **double-click** — or press
+**⤵ Insert into script** — to drop a working line at your cursor.
+
+An empty Code window now shows a runnable starter script rather than a
+blinking cursor, and pressing **Apply to game** on an empty script runs
+that starter, so the first thing you do produces a result.
+
+When a script fails, the error appears **under the code** with a
+plain-language hint ("There is no *apu* here. Every command starts with
+api.") instead of a browser pop-up.
+
 ## 8 · Multiplayer blocks
 
 Tick **Multiplayer** in the toolbar and press ▶ Play — you get a lobby:
