@@ -158,12 +158,33 @@ try {
   // Sampled over several seconds because the road now holds a lean for a
   // few seconds at a time, and the opening pace is deliberately slow — a
   // short window catches one lean and concludes the road never moves.
+  // Riding along with the bend sampling: nothing may ever be standing inside
+  // the corner's keep-clear stretch. The span itself is unit tested, but
+  // whether the SCENE hands the generator the right stretch of road is not
+  // something a pure test can see — a sign error on `distance + turnZ` would
+  // clear a patch behind the player and leave the corner exactly as
+  // cluttered, with every unit test still green.
+  //
+  // Polled as an invariant rather than measured as a distance: it has to hold
+  // on every frame, so there is no moment a sample has to be lucky enough to
+  // catch.
   const bends = [];
+  let inSpan = 0;
+  let cornerSecs = Infinity;
   for (let i = 0; i < 24; i++) {
     await takeAnyCorner();
-    bends.push((await page.evaluate(() => window.__rush.run()))?.bend ?? 0);
+    const r = await page.evaluate(() => window.__rush.run());
+    const t = await page.evaluate(() => window.__rush.track());
+    bends.push(r?.bend ?? 0);
+    if (t) {
+      inSpan = Math.max(inSpan, t.inSpan);
+      if (r && r.turnZ > 0 && r.turnZ < 3000 && t.cornerSecs >= 0) {
+        cornerSecs = Math.min(cornerSecs, t.cornerSecs);
+      }
+    }
     await sleep(300);
   }
+  if (!Number.isFinite(cornerSecs)) cornerSecs = -1;
   const peakBend = Math.max(...bends.map(Math.abs));
   const bendSpread = Math.max(...bends) - Math.min(...bends);
   await page.screenshot({ path: `${outDir}/rush-5-bend.png` });
@@ -248,6 +269,12 @@ try {
     // rather than cutting, and the road comes out leaning the way you turned.
     !!turned && turned.zone !== zoneBefore &&
     peakYaw > 0.02 && yawAfter === 0 && Math.sign(bendAfterTurn) === Math.sign(turnDir);
+  // Nothing ever stands on a corner, and the nearest thing to one is at least
+  // half a second of road away. cornerSecs is stated in SECONDS because that
+  // is the unit the rule is written in — the span is 1.5s of run-up and 1.2s
+  // out, at any speed. -1 means the sampling never got close enough to a
+  // corner to measure, which is a failed measurement rather than a pass.
+  const clearOk = inSpan === 0 && cornerSecs > 0.5;
   const missOk = ended === 'result';
   const bankOk = banked.best > 0 && banked.coins >= 250 && banked.runs === 1;
   const persistOk =
@@ -255,10 +282,11 @@ try {
     reloaded.owned.includes('party');
 
   const ok =
-    shopOk && rollOk && laneOk && moveOk && speedOk && bendOk && cornerOk && missOk &&
+    shopOk && rollOk && laneOk && moveOk && speedOk && bendOk && cornerOk && clearOk && missOk &&
     bankOk && persistOk && errors.length === 0;
   report = {
-    ok, shopOk, rollOk, laneOk, moveOk, speedOk, bendOk, cornerOk, missOk, bankOk, persistOk,
+    ok, shopOk, rollOk, laneOk, moveOk, speedOk, bendOk, cornerOk, clearOk, missOk, bankOk,
+    persistOk, inSpan, cornerSecs,
     screen0, hats0, afterBuy, afterBroke,
     run0, roll0, roll1, spun, hatLevel,
     laneRight, laneClamped, jumped, landed, slid,

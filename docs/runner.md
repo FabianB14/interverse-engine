@@ -220,6 +220,7 @@ and it is easy to violate one constant at a time:
 | `rowGap` | mostly speed | see below |
 | corner interval | seconds × speed | otherwise corners arrive 3× as often by the end |
 | bend hold | seconds × speed | otherwise the road stops committing to a lean |
+| `cornerClear` | seconds × speed | otherwise a corner's clear run-up shrinks to a third of itself |
 
 Anything left as a bare distance silently rescales itself as the run speeds
 up, and always in the direction of *harder*, for no reason anyone chose.
@@ -258,6 +259,66 @@ thing fair, and is it different from the last thing". Three rules enforce it:
   game stays fair as it gets faster.
 - **The same kind twice is a pattern, three times is a rut.** The picker
   refuses to repeat itself a third time.
+- **The opening is a lesson, not a test.** Density ramps from sparse to normal
+  over the first stretch of road — see below.
+- **One thing at a time.** The caller can declare stretches that must stay
+  empty, and a runner uses that for corners — see below.
+
+### The opening ramps up
+
+```ts
+densityAt(z, full, opening, warmup);          // smoothstepped, full past warmup
+new TrackBuilder({ density: 0.68 });          // opening + warmup default from it
+new TrackBuilder({ density: 0.68, opening: 0.1, warmup: 20_000 });  // or set them
+```
+
+A runner's first ten seconds are the only ten seconds a new player has to
+learn what the controls do, and they cannot learn them while dodging. So the
+density starts at `OPENING_DENSITY_SCALE` (0.28) of the settled one and
+smoothsteps up to it over `WARMUP_DISTANCE` (12 000 units — about 17 seconds
+at a typical opening speed).
+
+Two details worth keeping if you re-tune it:
+
+- **A fraction of the game's density, not an absolute.** A game that wants a
+  busy track gets a proportionally busy opening rather than one that starts at
+  somebody else's idea of easy.
+- **Smoothstepped, not linear.** The flat start holds the sparse opening for a
+  few rows instead of beginning to fill on the very first one, and the flat
+  end means the track is not still visibly thickening long after the player
+  has stopped being new.
+
+Sparse, though — not bare. A road with nothing on it teaches that nothing is
+coming, which is a worse lesson than any obstacle.
+
+### Keeping stretches of road clear
+
+```ts
+track.clear = [cornerClear(cornerZ, speedAt(cornerZ))];   // re-set each frame
+track.build(playerZ, DRAW_DISTANCE, speed);
+```
+
+Reading the shape of a turn and dodging an obstacle are two jobs, and asking
+for both at once means the player does neither. `cornerClear` returns the span
+that has to stay empty: `CORNER_CLEAR_BEFORE_SECS` (1.5) of run-up and
+`CORNER_CLEAR_AFTER_SECS` (1.2) coming out. The run-up is the longer half
+because reading the turn is the harder of the two jobs and it happens first;
+the shorter half out of the corner exists because the camera has just swung
+ninety degrees and the first thing on the new road must not already be on top
+of you.
+
+Coins still run through a cleared span. An empty road reads as the generator
+having given up; a coin trail reads as somewhere you are meant to be looking
+up, which is the point of clearing it.
+
+**Size the span by the speed at the corner, not the speed now.** The generator
+runs thousands of units ahead of the player, so "now" is always the slower of
+the two — and a span computed from the current speed grows every frame,
+reaching out into road that has already been built and can no longer be
+cleared. `speedAt(cornerZ)` makes it a fixed stretch from the moment the
+corner is scheduled, which is the only version of this that is actually a
+guarantee. Blob Rush polls the invariant in its playtest (`track().inSpan`
+must always be 0) precisely because the pure tests cannot see this mistake.
 
 ### Hazards are shapes, not flags
 

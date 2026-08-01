@@ -18,6 +18,13 @@
  *   - **The same thing twice is a pattern; three times is a rut.** Runs are
  *     remembered by their variety, so the picker refuses to repeat a kind it
  *     just used.
+ *   - **The opening is a lesson, not a test.** Density ramps from sparse to
+ *     normal over the first stretch of road, because the only time a player
+ *     has to learn the controls is before they need them.
+ *   - **One thing at a time.** The caller can declare stretches of road that
+ *     must stay empty, and the runner uses that for corners: reading the
+ *     shape of a turn and dodging an obstacle are two jobs, and asking for
+ *     both at once means the player does neither.
  */
 
 /** What you can meet on the road. */
@@ -203,14 +210,88 @@ export const HAZARD_WEIGHTS: readonly { kind: HazardKind; weight: number }[] = [
   { kind: 'pit', weight: 1 },
 ];
 
+/**
+ * How busy the road is in the opening moments, relative to its settled
+ * density, and how long it takes to get there.
+ *
+ * A runner's first ten seconds are the only ten seconds a new player has to
+ * learn what the controls do, and they cannot learn them while dodging. But
+ * an empty opening is also wrong — a road with nothing on it teaches that
+ * nothing is coming. So the opening is SPARSE rather than bare: obstacles
+ * arrive one at a time with enough road between them to look at, and the
+ * density climbs to normal over the warm-up.
+ *
+ * Stated as a FRACTION of the game's chosen density rather than an absolute,
+ * so a game that wants a busy track gets a proportionally busy opening
+ * instead of one that starts at somebody else's idea of easy.
+ */
+export const OPENING_DENSITY_SCALE = 0.28;
+
+/** How much road the ramp from opening to full density takes. Around fifteen
+ *  seconds at a runner's starting speed — long enough to be a lesson, short
+ *  enough that it is over before the player wants more. */
+export const WARMUP_DISTANCE = 12_000;
+
+/**
+ * Density partway through the warm-up.
+ *
+ * Smoothstepped, not linear: the flat start holds the sparse opening for a
+ * few rows rather than beginning to fill on the very first one, and the flat
+ * end means the track does not keep noticeably thickening long after the
+ * player has stopped being new.
+ */
+export function densityAt(z: number, full: number, opening: number, warmup: number): number {
+  if (warmup <= 0) return full;
+  const t = Math.max(0, Math.min(1, z / warmup));
+  return opening + (full - opening) * (t * t * (3 - 2 * t));
+}
+
+/** A stretch of road, in absolute z, that must stay free of hazards. */
+export interface ClearSpan {
+  from: number;
+  to: number;
+}
+
+/**
+ * How much empty road a corner gets on either side of it.
+ *
+ * Seconds, not units, for the same reason everything else here is: the run
+ * more than triples in speed, and a corner that had a comfortable run-up at
+ * the start would arrive with a third of it at the end.
+ *
+ * The two numbers are different on purpose. BEFORE is the larger: the corner
+ * is the one thing in the game that asks the player to look past the road
+ * surface and read its shape, and they cannot do that while a barrier is
+ * arriving. AFTER is shorter but not optional — the camera has just swung
+ * ninety degrees, and the first thing on the new road must not already be
+ * on top of them by the time the world stops moving.
+ */
+export const CORNER_CLEAR_BEFORE_SECS = 1.5;
+export const CORNER_CLEAR_AFTER_SECS = 1.2;
+
+export function cornerClear(
+  cornerZ: number,
+  speed: number,
+  before = CORNER_CLEAR_BEFORE_SECS,
+  after = CORNER_CLEAR_AFTER_SECS,
+): ClearSpan {
+  const v = Math.max(0, speed);
+  return { from: cornerZ - v * before, to: cornerZ + v * after };
+}
+
 export interface TrackOptions {
   lanes?: number;
   /** Smallest gap between rows, in design units, however slow you are. */
   minGap?: number;
   /** Extra gap per unit of speed. See rowGap. */
   gapPerSpeed?: number;
-  /** 0..1 — how often a row carries hazards at all. */
+  /** 0..1 — how often a row carries hazards at all, once warmed up. */
   density?: number;
+  /** 0..1 — how often a row carries hazards at the very start of a run.
+   *  Defaults to a fraction of `density`; see OPENING_DENSITY_SCALE. */
+  opening?: number;
+  /** How much road the opening density takes to reach the full one. */
+  warmup?: number;
   rand?: () => number;
 }
 
@@ -228,14 +309,33 @@ export class TrackBuilder {
   private readonly minGap: number;
   private readonly gapPerSpeed: number;
   private readonly density: number;
+  private readonly opening: number;
+  private readonly warmup: number;
   private readonly rand: () => number;
+
+  /**
+   * Stretches of road that must stay free of hazards, in absolute z.
+   *
+   * Owned by the caller and re-set every frame rather than accumulated here,
+   * because the only thing that knows where a corner is — and how fast the
+   * player will be going when they reach it — is the scene. The builder's job
+   * is to respect the span, not to work out where it goes.
+   */
+  clear: ClearSpan[] = [];
 
   constructor(opts: TrackOptions = {}) {
     this.lanes = opts.lanes ?? 3;
     this.minGap = opts.minGap ?? ROW_GAP_BASE;
     this.gapPerSpeed = opts.gapPerSpeed ?? ROW_GAP_PER_SPEED;
     this.density = opts.density ?? 0.72;
+    this.opening = opts.opening ?? this.density * OPENING_DENSITY_SCALE;
+    this.warmup = opts.warmup ?? WARMUP_DISTANCE;
     this.rand = opts.rand ?? Math.random;
+  }
+
+  /** Is this stretch of road one that has been asked to stay empty? */
+  private isClear(z: number): boolean {
+    return this.clear.some((s) => z >= s.from && z <= s.to);
   }
 
   /** How far out the track has been generated. */
@@ -276,7 +376,15 @@ export class TrackBuilder {
   private row(z: number, gap: number): { hazards: Hazard[]; pickups: Pickup[] } {
     const hazards: Hazard[] = [];
     const pickups: Pickup[] = [];
-    if (this.rand() > this.density) {
+    // A keep-clear stretch still gets its coins. An empty road reads as the
+    // generator having run out; a road with a line of coins down it reads as
+    // somewhere you are meant to be looking up, which is the point of
+    // clearing it in the first place.
+    if (this.isClear(z)) {
+      pickups.push(...this.coins(z, Math.floor(this.rand() * this.lanes), gap));
+      return { hazards, pickups };
+    }
+    if (this.rand() > densityAt(z, this.density, this.opening, this.warmup)) {
       // An empty row is not filler — it is the beat that makes the next row
       // land. A wall of obstacles with no gaps is noise.
       pickups.push(...this.coins(z, Math.floor(this.rand() * this.lanes), gap));

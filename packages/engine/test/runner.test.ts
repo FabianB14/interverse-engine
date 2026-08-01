@@ -19,6 +19,8 @@ import {
   cornerSpace,
   clampLane,
   collides,
+  cornerClear,
+  densityAt,
   depthOf,
   fairDistance,
   fogAlpha,
@@ -550,6 +552,83 @@ describe('track generation', () => {
     const first = t.frontier;
     t.build(0, 20_000, 620);
     expect(t.frontier).toBeGreaterThan(first);
+  });
+});
+
+describe('the opening', () => {
+  it('ramps from the sparse density to the full one, and never back', () => {
+    expect(densityAt(0, 1, 0.28, 12_000)).toBeCloseTo(0.28);
+    expect(densityAt(12_000, 1, 0.28, 12_000)).toBeCloseTo(1);
+    // Past the warm-up it stops climbing rather than overshooting.
+    expect(densityAt(50_000, 1, 0.28, 12_000)).toBeCloseTo(1);
+    let prev = -1;
+    for (let z = 0; z <= 14_000; z += 250) {
+      const d = densityAt(z, 1, 0.28, 12_000);
+      expect(d).toBeGreaterThanOrEqual(prev);
+      prev = d;
+    }
+  });
+
+  it('holds the sparse density for the first few rows rather than filling at once', () => {
+    // The point of smoothstepping the ramp: a tenth of the way in should
+    // still be near the opening, not already a third of the way to full.
+    const tenth = densityAt(1_200, 1, 0.28, 12_000);
+    expect(tenth - 0.28).toBeLessThan((1 - 0.28) * 0.1);
+  });
+
+  it('puts less on the road at the start of a run than in the middle of one', () => {
+    const t = new TrackBuilder({ rand: seeded(13), density: 1, warmup: 12_000 });
+    const { hazards } = t.build(0, 72_000, 700);
+    const rows = [...new Set(hazards.map((h) => h.z))];
+    const between = (lo: number, hi: number): number =>
+      rows.filter((z) => z >= lo && z < hi).length;
+    // Same width of road, warmed up versus not.
+    expect(between(0, 12_000)).toBeLessThan(between(36_000, 48_000));
+  });
+
+  it('is sparse, not bare — a road with nothing on it teaches that nothing is coming', () => {
+    const t = new TrackBuilder({ rand: seeded(31), density: 0.68, warmup: 12_000 });
+    const { hazards } = t.build(0, 12_000, 700);
+    expect(new Set(hazards.map((h) => h.z)).size).toBeGreaterThan(0);
+  });
+});
+
+describe('keep-clear spans', () => {
+  it('leaves the road around a corner empty', () => {
+    const speed = 900;
+    const cornerZ = 30_000;
+    const span = cornerClear(cornerZ, speed);
+    const t = new TrackBuilder({ rand: seeded(17), density: 1, warmup: 0 });
+    t.clear = [span];
+    const { hazards, pickups } = t.build(0, 60_000, speed);
+
+    for (const h of hazards) {
+      expect(h.z >= span.from && h.z <= span.to).toBe(false);
+    }
+    // …and the span was actually crossed, so this is not passing on a build
+    // that never reached it.
+    expect(hazards.some((h) => h.z < span.from)).toBe(true);
+    expect(hazards.some((h) => h.z > span.to)).toBe(true);
+    // Coins still run through it. An empty road reads as the generator
+    // giving up; a coin trail reads as somewhere to look up.
+    expect(pickups.some((p) => p.z >= span.from && p.z <= span.to)).toBe(true);
+  });
+
+  it('gives a corner more road at speed, and more of it on the way in', () => {
+    const slow = cornerClear(40_000, 700);
+    const fast = cornerClear(40_000, 2500);
+    expect(fast.to - fast.from).toBeGreaterThan(slow.to - slow.from);
+    // The run-up is the longer half: reading the shape of a turn is the
+    // harder of the two jobs, and it happens before the turn.
+    expect(40_000 - fast.from).toBeGreaterThan(fast.to - 40_000);
+  });
+
+  it('does not clear road it was not asked to', () => {
+    const t = new TrackBuilder({ rand: seeded(19), density: 1, warmup: 0 });
+    t.clear = [cornerClear(30_000, 900)];
+    const { hazards } = t.build(0, 60_000, 900);
+    // Everything outside one span is still a normal track.
+    expect(new Set(hazards.map((h) => h.z)).size).toBeGreaterThan(20);
   });
 });
 

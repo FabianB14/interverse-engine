@@ -48,6 +48,16 @@ export interface RushDebug {
   safe: (on: boolean) => void;
   /** The cosmetic's angle vs the body's — the roll/cosmetic split. */
   hat: () => { hat: number; lean: number; wheel: number; children: number } | null;
+  /** What is on the road, and how far the nearest of it is from the corner.
+   *  -1 for either distance means nothing is in view. */
+  track: () => {
+    count: number;
+    nearest: number;
+    /** Obstacles standing inside the corner keep-clear span. Always 0. */
+    inSpan: number;
+    cornerGap: number;
+    cornerSecs: number;
+  } | null;
   // -------------------------------------------------------------- result
   again: () => void;
   menu: () => void;

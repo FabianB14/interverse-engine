@@ -95,6 +95,10 @@ async function main(): Promise<void> {
       const s = game.scenes.current;
       return s instanceof RunScene ? s.debugHat() : null;
     },
+    track: () => {
+      const s = game.scenes.current;
+      return s instanceof RunScene ? s.debugTrack() : null;
+    },
 
     again: () => {
       const s = game.scenes.current;

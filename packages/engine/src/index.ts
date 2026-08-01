@@ -97,11 +97,14 @@ export {
 } from './runner/moves.js';
 export type { MoveState } from './runner/moves.js';
 export {
-  HAZARD_RULES, HAZARD_SHAPES, HAZARD_WEIGHTS, HIT_DEPTH, JUMP_PEAK, REACTION_SECS, ROW_GAP_BASE,
-  ROW_GAP_PER_SPEED, RUN_HEIGHT, SLIDE_HEIGHT, TrackBuilder, collides, fairDistance,
-  playerBand, rowGap, survives, survivesBand,
+  CORNER_CLEAR_AFTER_SECS, CORNER_CLEAR_BEFORE_SECS, HAZARD_RULES, HAZARD_SHAPES, HAZARD_WEIGHTS,
+  HIT_DEPTH, JUMP_PEAK, OPENING_DENSITY_SCALE, REACTION_SECS, ROW_GAP_BASE, ROW_GAP_PER_SPEED,
+  RUN_HEIGHT, SLIDE_HEIGHT, TrackBuilder, WARMUP_DISTANCE, collides, cornerClear, densityAt,
+  fairDistance, playerBand, rowGap, survives, survivesBand,
 } from './runner/track.js';
-export type { Band, Hazard, HazardKind, HazardShape, Pickup, TrackOptions } from './runner/track.js';
+export type {
+  Band, ClearSpan, Hazard, HazardKind, HazardShape, Pickup, TrackOptions,
+} from './runner/track.js';
 export { SWIPE_THRESHOLD, Swipe, swipeDir } from './input/swipe.js';
 export type { SwipeDir, SwipeOptions } from './input/swipe.js';
 export { rollingBlob, wrapAngle } from './art/roller.js';

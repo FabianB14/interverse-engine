@@ -15,11 +15,11 @@
 import { Container, Graphics, Text } from 'pixi.js';
 import {
   DEFAULT_PROJECTION, DRAW_DISTANCE, HIT_DEPTH, LANE_WIDTH, LaneRider, RunnerMoves, Scene,
-  RUN_HEIGHT, Swipe, TrackBuilder, audio, burst, collides, depthIndex,
+  RUN_HEIGHT, Swipe, TrackBuilder, audio, burst, collides, cornerClear, depthIndex,
   fogAlpha, laneX, playerBand, projectPath, rollingBlob, speedAt, visible, yawFor,
 } from '@interverse/engine';
 import type {
-  CornerFrame, Hazard, Pickup, Projection, RollingBlob, SwipeDir,
+  ClearSpan, CornerFrame, Hazard, Pickup, Projection, RollingBlob, SwipeDir,
 } from '@interverse/engine';
 import {
   HAZARD_UNIT, ROAD_HALF, coinView, drawLaneMark, drawRoad, hazardGlyph, hazardView,
@@ -151,7 +151,8 @@ export class RunScene extends Scene {
   // Spacing is left to the engine's speed-driven default: a fixed gap is a
   // shrinking gap in time as the run accelerates. Density is a touch below
   // the default so more rows come through empty — the beat between obstacles
-  // is what makes the next one land.
+  // is what makes the next one land. The opening ramp and the corner
+  // keep-clear are engine defaults; both are things every runner wants.
   private builder = new TrackBuilder({ density: 0.68 });
   private blob!: RollingBlob;
   private blobShadow = shadowView();
@@ -449,7 +450,28 @@ export class RunScene extends Scene {
     return false;
   }
 
+  /**
+   * The stretch of road around the next corner that has to stay empty.
+   *
+   * Sized by the speed the player will be doing WHEN THEY GET THERE, not the
+   * speed they are doing now. Those are different — the generator runs
+   * thousands of units ahead of the player, so "now" is always the slower of
+   * the two — and using the current speed makes the span grow every frame,
+   * reaching out into road that has already been built and can no longer be
+   * cleared. Reading it from the corner's own position instead makes it a
+   * fixed stretch of road from the moment the corner is scheduled, which is
+   * the only version of this that is actually a guarantee.
+   *
+   * `turnZ` counts down toward the player; everything the builder deals in
+   * counts up from the start of the run — hence the sum.
+   */
+  private get cornerSpan(): ClearSpan {
+    const cornerZ = this.distance + this.turnZ;
+    return cornerClear(cornerZ, speedAt(cornerZ));
+  }
+
   private fillTrack(): void {
+    this.builder.clear = [this.cornerSpan];
     const { hazards, pickups } = this.builder.build(this.distance, DRAW_DISTANCE, this.speed);
     for (const h of hazards) this.addHazard(h);
     for (const p of pickups) this.addCoin(p);
@@ -852,6 +874,55 @@ export class RunScene extends Scene {
     this.input(dir);
   }
 
+  /**
+   * Where the obstacles are, in relation to the player and to the corner.
+   *
+   * `cornerGap` is the whole point: the generator's keep-clear span is unit
+   * tested, but whether the SCENE hands it the right stretch of road is not
+   * something a pure test can see. Getting the sign wrong on `distance +
+   * turnZ` would clear a patch of road behind the player and leave the
+   * corner exactly as cluttered as before, and every unit test would still
+   * pass. So this reports the real distance from the real corner to the
+   * nearest live hazard, and a playtest watches it.
+   *
+   * `inSpan` is the gate: the number of live obstacles standing inside the
+   * keep-clear stretch right now. It is an INVARIANT — true on every frame of
+   * every run — rather than a distance a test has to be lucky enough to
+   * sample at the right moment, so a playtest can simply poll it and require
+   * that it is never anything but zero.
+   *
+   * `cornerSecs` is the diagnostic that goes with it: how far the nearest
+   * obstacle is from the corner, in seconds of road, which is the unit the
+   * rule is actually written in. -1 means nothing is in view to measure.
+   */
+  debugTrack(): {
+    count: number;
+    nearest: number;
+    inSpan: number;
+    cornerGap: number;
+    cornerSecs: number;
+  } {
+    const cornerZ = this.distance + this.turnZ;
+    const span = this.cornerSpan;
+    let nearest = Infinity;
+    let cornerGap = Infinity;
+    let inSpan = 0;
+    for (const h of this.hazards) {
+      const rel = this.rel(h.data.z);
+      if (rel > 0) nearest = Math.min(nearest, rel);
+      cornerGap = Math.min(cornerGap, Math.abs(h.data.z - cornerZ));
+      if (h.data.z >= span.from && h.data.z <= span.to) inSpan++;
+    }
+    const out = (n: number): number => (Number.isFinite(n) ? Math.round(n) : -1);
+    return {
+      count: this.hazards.length,
+      nearest: out(nearest),
+      inSpan,
+      cornerGap: out(cornerGap),
+      cornerSecs: Number.isFinite(cornerGap) ? Math.round((cornerGap / this.speed) * 100) / 100 : -1,
+    };
+  }
+
   /** Survive stumbles and pits, so a test can reach the mechanics that take
    *  longer than four seconds to get to. Corner misses still end the run. */
   debugSafe(on: boolean): void {
@@ -863,6 +934,17 @@ export class RunScene extends Scene {
    *  have to run eleven thousand units to reach one. */
   debugCorner(): number {
     this.turnZ = Math.min(this.turnZ, this.turnWindow - 200);
+    // Dragging a corner backwards drops it onto road that was built when the
+    // corner was somewhere else, so obstacles end up sitting on it — a state
+    // the real generator cannot produce, because it clears that stretch
+    // thousands of units before the player arrives. Clear them here too, or
+    // the hook manufactures the exact bug it is meant to be testing for.
+    const span = this.cornerSpan;
+    this.hazards = this.hazards.filter((h) => {
+      const inside = h.data.z >= span.from && h.data.z <= span.to;
+      if (inside) this.destroyView(h.view);
+      return !inside;
+    });
     return this.turnDir;
   }
 
