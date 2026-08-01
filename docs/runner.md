@@ -156,6 +156,15 @@ swing shows the seam.
 Draw the road in **segments** (Blob Rush uses 40) or it cannot turn: a single
 trapezoid to the horizon is always straight.
 
+**The junction is a square, and nothing may straddle it.** Two ribbons of road
+crossing at a right angle overlap in a square of side `2 × ROAD_HALF`, and the
+piecewise map is discontinuous across it for every point off the centre line.
+A road slice spanning the corner therefore joins two edges that do not belong
+to each other and renders as a twisted bowtie — which is exactly what "the
+turning lane looks weird" turned out to be. Clip the slice list at the
+junction's near and far edges, skip the span between them, and draw the
+junction square explicitly.
+
 ## Lanes, jumps and slides
 
 ```ts
@@ -245,15 +254,42 @@ thing fair, and is it different from the last thing". Three rules enforce it:
 - **The same kind twice is a pattern, three times is a rut.** The picker
   refuses to repeat itself a third time.
 
-Four hazards, each with exactly one answer, in one table that both the
-collision test and any tutorial text read from — so they cannot drift apart:
+### Hazards are shapes, not flags
 
-| Hazard | In Blob Rush | Answer |
-| --- | --- | --- |
-| `block` | a fallen log across the boards | jump it, or go round |
-| `barrier` | a branch caught on two stumps at chest height | slide under |
-| `pit` | boards rotted through into the water | jump — nothing else works |
-| `low` | a curtain of hanging vines | slide; **jumping into an overhang is the mistake it exists to punish** |
+```ts
+HAZARD_SHAPES.barrier;               // { low: 66, high: 300 }
+playerBand(height, crouch);          // { low, high } — the runner, right now
+survivesBand('barrier', playerBand(0, 1));   // true: a slide fits under it
+HAZARD_RULES.barrier.slide;          // true — DERIVED, never declared
+```
+
+Each hazard is a real vertical extent above the boards, the runner is another
+one, and a hit is an overlap. That is the whole collision model, and it is a
+shape rather than a pair of booleans for one reason: **the art is generated
+from the same numbers.** The bottom of a vine curtain *is* the line you have
+to get under; the top of a log *is* the line you have to clear.
+
+The version before this declared `{ jump: false, slide: true }` and left the
+art to be drawn to match by hand — and the cyan "get under this" band on the
+vines ended up painted a third of the way *up* the strands, above the real
+bottom edge. The picture and the rule were two objects and they disagreed,
+which is exactly the class of bug this arrangement makes impossible.
+
+| Hazard | In Blob Rush | Band | Why that answer |
+| --- | --- | --- | --- |
+| `block` | a fallen log across the boards | 0–78 | a run (0–92) and a slide (0–40) both overlap; only getting above 78 clears it |
+| `pit` | boards rotted through | a hole | only leaving the ground at all |
+| `barrier` | a branch caught on two stumps | 66–300 | a slide (0–40) passes with 26 units to spare; a jump is inside it for the whole arc |
+| `low` | a curtain of hanging vines | 66–300 | same band, different shape |
+
+The two hanging hazards share a band **on purpose**. They look completely
+different and they mean exactly the same thing — one silhouette per answer is
+a lie the player finds out about at speed.
+
+Because the test is continuous rather than a state flag, a partly-crouched
+runner is judged on how low they actually are. Keep the crouch ramp short
+(Blob Rush flattens in a tenth of the slide) or the first frames of a slide
+are a slide that does not work, which reads as the input being ignored.
 
 ### Making a hazard obvious
 

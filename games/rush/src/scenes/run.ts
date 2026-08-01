@@ -15,15 +15,15 @@
 import { Container, Graphics, Text } from 'pixi.js';
 import {
   DEFAULT_PROJECTION, DRAW_DISTANCE, HIT_DEPTH, LANE_WIDTH, LaneRider, RunnerMoves, Scene,
-  Swipe, TrackBuilder, audio, burst, collides, depthIndex, fogAlpha, laneX,
-  projectPath, rollingBlob, speedAt, visible, yawFor,
+  RUN_HEIGHT, Swipe, TrackBuilder, audio, burst, collides, depthIndex,
+  fogAlpha, laneX, playerBand, projectPath, rollingBlob, speedAt, visible, yawFor,
 } from '@interverse/engine';
 import type {
   CornerFrame, Hazard, Pickup, Projection, RollingBlob, SwipeDir,
 } from '@interverse/engine';
 import {
-  ROAD_HALF, coinView, drawLaneMark, drawRoad, hazardGlyph, hazardView, propView,
-  shadowView, skyOf,
+  HAZARD_UNIT, ROAD_HALF, coinView, drawLaneMark, drawRoad, hazardGlyph, hazardView,
+  propView, shadowView, skyOf,
 } from '../art.js';
 import { hatView } from '../hats.js';
 import type { HatView } from '../hats.js';
@@ -91,16 +91,6 @@ const BEND_EASE = 2.4;
  *  in quick succession is the end; spaced out, they are survivable. */
 const CHASE_PER_HIT = 0.34;
 const CHASE_RECOVER = 0.055;
-
-/**
- * How big one design unit of hazard art is on the road.
- *
- * The art is authored 1.24 units wide, so this has to be under
- * LANE_WIDTH / 1.24 = 153 or a hazard spills into the lanes either side —
- * which makes a single blocked lane look like a wall and is exactly why the
- * first cut read as unfair.
- */
-const HAZARD_UNIT = LANE_WIDTH * 0.7;
 
 const COIN_VALUE = 1;
 const STUMBLE_SECS = 0.5;
@@ -578,9 +568,12 @@ export class RunScene extends Scene {
     for (const h of this.hazards) {
       const near = this.rel(h.data.z);
       if (Math.abs(near) > HIT_DEPTH) continue;
-      if (!collides(this.rider.lane, { ...h.data, z: near }, this.moves.airborne, this.moves.sliding)) {
-        continue;
-      }
+      // The real vertical extent of the blob, against the real vertical
+      // extent of the obstacle. Not a pair of booleans about what state the
+      // player is in — this is the same band the art is drawn from, so what
+      // you can see is exactly what you can hit.
+      const me = playerBand(this.moves.height, this.moves.crouch);
+      if (!collides(this.rider.lane, { ...h.data, z: near }, me)) continue;
       this.hit(h.data);
       return;
     }
@@ -709,9 +702,11 @@ export class RunScene extends Scene {
     this.blob.roll(moved / 46);
     const radius = 46;
     const q = projectPath(this.rider.x, 0, this.moves.height, this.proj, this.corner);
-    // Squash for the slide; the crouch value is the state machine's, so the
-    // art can never disagree with the hitbox.
-    const squash = 1 - this.moves.crouch * 0.42;
+    // The squash IS the hitbox. Derived from the same two constants the
+    // collision uses, so a blob that looks low enough to fit is low enough
+    // to fit — an eyeballed squash factor is how the two quietly diverge.
+    const me = playerBand(this.moves.height, this.moves.crouch);
+    const squash = (me.high - me.low) / RUN_HEIGHT;
     // Anchored to the road, not to the blob's centre: scaling about the
     // centre lifts a flattened blob off the ground, so a slide reads as
     // hovering rather than as getting low.

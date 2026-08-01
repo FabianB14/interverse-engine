@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   BUFFER_SECS,
   DEFAULT_PROJECTION,
+  HAZARD_RULES,
+  HAZARD_SHAPES,
+  JUMP_HEIGHT,
+  JUMP_PEAK,
   JUMP_SECS,
   LANE_WIDTH,
   LaneRider,
@@ -19,14 +23,16 @@ import {
   fairDistance,
   fogAlpha,
   laneX,
+  playerBand,
   project,
   speedAt,
   survives,
+  survivesBand,
   swipeDir,
   wrapAngle,
   yawFor,
 } from '../src/index.js';
-import type { CornerFrame, Hazard } from '../src/index.js';
+import type { CornerFrame, Hazard, HazardKind } from '../src/index.js';
 
 /** Deterministic "random" so a generator test cannot flake. */
 function seeded(seed: number): () => number {
@@ -366,6 +372,16 @@ describe('moves', () => {
 });
 
 describe('hazards', () => {
+  const running = playerBand(0, 0);
+  const sliding = playerBand(0, 1);
+  const atPeak = playerBand(JUMP_PEAK, 0);
+
+  it('agrees with the jump module about how high a jump goes', () => {
+    // track.ts states the peak itself to avoid a module cycle. This is the
+    // one place that agreement can be enforced.
+    expect(JUMP_PEAK).toBe(JUMP_HEIGHT);
+  });
+
   it('has exactly one answer to each kind', () => {
     expect(survives('block', true, false)).toBe(true);
     expect(survives('block', false, true)).toBe(false);
@@ -377,12 +393,62 @@ describe('hazards', () => {
     expect(survives('low', false, true)).toBe(true);
   });
 
+  it('derives the answers from the shapes rather than declaring them', () => {
+    for (const kind of Object.keys(HAZARD_SHAPES) as HazardKind[]) {
+      expect(HAZARD_RULES[kind].jump).toBe(survivesBand(kind, atPeak));
+      expect(HAZARD_RULES[kind].slide).toBe(survivesBand(kind, sliding));
+    }
+  });
+
+  it('stops a runner who does nothing at all', () => {
+    for (const kind of Object.keys(HAZARD_SHAPES) as HazardKind[]) {
+      expect(survivesBand(kind, running)).toBe(false);
+    }
+  });
+
+  /**
+   * The bug this model exists to make impossible: the line the player is
+   * asked to duck under has to BE the bottom of the obstacle. Since the art
+   * is drawn from `shape.low`, that holds as long as a slide fits under it
+   * and a run does not.
+   */
+  it('leaves a real, visible gap under everything you slide beneath', () => {
+    for (const kind of ['barrier', 'low'] as HazardKind[]) {
+      const shape = HAZARD_SHAPES[kind];
+      expect(sliding.high).toBeLessThan(shape.low);
+      // …and enough of one that arriving mid-crouch is not a coin flip.
+      expect(shape.low - sliding.high).toBeGreaterThan(15);
+      // A standing runner must NOT fit, or the slide would be optional.
+      expect(running.high).toBeGreaterThan(shape.low);
+    }
+  });
+
+  it('lets a partly-crouched runner through as soon as they are low enough', () => {
+    // Continuous, not a state flag: the geometry decides, so the moment the
+    // blob is visibly under the branch it is under the branch.
+    expect(survivesBand('barrier', playerBand(0, 0.4))).toBe(false);
+    expect(survivesBand('barrier', playerBand(0, 0.9))).toBe(true);
+  });
+
+  it('clears a log for most of the jump, not just at the apex', () => {
+    let clear = 0;
+    const steps = 40;
+    for (let i = 1; i < steps; i++) {
+      const p = i / steps;
+      const h = JUMP_PEAK * 4 * p * (1 - p);
+      if (survivesBand('block', playerBand(h, 0))) clear++;
+    }
+    // A window this wide is what makes a jump feel like a jump rather than
+    // a frame-perfect input.
+    expect(clear / (steps - 1)).toBeGreaterThan(0.6);
+  });
+
   it('only hits you in your own lane, and only when you are level with it', () => {
     const h: Hazard = { kind: 'block', lane: 1, z: 0 };
-    expect(collides(1, h, false, false)).toBe(true);
-    expect(collides(0, h, false, false)).toBe(false);
-    expect(collides(1, { ...h, z: 400 }, false, false)).toBe(false);
-    expect(collides(1, { ...h, z: -400 }, false, false)).toBe(false);
+    expect(collides(1, h, running)).toBe(true);
+    expect(collides(0, h, running)).toBe(false);
+    expect(collides(1, { ...h, z: 400 }, running)).toBe(false);
+    expect(collides(1, { ...h, z: -400 }, running)).toBe(false);
   });
 
   it('spaces rows further apart the faster you go', () => {

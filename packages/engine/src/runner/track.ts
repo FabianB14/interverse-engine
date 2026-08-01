@@ -35,27 +35,115 @@ export interface Pickup {
   z: number;
 }
 
-/** How each hazard is beaten. The single source of truth for both the
- *  collision test and the tutorial text — they cannot drift apart. */
-export const HAZARD_RULES: Record<HazardKind, { jump: boolean; slide: boolean; height: number }> = {
-  // A crate: go over it, or go around it.
-  block: { jump: true, slide: false, height: 120 },
-  // A bar across the lane at head height: get low.
-  barrier: { jump: false, slide: true, height: 130 },
-  // A hole: only a jump clears it, and sliding into it is worse.
-  pit: { jump: true, slide: false, height: 0 },
-  // An overhang low enough that jumping puts you into it.
-  low: { jump: false, slide: true, height: 150 },
+/**
+ * A vertical extent above the road, in design units. 0 is the boards.
+ *
+ * This is the whole collision model, and it is deliberately a REAL SHAPE
+ * rather than a pair of booleans. The first version of this file said things
+ * like `{ jump: false, slide: true }` and left the art to be drawn to match
+ * by hand — with the result that the line the player was asked to duck under
+ * was painted well above the bottom of the thing they had to duck under. The
+ * picture and the rule were two objects, and they disagreed.
+ *
+ * Now there is one object. The art is generated from these numbers, the hit
+ * test is an overlap against these numbers, and "can I jump it" is DERIVED
+ * rather than declared. They cannot drift apart because there is nothing to
+ * drift.
+ */
+export interface Band {
+  /** Lowest point. 0 means it sits on the boards. */
+  low: number;
+  /** Highest point. */
+  high: number;
+}
+
+export interface HazardShape extends Band {
+  /** A hole in the road. Height is irrelevant: only being off the ground at
+   *  all gets you across, and there is nothing to duck under. */
+  hole?: boolean;
+}
+
+/**
+ * Peak of a jump, stated here rather than imported from moves.ts.
+ *
+ * moves.ts is about *timing* and this file is about *shape*; making shape
+ * depend on timing would be a cycle. A test asserts it equals JUMP_HEIGHT,
+ * which is the right place for a cross-module agreement to be enforced.
+ */
+export const JUMP_PEAK = 180;
+
+/** How tall the runner is, stood up, in design units. */
+export const RUN_HEIGHT = 92;
+/** …and flattened out in a slide. */
+export const SLIDE_HEIGHT = 40;
+
+/**
+ * The four hazards, as shapes.
+ *
+ * Chosen so that each answer is forced by the geometry rather than asserted:
+ *
+ *   log   0–78     a standing runner (0–92) hits it; a slide (0–40) still
+ *                  hits it; only getting above 78 clears it.
+ *   pit   a hole    only leaving the ground at all.
+ *   branch/vines
+ *         66–300   a standing runner overlaps at 66; a slide passes with 26
+ *                  units to spare; a jump (h to h+92) is inside it for the
+ *                  whole arc, which is what makes jumping the mistake.
+ *
+ * Both hanging hazards share a band on purpose. They look completely
+ * different and they mean exactly the same thing — one shape per answer is a
+ * lie the player finds out about at speed.
+ */
+export const HAZARD_SHAPES: Record<HazardKind, HazardShape> = {
+  block: { low: 0, high: 78 },
+  pit: { low: 0, high: 0, hole: true },
+  barrier: { low: 66, high: 300 },
+  low: { low: 66, high: 300 },
 };
 
-/** Can a player in this state get past this hazard? */
+/** Where the runner is, vertically, right now. */
+export function playerBand(height: number, crouch: number): Band {
+  const tall = RUN_HEIGHT - Math.max(0, Math.min(1, crouch)) * (RUN_HEIGHT - SLIDE_HEIGHT);
+  return { low: height, high: height + tall };
+}
+
+function overlaps(a: Band, b: Band): boolean {
+  return a.low < b.high && b.low < a.high;
+}
+
+/** Can the runner, shaped like this, get past a hazard shaped like that? */
+export function survivesBand(kind: HazardKind, player: Band): boolean {
+  const shape = HAZARD_SHAPES[kind];
+  // A hole cares only that you are off the ground.
+  if (shape.hole) return player.low > 0;
+  return !overlaps(player, shape);
+}
+
+/**
+ * Whether each answer works — DERIVED from the shapes, never declared.
+ *
+ * This is what the action tint and any tutorial text read from, so a hazard
+ * cannot be painted "slide under me" while being shaped like something you
+ * have to jump.
+ */
+export const HAZARD_RULES: Record<HazardKind, { jump: boolean; slide: boolean; height: number }> =
+  (Object.keys(HAZARD_SHAPES) as HazardKind[]).reduce(
+    (out, kind) => {
+      out[kind] = {
+        // At the top of a jump, are you clear?
+        jump: survivesBand(kind, playerBand(JUMP_PEAK, 0)),
+        slide: survivesBand(kind, playerBand(0, 1)),
+        height: HAZARD_SHAPES[kind].high,
+      };
+      return out;
+    },
+    {} as Record<HazardKind, { jump: boolean; slide: boolean; height: number }>,
+  );
+
+/** Legacy state-based test, kept because it reads well at a call site that
+ *  only has booleans. Prefer survivesBand where the real heights are known. */
 export function survives(kind: HazardKind, airborne: boolean, sliding: boolean): boolean {
-  const rule = HAZARD_RULES[kind];
-  if (rule.jump && airborne) return true;
-  if (rule.slide && sliding) return true;
-  // Jumping into an overhang is worse than running into it: being in the air
-  // when you meet a `low` is exactly the mistake it is there to punish.
-  return false;
+  return survivesBand(kind, playerBand(airborne ? JUMP_PEAK : 0, sliding ? 1 : 0));
 }
 
 /**
@@ -244,13 +332,8 @@ export class TrackBuilder {
  */
 export const HIT_DEPTH = 90;
 
-export function collides(
-  playerLane: number,
-  hazard: Hazard,
-  airborne: boolean,
-  sliding: boolean,
-): boolean {
+export function collides(playerLane: number, hazard: Hazard, player: Band): boolean {
   if (Math.abs(hazard.z) > HIT_DEPTH) return false;
   if (Math.round(playerLane) !== hazard.lane) return false;
-  return !survives(hazard.kind, airborne, sliding);
+  return !survivesBand(hazard.kind, player);
 }

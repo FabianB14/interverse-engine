@@ -115,9 +115,12 @@ export class RunnerMoves {
   private tickSlide(dt: number): void {
     this.t += dt;
     this.height = 0;
-    // Flatten fast, come back up slowly — the recovery is the part the
-    // player has to read to know when they can jump again.
-    this.crouch = this.t < SLIDE_SECS * 0.25 ? this.t / (SLIDE_SECS * 0.25) : 1;
+    // Flatten FAST. The collision is a real height overlap now, so the ramp
+    // is time spent not yet low enough — a slow flatten is a slide that does
+    // not work for the first fifth of itself, which reads as the input
+    // being ignored.
+    const flatten = SLIDE_SECS * 0.1;
+    this.crouch = this.t < flatten ? this.t / flatten : 1;
     if (this.t >= SLIDE_SECS) {
       this.state = 'run';
       this.t = 0;
