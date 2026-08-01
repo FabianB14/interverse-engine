@@ -188,15 +188,40 @@ waiting to be filed as "it hit me when I dodged".
 `speedAt(distance)` ramps toward a cap rather than growing forever. Without a
 cap every run ends the same way — at the speed where reaction time runs out —
 which makes the last few seconds identical for a beginner and an expert. A cap
-lets skill decide the score instead. The defaults are 1020 out of the gate up
-to 2600, reached over about 7000 units.
+lets skill decide the score instead. The defaults open at **700** and reach
+**2400**, over a ramp of 22000 units: halfway takes about 15000, so getting
+fast is something a run *earns* rather than something that happens to it in
+the first few seconds.
 
-At that pace, **durations must stay durations**. `LANE_SNAP_SECS` and
-`JUMP_SECS` are times, not distances, so a dodge takes the same fraction of a
-second at 2600 as it did at 1020. Anything measured in distance instead
-arrives *after* the obstacle once the run gets going. Jump airtime is
-deliberately short for the same reason: a long hang clears the obstacle after
-the one you jumped for, which turns a dodge into a coin flip.
+## Everything that paces a runner is a duration
+
+This is the single rule that keeps a runner playable across a 3× speed range,
+and it is easy to violate one constant at a time:
+
+| Measured in | Why |
+| --- | --- |
+| `LANE_SNAP_SECS` | seconds | a dodge measured in *distance* arrives after the obstacle once you are quick |
+| `JUMP_SECS` | seconds | ditto — and short, or a long hang clears the obstacle *after* the one you jumped for |
+| `fairDistance` | seconds × speed | nothing spawns closer than you can see and act |
+| `rowGap` | mostly speed | see below |
+| corner interval | seconds × speed | otherwise corners arrive 3× as often by the end |
+| bend hold | seconds × speed | otherwise the road stops committing to a lean |
+
+Anything left as a bare distance silently rescales itself as the run speeds
+up, and always in the direction of *harder*, for no reason anyone chose.
+
+`rowGap(speed)` is the interesting one, because it deliberately does **not**
+fully keep up:
+
+```ts
+rowGap(speed) === ROW_GAP_BASE + speed * ROW_GAP_PER_SPEED;  // 420 + 0.5·v
+```
+
+The gap grows with speed but by less than speed does, so the *time* between
+obstacles still shortens — 1.10s at the opening pace, 0.68s at the cap. That
+one line is the whole difficulty curve: the game does get harder, just
+deliberately, and slowly enough that it never stops being readable. A constant
+gap gives you the same curve by accident and far more steeply.
 
 ## The track
 
@@ -281,7 +306,7 @@ followed by a glacier is a slideshow.
 Zones swap on a corner: the causeway ahead ends and another crosses it, you
 swipe the way it goes, the camera swings a full right angle to follow, and the
 road comes out leaning that way so the turn has a direction you can feel.
-Corners come about every 11000 units, and the road wanders between them, so
+Corners come about every eleven seconds and the road wanders between them, so
 you are usually running toward something you cannot fully see.
 
 Getting a corner wrong is the one mistake with no recovery — everything else

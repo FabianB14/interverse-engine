@@ -97,7 +97,8 @@ export {
 } from './runner/moves.js';
 export type { MoveState } from './runner/moves.js';
 export {
-  HAZARD_RULES, HIT_DEPTH, REACTION_SECS, TrackBuilder, collides, fairDistance, survives,
+  HAZARD_RULES, HIT_DEPTH, REACTION_SECS, ROW_GAP_BASE, ROW_GAP_PER_SPEED, TrackBuilder,
+  collides, fairDistance, rowGap, survives,
 } from './runner/track.js';
 export type { Hazard, HazardKind, Pickup, TrackOptions } from './runner/track.js';
 export { SWIPE_THRESHOLD, Swipe, swipeDir } from './input/swipe.js';

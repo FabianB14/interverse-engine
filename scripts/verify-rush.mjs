@@ -146,19 +146,23 @@ try {
   // one, and missing a corner ends the run even in safe mode. So take them.
   const takeAnyCorner = async () => {
     const s = await page.evaluate(() => window.__rush.run());
-    if (!s || s.turnZ > 2600) return;
+    if (!s || s.turnZ > 3200) return;
     const d = await page.evaluate(() => window.__rush.corner());
     await page.evaluate((dir) => window.__rush.swipe(dir > 0 ? 'right' : 'left'), d);
   };
 
-  // The road has to actually wander. Sample it over a few seconds: a bend
-  // that is always near zero is a straight road with extra maths, which is
-  // exactly what the first cut of this shipped as.
+  // The road has to actually wander. A bend that is always near zero is a
+  // straight road with extra maths, which is exactly what the first cut of
+  // this shipped as.
+  //
+  // Sampled over several seconds because the road now holds a lean for a
+  // few seconds at a time, and the opening pace is deliberately slow — a
+  // short window catches one lean and concludes the road never moves.
   const bends = [];
-  for (let i = 0; i < 14; i++) {
+  for (let i = 0; i < 24; i++) {
     await takeAnyCorner();
     bends.push((await page.evaluate(() => window.__rush.run()))?.bend ?? 0);
-    await sleep(220);
+    await sleep(300);
   }
   const peakBend = Math.max(...bends.map(Math.abs));
   const bendSpread = Math.max(...bends) - Math.min(...bends);
@@ -232,9 +236,9 @@ try {
   const rollOk = spun && hatLevel && roll0.children > 0;
   const laneOk = laneRight === 2 && laneClamped === 2;
   const moveOk = !!jumped?.airborne && !!landed && !landed.airborne && !!slid?.sliding;
-  // Temple Run pace, not a stroll: over a thousand out of the gate and
-  // still climbing.
-  const speedOk = later > early && early > 900;
+  // Opens walkable and climbs. The ramp is long by design, so this only
+  // checks the direction — the shape of the curve is unit-tested.
+  const speedOk = later > early && early < 800 && early > 500;
   // A road that leans hard and does not stay leaning one way.
   const bendOk = peakBend > 90 && bendSpread > 90;
   const cornerOk =

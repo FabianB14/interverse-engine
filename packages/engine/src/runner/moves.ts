@@ -159,7 +159,13 @@ export class RunnerMoves {
  * accelerates without limit ends every run the same way, at the speed where
  * reaction time runs out, which makes the last few seconds identical for a
  * beginner and an expert. A cap means skill decides the score instead.
+ *
+ * The ramp is LONG on purpose — thousands of units, not hundreds. Getting
+ * fast has to be something a run earns rather than something that happens to
+ * it in the first few seconds, or a new player never gets to see the game at
+ * a speed they can read, and an experienced one has nothing left to build to.
+ * The opening is deliberately walkable.
  */
-export function speedAt(distance: number, base = 1020, cap = 2600, ramp = 7000): number {
+export function speedAt(distance: number, base = 700, cap = 2400, ramp = 22_000): number {
   return base + (cap - base) * (1 - Math.exp(-distance / ramp));
 }

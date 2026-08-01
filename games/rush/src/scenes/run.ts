@@ -36,14 +36,17 @@ import { loadProfile } from '../save.js';
 const UNITS_PER_METRE = 12;
 
 /**
- * Distance between corners.
+ * SECONDS between corners, not units.
  *
- * About twelve seconds of running at the early pace and rather less later.
  * Corners are the only thing in a runner that changes where you are rather
  * than what is in front of you, so they have to come often enough to be part
  * of the rhythm — far apart, they are a quiz you take twice a run.
+ *
+ * Measured in time for the same reason the row gap is: the run more than
+ * triples in speed, so a fixed distance would mean corners arriving three
+ * times as often by the end. The rhythm should be the rhythm throughout.
  */
-const TURN_EVERY = 11_000;
+const TURN_SECS = 11;
 
 /** How close a corner has to be before a sideways swipe means "turn" rather
  *  than "change lane". Generous, and scaled by speed below: missing a corner
@@ -61,18 +64,18 @@ const TURN_WINDOW = 1500;
  */
 const BEND_MAX = 260;
 /**
- * How far the road holds one lean, and how fast it eases into it.
+ * How long the road holds one lean, and how fast it eases into it.
  *
- * These two have to be read together. The first version had the road
- * changing its mind every 2600 units and easing with a time constant of over
- * a second — so at speed it never arrived anywhere before setting off
- * somewhere else, and the average came out at a bend of about 25 out of 260.
- * The road was, in practice, straight.
+ * These two have to be read together. An early version changed its mind
+ * every 2600 UNITS and eased with a time constant of over a second — so at
+ * speed it never arrived anywhere before setting off somewhere else, and the
+ * average came out at a bend of about 25 out of 260. The road was, in
+ * practice, straight.
  *
- * Now it commits: about two and a half seconds per lean, reached in under
- * half of that.
+ * Now it commits, and it commits in SECONDS: a lean is held about three
+ * times as long as it takes to reach, at any speed.
  */
-const BEND_EVERY = 4200;
+const BEND_SECS = 3.4;
 const BEND_EASE = 2.4;
 
 /**
@@ -146,7 +149,11 @@ export class RunScene extends Scene {
 
   private readonly rider = new LaneRider(1);
   private readonly moves = new RunnerMoves();
-  private builder = new TrackBuilder({ spacing: 620, density: 0.76 });
+  // Spacing is left to the engine's speed-driven default: a fixed gap is a
+  // shrinking gap in time as the run accelerates. Density is a touch below
+  // the default so more rows come through empty — the beat between obstacles
+  // is what makes the next one land.
+  private builder = new TrackBuilder({ density: 0.68 });
   private blob!: RollingBlob;
   private blobShadow = shadowView();
   private hatOn: HatView | null = null;
@@ -162,7 +169,7 @@ export class RunScene extends Scene {
   private chase = 0;
   private stumble = 0;
   private zoneN = 0;
-  private turnZ = TURN_EVERY;
+  private turnZ = 0;
   private turnDir = 1;
   private turned = false;
   private turnSign = new Container();
@@ -179,14 +186,14 @@ export class RunScene extends Scene {
   /** Where the road is bending right now, and where it is heading. */
   private bend = 0;
   private bendTarget = 0;
-  private bendNext = BEND_EVERY;
+  private bendNext = 0;
   private over = false;
   private swipe!: Swipe;
   /**
    * Test-only: keep the run alive through stumbles and pits.
    *
    * A headless playtest drives the blob straight down the middle without
-   * dodging anything, and at 2600 units a second that is dead in about four.
+   * dodging anything, and at full pace that is dead in a few seconds.
    * The mechanics it wants to check — lanes, jumps, corners, the bend — all
    * take longer than that to exercise. Corner misses still end the run,
    * because that is one of the things being checked.
@@ -239,6 +246,10 @@ export class RunScene extends Scene {
     this.world.addChild(this.turnSign, this.blobShadow, this.blob.view);
 
     this.speed = speedAt(0);
+    // The first corner and the first lean, in the units the opening speed
+    // makes of them.
+    this.turnZ = this.speed * TURN_SECS;
+    this.bendNext = this.speed * BEND_SECS;
     // Start already leaning. A run that opens on a dead-straight corridor
     // and only starts bending half a minute in has told the player, in the
     // most memorable moment it gets, that the road is straight.
@@ -408,7 +419,7 @@ export class RunScene extends Scene {
    */
   private tickBend(dt: number): void {
     if (this.distance >= this.bendNext) {
-      this.bendNext = this.distance + BEND_EVERY * (0.6 + Math.random() * 0.8);
+      this.bendNext = this.distance + this.speed * BEND_SECS * (0.6 + Math.random() * 0.8);
       // Biased away from wherever it currently is, so the road actually
       // swings both ways instead of drifting to one side and staying there.
       const away = this.bend > 0 ? -1 : 1;
@@ -514,8 +525,8 @@ export class RunScene extends Scene {
     // direction you can feel and not just a change of scenery.
     this.bend = this.turnDir * BEND_MAX * 1.1;
     this.bendTarget = this.turnDir * BEND_MAX * 0.35;
-    this.bendNext = this.distance + BEND_EVERY;
-    this.turnZ = TURN_EVERY;
+    this.bendNext = this.distance + this.speed * BEND_SECS;
+    this.turnZ = this.speed * TURN_SECS;
     this.turnDir = Math.random() < 0.5 ? -1 : 1;
     this.banner(`${this.zone.name.toUpperCase()}!`, 1.6);
     this.add(burst('confetti', this.proj.cx, this.proj.groundY - 120), this.hudLayer);
@@ -652,7 +663,10 @@ export class RunScene extends Scene {
     for (const h of this.hazards) {
       const z = this.rel(h.data.z);
       if (z < -40 || z > far * 0.8) continue;
-      const a = fogAlpha(z, far);
+      // Fade it out as it arrives. Its whole job is long-range warning; by
+      // the time it is underfoot the obstacle itself is the signal, and a
+      // bright patch on the boards right in front of you just reads as ice.
+      const a = fogAlpha(z, far) * Math.min(1, Math.max(0, z / 700));
       if (a <= 0.02) continue;
       const x = laneX(h.data.lane);
       // A long flat patch reaching back toward the player, so it is visible

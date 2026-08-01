@@ -12,9 +12,9 @@
  *     that can be taken. A runner that can generate an unwinnable row trains
  *     players to blame the game, and they are right to.
  *   - **A hazard is never a surprise.** Nothing spawns closer than the
- *     distance it takes to see it and act, which is a function of the CURRENT
- *     speed, not a constant — at 1500/s a gap that was generous at 620/s is
- *     an ambush.
+ *     distance it takes to see it and act, and neither that distance nor the
+ *     gap between rows is a constant — both are functions of the CURRENT
+ *     speed. A layout that was generous at 700/s is a wall at 2400/s.
  *   - **The same thing twice is a pattern; three times is a rut.** Runs are
  *     remembered by their variety, so the picker refuses to repeat a kind it
  *     just used.
@@ -72,10 +72,36 @@ export function fairDistance(speed: number): number {
   return speed * REACTION_SECS;
 }
 
+/**
+ * How far apart consecutive rows of stuff are.
+ *
+ * NOT a constant. A fixed gap in distance is a shrinking gap in TIME as the
+ * run speeds up — 620 units is six-tenths of a second at 1000/s and less than
+ * a quarter at 2600 — so a track authored to feel fair at the start quietly
+ * becomes a wall of obstacles at the end, for no reason anyone chose.
+ *
+ * Instead the gap grows with speed, but by LESS than speed does. That is the
+ * whole pacing curve in one line: the time between obstacles still shortens
+ * as you get faster, so the game does get harder — just deliberately, and
+ * slowly enough that it never stops being readable.
+ */
+export const ROW_GAP_BASE = 420;
+export const ROW_GAP_PER_SPEED = 0.5;
+
+export function rowGap(
+  speed: number,
+  base = ROW_GAP_BASE,
+  perSpeed = ROW_GAP_PER_SPEED,
+): number {
+  return base + Math.max(0, speed) * perSpeed;
+}
+
 export interface TrackOptions {
   lanes?: number;
-  /** Gap between rows of stuff, in design units. */
-  spacing?: number;
+  /** Smallest gap between rows, in design units, however slow you are. */
+  minGap?: number;
+  /** Extra gap per unit of speed. See rowGap. */
+  gapPerSpeed?: number;
   /** 0..1 — how often a row carries hazards at all. */
   density?: number;
   rand?: () => number;
@@ -92,14 +118,16 @@ export class TrackBuilder {
   private lastKind: HazardKind | null = null;
   private sameKindRuns = 0;
   private readonly lanes: number;
-  private readonly spacing: number;
+  private readonly minGap: number;
+  private readonly gapPerSpeed: number;
   private readonly density: number;
   private readonly rand: () => number;
 
   constructor(opts: TrackOptions = {}) {
     this.lanes = opts.lanes ?? 3;
-    this.spacing = opts.spacing ?? 620;
-    this.density = opts.density ?? 0.78;
+    this.minGap = opts.minGap ?? ROW_GAP_BASE;
+    this.gapPerSpeed = opts.gapPerSpeed ?? ROW_GAP_PER_SPEED;
+    this.density = opts.density ?? 0.72;
     this.rand = opts.rand ?? Math.random;
   }
 
@@ -123,27 +151,28 @@ export class TrackBuilder {
     const hazards: Hazard[] = [];
     const pickups: Pickup[] = [];
     const minAhead = fairDistance(speed);
+    const gap = rowGap(speed, this.minGap, this.gapPerSpeed);
     const target = playerZ + ahead;
     while (this.built < target) {
-      this.built += this.spacing;
+      this.built += gap;
       // Too close to be seen and reacted to — skip the row rather than drop
       // something on the player's head. Skipping leaves a gap, which is a
       // gift; spawning would be an ambush.
       if (this.built - playerZ < minAhead) continue;
-      const row = this.row(this.built);
+      const row = this.row(this.built, gap);
       hazards.push(...row.hazards);
       pickups.push(...row.pickups);
     }
     return { hazards, pickups };
   }
 
-  private row(z: number): { hazards: Hazard[]; pickups: Pickup[] } {
+  private row(z: number, gap: number): { hazards: Hazard[]; pickups: Pickup[] } {
     const hazards: Hazard[] = [];
     const pickups: Pickup[] = [];
     if (this.rand() > this.density) {
       // An empty row is not filler — it is the beat that makes the next row
       // land. A wall of obstacles with no gaps is noise.
-      pickups.push(...this.coins(z, Math.floor(this.rand() * this.lanes)));
+      pickups.push(...this.coins(z, Math.floor(this.rand() * this.lanes), gap));
       return { hazards, pickups };
     }
 
@@ -158,15 +187,18 @@ export class TrackBuilder {
     // surviving — a runner where greed and safety always conflict is a
     // runner where the coins are decoration.
     const free = this.shuffledLanes().find((l) => !lanes.includes(l));
-    if (free !== undefined) pickups.push(...this.coins(z, free));
+    if (free !== undefined) pickups.push(...this.coins(z, free, gap));
     return { hazards, pickups };
   }
 
-  /** A short arc of coins rather than one, so a pickup is a line to follow. */
-  private coins(z: number, lane: number): Pickup[] {
+  /** A short arc of coins rather than one, so a pickup is a line to follow.
+   *  Spaced from the row gap so the trail stretches out with the track
+   *  instead of bunching into a clump when the rows spread. */
+  private coins(z: number, lane: number, gap: number): Pickup[] {
     const n = 2 + Math.floor(this.rand() * 3);
+    const step = gap * 0.16;
     const out: Pickup[] = [];
-    for (let i = 0; i < n; i++) out.push({ lane, z: z + i * 90 });
+    for (let i = 0; i < n; i++) out.push({ lane, z: z + i * step });
     return out;
   }
 

@@ -10,6 +10,7 @@ import {
   TURN_ARC,
   TrackBuilder,
   bendAt,
+  rowGap,
   cornerDone,
   cornerSpace,
   clampLane,
@@ -337,13 +338,30 @@ describe('moves', () => {
     expect(m.state).toBe('run');
   });
 
+  it('opens slowly and takes a real run to get quick', () => {
+    // A new player has to get to see the game at a speed they can act on.
+    expect(speedAt(0)).toBeLessThan(800);
+
+    // Halfway between the opening speed and the cap must be TENS of thousands
+    // of units away, not hundreds. If the ramp is over in the first few
+    // seconds then it is not a ramp, it is a starting speed with a preamble.
+    const cap = speedAt(1e9);
+    const half = (speedAt(0) + cap) / 2;
+    let toHalf = 0;
+    while (speedAt(toHalf) < half && toHalf < 1e6) toHalf += 500;
+    expect(toHalf).toBeGreaterThan(12_000);
+
+    // But it does get there: a long run is properly quick.
+    expect(speedAt(60_000)).toBeGreaterThan(speedAt(0) * 3);
+  });
+
   it('ramps toward a cap instead of accelerating forever', () => {
-    expect(speedAt(0)).toBeCloseTo(1020);
+    expect(speedAt(0)).toBeCloseTo(700);
     expect(speedAt(9000)).toBeGreaterThan(speedAt(3000));
-    expect(speedAt(1e7)).toBeLessThanOrEqual(2600);
+    expect(speedAt(1e7)).toBeLessThanOrEqual(2400);
     // A cap is what stops every run ending identically at the speed where
     // reaction time runs out.
-    expect(speedAt(1e7)).toBeCloseTo(2600, 0);
+    expect(speedAt(1e7)).toBeCloseTo(2400, 0);
   });
 });
 
@@ -367,8 +385,27 @@ describe('hazards', () => {
     expect(collides(1, { ...h, z: -400 }, false, false)).toBe(false);
   });
 
+  it('spaces rows further apart the faster you go', () => {
+    expect(rowGap(2400)).toBeGreaterThan(rowGap(700));
+  });
+
+  it('still closes the gap in TIME, which is what makes it get harder', () => {
+    // The gap grows with speed but by less than speed does, so seconds
+    // between obstacles shortens — deliberately, and never to nothing.
+    const early = rowGap(700) / 700;
+    const late = rowGap(2400) / 2400;
+    expect(late).toBeLessThan(early);
+    expect(late).toBeGreaterThan(0.45);
+    expect(early).toBeGreaterThan(0.8);
+  });
+
+  it('never collapses to zero spacing, whatever it is handed', () => {
+    expect(rowGap(0)).toBeGreaterThan(0);
+    expect(rowGap(-999)).toBeGreaterThan(0);
+  });
+
   it('scales the fair warning distance with speed', () => {
-    expect(fairDistance(2600)).toBeGreaterThan(fairDistance(1020));
+    expect(fairDistance(2400)).toBeGreaterThan(fairDistance(700));
   });
 });
 
@@ -386,7 +423,7 @@ describe('track generation', () => {
   });
 
   it('never spawns something closer than the player can react to', () => {
-    const speed = 2600;
+    const speed = 2400;
     const t = new TrackBuilder({ rand: seeded(3) });
     const { hazards } = t.build(0, 40_000, speed);
     for (const h of hazards) expect(h.z).toBeGreaterThanOrEqual(fairDistance(speed));
@@ -415,6 +452,14 @@ describe('track generation', () => {
       const at = blocked.get(p.z);
       if (at) expect(at.has(p.lane)).toBe(false);
     }
+  });
+
+  it('leaves more road between rows at speed than it does at a crawl', () => {
+    const slow = new TrackBuilder({ rand: seeded(9), density: 1 });
+    const fast = new TrackBuilder({ rand: seeded(9), density: 1 });
+    const rows = (b: TrackBuilder, speed: number): number =>
+      new Set(b.build(0, 60_000, speed).hazards.map((h) => h.z)).size;
+    expect(rows(fast, 2400)).toBeLessThan(rows(slow, 700));
   });
 
   it('keeps building forward and never backward', () => {
