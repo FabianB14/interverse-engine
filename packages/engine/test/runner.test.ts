@@ -364,10 +364,10 @@ describe('moves', () => {
   it('ramps toward a cap instead of accelerating forever', () => {
     expect(speedAt(0)).toBeCloseTo(700);
     expect(speedAt(9000)).toBeGreaterThan(speedAt(3000));
-    expect(speedAt(1e7)).toBeLessThanOrEqual(2400);
+    expect(speedAt(1e7)).toBeLessThanOrEqual(2500);
     // A cap is what stops every run ending identically at the speed where
     // reaction time runs out.
-    expect(speedAt(1e7)).toBeCloseTo(2400, 0);
+    expect(speedAt(1e7)).toBeCloseTo(2500, 0);
   });
 });
 
@@ -452,14 +452,14 @@ describe('hazards', () => {
   });
 
   it('spaces rows further apart the faster you go', () => {
-    expect(rowGap(2400)).toBeGreaterThan(rowGap(700));
+    expect(rowGap(2500)).toBeGreaterThan(rowGap(700));
   });
 
   it('still closes the gap in TIME, which is what makes it get harder', () => {
     // The gap grows with speed but by less than speed does, so seconds
     // between obstacles shortens — deliberately, and never to nothing.
     const early = rowGap(700) / 700;
-    const late = rowGap(2400) / 2400;
+    const late = rowGap(2500) / 2500;
     expect(late).toBeLessThan(early);
     expect(late).toBeGreaterThan(0.45);
     expect(early).toBeGreaterThan(0.8);
@@ -471,7 +471,7 @@ describe('hazards', () => {
   });
 
   it('scales the fair warning distance with speed', () => {
-    expect(fairDistance(2400)).toBeGreaterThan(fairDistance(700));
+    expect(fairDistance(2500)).toBeGreaterThan(fairDistance(700));
   });
 });
 
@@ -489,7 +489,7 @@ describe('track generation', () => {
   });
 
   it('never spawns something closer than the player can react to', () => {
-    const speed = 2400;
+    const speed = 2500;
     const t = new TrackBuilder({ rand: seeded(3) });
     const { hazards } = t.build(0, 40_000, speed);
     for (const h of hazards) expect(h.z).toBeGreaterThanOrEqual(fairDistance(speed));
@@ -525,7 +525,23 @@ describe('track generation', () => {
     const fast = new TrackBuilder({ rand: seeded(9), density: 1 });
     const rows = (b: TrackBuilder, speed: number): number =>
       new Set(b.build(0, 60_000, speed).hazards.map((h) => h.z)).size;
-    expect(rows(fast, 2400)).toBeLessThan(rows(slow, 700));
+    expect(rows(fast, 2500)).toBeLessThan(rows(slow, 700));
+  });
+
+  it('makes the one unrecoverable hazard the rarest', () => {
+    const t = new TrackBuilder({ rand: seeded(21), density: 1 });
+    const { hazards } = t.build(0, 400_000, 900);
+    const kinds = [...new Map(hazards.map((h) => [h.z, h.kind])).values()];
+    const share = (k: HazardKind): number => kinds.filter((x) => x === k).length / kinds.length;
+    // Every other hazard is a stumble you run out of; a pit ends the run.
+    // At an even split a quarter of all rows carried the only mistake with
+    // no recovery, and runs were over before they had been anywhere.
+    expect(share('pit')).toBeLessThan(0.18);
+    for (const k of ['block', 'barrier', 'low'] as HazardKind[]) {
+      expect(share(k)).toBeGreaterThan(share('pit'));
+    }
+    // Still common enough to be a real part of the vocabulary.
+    expect(share('pit')).toBeGreaterThan(0.04);
   });
 
   it('keeps building forward and never backward', () => {

@@ -27,7 +27,7 @@ import {
 } from '../art.js';
 import { hatView } from '../hats.js';
 import type { HatView } from '../hats.js';
-import { BLOB_COLOR, DIM, GOLD, INK, MINT, ROSE, zone } from '../theme.js';
+import { BLOB_COLOR, DIM, GOLD, INK, MINT, ROSE, ZONES, zone } from '../theme.js';
 import type { Zone } from '../theme.js';
 import { loadProfile } from '../save.js';
 
@@ -87,10 +87,16 @@ const BEND_EASE = 2.4;
  * have to do rather than symbolising it.
  */
 
-/** What one hit costs, and how fast running clean pays it back. Three hits
- *  in quick succession is the end; spaced out, they are survivable. */
-const CHASE_PER_HIT = 0.34;
-const CHASE_RECOVER = 0.055;
+/**
+ * What one hit costs, and how fast running clean pays it back.
+ *
+ * FIVE hits in quick succession now, not three, and clean running pays a hit
+ * back in about twelve seconds. A run is meant to be a journey through eight
+ * places — at three strikes it ended somewhere in the second one, and nobody
+ * ever saw the rest of the game.
+ */
+const CHASE_PER_HIT = 0.2;
+const CHASE_RECOVER = 0.075;
 
 const COIN_VALUE = 1;
 const STUMBLE_SECS = 0.5;
@@ -126,6 +132,9 @@ export interface RunResult {
   metres: number;
   coins: number;
   zone: string;
+  /** 1-based, so the result screen can say how far through the journey you
+   *  got rather than just naming the last place you saw. */
+  zoneN: number;
   cause: 'hit' | 'pit' | 'corner';
 }
 
@@ -316,9 +325,16 @@ export class RunScene extends Scene {
     this.metresText.position.set(18, 14);
     this.coinsText = label('🪙 0', 24, GOLD, '800');
     this.coinsText.position.set(18, 56);
-    const zoneName = label(this.zone.name, 20, DIM);
+    // Where you are, and how far in. The zone name alone does not say
+    // whether you are making progress; the number does.
+    const zoneName = label(`${this.zoneN + 1} · ${this.zone.name}`, 20, DIM);
     zoneName.anchor.set(1, 0);
     zoneName.position.set(W - 18, 16);
+    const of = label(`of ${ZONES.length}`, 15, DIM);
+    of.anchor.set(1, 0);
+    of.position.set(W - 18, 42);
+    of.alpha = 0.7;
+    this.hudLayer.addChild(of);
     this.chaseBar = new Graphics();
     this.hudLayer.addChild(this.metresText, this.coinsText, zoneName, this.chaseBar);
     this.refreshHud();
@@ -441,7 +457,7 @@ export class RunScene extends Scene {
   }
 
   private addHazard(data: Hazard): void {
-    const view = hazardView(data.kind, this.zone);
+    const view = hazardView(data.kind);
     this.world.addChild(view);
     this.hazards.push({ data, view });
   }
@@ -518,7 +534,7 @@ export class RunScene extends Scene {
     this.bendNext = this.distance + this.speed * BEND_SECS;
     this.turnZ = this.speed * TURN_SECS;
     this.turnDir = Math.random() < 0.5 ? -1 : 1;
-    this.banner(`${this.zone.name.toUpperCase()}!`, 1.6);
+    this.banner(`${this.zoneN + 1}. ${this.zone.name.toUpperCase()}`, 1.8);
     this.add(burst('confetti', this.proj.cx, this.proj.groundY - 120), this.hudLayer);
 
     // A corner is the one moment in an endless runner where everything is
@@ -538,7 +554,7 @@ export class RunScene extends Scene {
   private restyleWorld(): void {
     for (const h of this.hazards) {
       this.destroyView(h.view);
-      h.view = hazardView(h.data.kind, this.zone);
+      h.view = hazardView(h.data.kind);
       this.world.addChild(h.view);
     }
     for (const p of this.props) {
@@ -801,6 +817,7 @@ export class RunScene extends Scene {
       metres: Math.floor(this.distance / UNITS_PER_METRE),
       coins: this.purse,
       zone: this.zone.name,
+      zoneN: this.zoneN + 1,
       cause,
     });
   }

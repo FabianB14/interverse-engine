@@ -97,7 +97,7 @@ export {
 } from './runner/moves.js';
 export type { MoveState } from './runner/moves.js';
 export {
-  HAZARD_RULES, HAZARD_SHAPES, HIT_DEPTH, JUMP_PEAK, REACTION_SECS, ROW_GAP_BASE,
+  HAZARD_RULES, HAZARD_SHAPES, HAZARD_WEIGHTS, HIT_DEPTH, JUMP_PEAK, REACTION_SECS, ROW_GAP_BASE,
   ROW_GAP_PER_SPEED, RUN_HEIGHT, SLIDE_HEIGHT, TrackBuilder, collides, fairDistance,
   playerBand, rowGap, survives, survivesBand,
 } from './runner/track.js';

@@ -184,6 +184,25 @@ export function rowGap(
   return base + Math.max(0, speed) * perSpeed;
 }
 
+/**
+ * How often each hazard comes up.
+ *
+ * Not uniform, and the reason is that they do not cost the same. Every other
+ * hazard is a stumble you run out of; a pit is a hole, and falling in one
+ * ends the run outright. At an even split, a quarter of all rows carried the
+ * only mistake with no recovery, and a run was over long before it had been
+ * anywhere.
+ *
+ * So the unforgiving one is the rare one. That is a general rule worth
+ * keeping: weight a hazard DOWN in proportion to how final it is.
+ */
+export const HAZARD_WEIGHTS: readonly { kind: HazardKind; weight: number }[] = [
+  { kind: 'block', weight: 3 },
+  { kind: 'barrier', weight: 3 },
+  { kind: 'low', weight: 3 },
+  { kind: 'pit', weight: 1 },
+];
+
 export interface TrackOptions {
   lanes?: number;
   /** Smallest gap between rows, in design units, however slow you are. */
@@ -291,9 +310,8 @@ export class TrackBuilder {
   }
 
   private pickKind(): HazardKind {
-    const kinds: HazardKind[] = ['block', 'barrier', 'pit', 'low'];
     for (let tries = 0; tries < 8; tries++) {
-      const k = kinds[Math.floor(this.rand() * kinds.length)]!;
+      const k = this.weightedKind();
       // Two in a row is a pattern the player can learn; three is a rut.
       if (k !== this.lastKind || this.sameKindRuns < 1) {
         this.sameKindRuns = k === this.lastKind ? this.sameKindRuns + 1 : 0;
@@ -302,8 +320,18 @@ export class TrackBuilder {
       }
     }
     this.sameKindRuns = 0;
-    this.lastKind = kinds[0]!;
-    return kinds[0]!;
+    this.lastKind = 'block';
+    return 'block';
+  }
+
+  private weightedKind(): HazardKind {
+    const total = HAZARD_WEIGHTS.reduce((n, w) => n + w.weight, 0);
+    let roll = this.rand() * total;
+    for (const w of HAZARD_WEIGHTS) {
+      roll -= w.weight;
+      if (roll <= 0) return w.kind;
+    }
+    return HAZARD_WEIGHTS[0]!.kind;
   }
 
   private shuffledLanes(): number[] {

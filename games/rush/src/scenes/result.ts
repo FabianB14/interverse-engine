@@ -10,7 +10,7 @@
 import { Graphics, Text } from 'pixi.js';
 import { Scene, audio } from '@interverse/engine';
 import { UIButton } from '@interverse/ui';
-import { DIM, GOLD, INK, MINT, NIGHT, ROSE } from '../theme.js';
+import { DIM, GOLD, INK, MINT, NIGHT, ROSE, ZONES } from '../theme.js';
 import type { RunResult } from './run.js';
 
 const CAUSE: Record<RunResult['cause'], string> = {
@@ -55,10 +55,21 @@ export class ResultScene extends Scene {
     metres.position.set(W / 2, H * 0.4);
 
     const line = label(
-      `🪙 ${this.result.coins} collected  ·  ${this.coinsTotal} in the pocket  ·  reached ${this.result.zone}`,
+      `🪙 ${this.result.coins} collected  ·  ${this.coinsTotal} in the pocket`,
       20,
       DIM,
     );
+    // How far through the journey, not just where you stopped. "Sunken Ruins"
+    // means nothing on its own; "3 of 8" is a thing to beat.
+    const got = label(
+      `reached ${this.result.zoneN} of ${ZONES.length} — ${this.result.zone}`,
+      22,
+      this.result.zoneN >= ZONES.length ? MINT : GOLD,
+      '800',
+    );
+    got.anchor.set(0.5);
+    got.position.set(W / 2, H * 0.66);
+    this.stage.addChild(got);
     line.anchor.set(0.5);
     line.position.set(W / 2, H * 0.58);
     this.stage.addChild(head, metres, line);

@@ -198,9 +198,14 @@ waiting to be filed as "it hit me when I dodged".
 cap every run ends the same way — at the speed where reaction time runs out —
 which makes the last few seconds identical for a beginner and an expert. A cap
 lets skill decide the score instead. The defaults open at **700** and reach
-**2400**, over a ramp of 22000 units: halfway takes about 15000, so getting
+**2500**, over a ramp of 34000 units: halfway takes about 23000, so getting
 fast is something a run *earns* rather than something that happens to it in
 the first few seconds.
+
+**Weight a hazard down in proportion to how final it is.** `HAZARD_WEIGHTS`
+makes the pit — the only mistake with no recovery — a quarter as likely as
+the others. At an even split it was a quarter of every row, and runs ended
+long before they had been anywhere.
 
 ## Everything that paces a runner is a duration
 
@@ -333,11 +338,20 @@ at the desk it is being built at.
 ## Blob Rush
 
 A rotting causeway through a swamp, with the water either side and cypress,
-mangrove, dead wood and reeds pushing in at the edges. Four zones — Misty Bog,
-Cypress Deep, Sunken Ruins, Blackwater — which are the same swamp at
-increasing depths and darkening hours rather than four unrelated biomes.
-Somewhere that gets stranger the further in you go is a place; a temple
-followed by a glacier is a slideshow.
+mangrove, dead wood and reeds pushing in at the edges. Eight zones — Misty Bog, Cypress
+Deep, Sunken Ruins, Blackwater, Witchlight, Bone Fen, Ember Marsh, The Mouth
+— ordered as a **journey** rather than a shuffle: the same swamp at
+increasing depth and worsening hours, then out the far side into places that
+are barely swamp at all. Somewhere that gets stranger the further in you go
+is a place; a rotation of four moods is a screensaver.
+
+**Obstacles take no colour from the zone.** They have a fixed material
+palette — bark, moss, black — because the things that can kill you have to
+look the same in a green bog, a bone-white fen and a mint-glowing
+witchlight, or the player relearns them at every corner. In the glowing
+zones, hazards tinted from `zone.prop` came out the same hue as the cyan
+action tint and the warning disappeared into the scenery it was warning
+about. Only the world changes.
 
 Zones swap on a corner: the causeway ahead ends and another crosses it, you
 swipe the way it goes, the camera swings a full right angle to follow, and the

@@ -169,6 +169,6 @@ export class RunnerMoves {
  * a speed they can read, and an experienced one has nothing left to build to.
  * The opening is deliberately walkable.
  */
-export function speedAt(distance: number, base = 700, cap = 2400, ramp = 22_000): number {
+export function speedAt(distance: number, base = 700, cap = 2500, ramp = 34_000): number {
   return base + (cap - base) * (1 - Math.exp(-distance / ramp));
 }

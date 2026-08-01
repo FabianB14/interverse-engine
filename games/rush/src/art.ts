@@ -227,6 +227,41 @@ export function propView(zone: Zone): Container {
       g.ellipse(0, 0, 0.24, 0.08).fill({ color: zone.waterLight, alpha: 0.5 });
       break;
 
+    case 'bones': {
+      // A ribcage half out of the water. Nothing about it is a plant, which
+      // is the point — by here the swamp has stopped growing things.
+      g.poly([-0.12, 0, 0.12, 0, 0.08, -1.25, -0.08, -1.25]).fill(zone.prop);
+      for (let i = 0; i < 5; i++) {
+        const y = -0.28 - i * 0.22;
+        const spread = 0.42 - i * 0.05;
+        g.poly([
+          -0.06, y, -spread, y - 0.16, -spread - 0.04, y - 0.1, -0.06, y + 0.07,
+        ]).fill(darken(zone.prop, 0.12));
+        g.poly([
+          0.06, y, spread, y - 0.16, spread + 0.04, y - 0.1, 0.06, y + 0.07,
+        ]).fill(darken(zone.prop, 0.2));
+      }
+      g.ellipse(0, -1.34, 0.16, 0.12).fill(lighten(zone.prop, 0.1));
+      g.ellipse(0, 0, 0.28, 0.08).fill({ color: zone.waterLight, alpha: 0.4 });
+      break;
+    }
+
+    case 'wisp': {
+      // A dead stalk with a light floating off it. The stalk is nearly
+      // invisible against the dark; the light is the whole silhouette, and
+      // it is what makes these zones read as lit from within.
+      g.poly([-0.05, 0, 0.05, 0, 0.02, -0.9, -0.02, -0.9]).fill(darken(zone.prop, 0.65));
+      const gy = -1.25;
+      g.circle(0.14, gy, 0.34).fill({ color: zone.prop, alpha: 0.13 });
+      g.circle(0.14, gy, 0.19).fill({ color: zone.prop, alpha: 0.3 });
+      g.circle(0.14, gy, 0.09).fill(lighten(zone.prop, 0.5));
+      g.circle(-0.3, gy + 0.42, 0.17).fill({ color: zone.prop, alpha: 0.16 });
+      g.circle(-0.3, gy + 0.42, 0.055).fill(lighten(zone.prop, 0.4));
+      // Its reflection, because a light over black water is mostly reflection.
+      g.ellipse(0.14, 0, 0.2, 0.07).fill({ color: zone.prop, alpha: 0.28 });
+      break;
+    }
+
     case 'reeds': {
       // A clump of stems at slightly different heights, with heads.
       for (let i = 0; i < 7; i++) {
@@ -301,7 +336,7 @@ export const HAZARD_UNIT = LANE_WIDTH * 0.7;
  * the strands. The picture said one thing and the rule did another, which is
  * exactly the bug this arrangement makes impossible.
  */
-export function hazardView(kind: HazardKind, zone: Zone): Container {
+export function hazardView(kind: HazardKind): Container {
   const c = new Container();
   const g = new Graphics();
   const shape = HAZARD_SHAPES[kind];
@@ -312,8 +347,16 @@ export function hazardView(kind: HazardKind, zone: Zone): Container {
   // them, which is far taller than is worth drawing.
   const hi = -Math.min(shape.high, 250) / HAZARD_UNIT;
   const w = 0.62;
+  // A FIXED material palette. Obstacles deliberately take no colour from the
+  // zone: the things that can kill you have to look the same in a green bog,
+  // a bone-white fen and a mint-glowing witchlight, or the player relearns
+  // them every corner. Worse, in the glowing zones `zone.prop` came out the
+  // same hue as the cyan action tint and the warning vanished into the
+  // scenery it was warning about.
   const bark = 0x6b5230;
   const barkDark = 0x4a3822;
+  const moss = 0x4e7a46;
+  const mossDark = 0x375a33;
 
   switch (kind) {
     case 'block': {
@@ -352,9 +395,9 @@ export function hazardView(kind: HazardKind, zone: Zone): Container {
       g.circle(-0.16, lo - 0.14, 0.06).fill(barkDark);
       // Twigs and leaves, above the line you duck under.
       g.poly([-0.3, top, -0.42, top - 0.32, -0.36, top - 0.34, -0.24, top - 0.02]).fill(barkDark);
-      g.ellipse(-0.43, top - 0.38, 0.12, 0.07).fill(zone.prop);
+      g.ellipse(-0.43, top - 0.38, 0.12, 0.07).fill(moss);
       g.poly([0.34, top + 0.04, 0.48, top - 0.24, 0.42, top - 0.26, 0.28, top + 0.02]).fill(barkDark);
-      g.ellipse(0.5, top - 0.3, 0.11, 0.06).fill(zone.prop);
+      g.ellipse(0.5, top - 0.3, 0.11, 0.06).fill(moss);
       // The action band sits ON the edge you must get under.
       g.rect(-w, lo - 0.04, w * 2, 0.08).fill({ color: SLIDE_TINT, alpha: 0.95 });
       break;
@@ -364,14 +407,14 @@ export function hazardView(kind: HazardKind, zone: Zone): Container {
       // A curtain of hanging vines. It touches the ground NOWHERE, and every
       // strand ends exactly at the band's bottom edge — which is what makes
       // "can I get under that" answerable by looking.
-      g.poly([-w, hi, w, hi + 0.04, w, hi + 0.3, -w, hi + 0.26]).fill(lighten(zone.prop, 0.05));
+      g.poly([-w, hi, w, hi + 0.04, w, hi + 0.3, -w, hi + 0.26]).fill(mossDark);
       for (let i = 0; i < 9; i++) {
         const x = -w + 0.06 + i * ((w * 2 - 0.12) / 8);
         // Strands vary, but none of them hangs below the band — the shortest
         // is what you would misread as the limit, so they all end together.
         const from = hi + 0.26 + ((i * 5) % 4) * 0.06;
-        g.rect(x, from, 0.045, lo - from).fill({ color: zone.prop, alpha: 0.9 });
-        g.ellipse(x + 0.022, lo, 0.05, 0.035).fill({ color: zone.prop, alpha: 0.9 });
+        g.rect(x, from, 0.045, lo - from).fill({ color: moss, alpha: 0.95 });
+        g.ellipse(x + 0.022, lo, 0.05, 0.035).fill({ color: moss, alpha: 0.95 });
       }
       g.rect(-w, lo - 0.04, w * 2, 0.08).fill({ color: SLIDE_TINT, alpha: 0.95 });
       break;
@@ -380,9 +423,9 @@ export function hazardView(kind: HazardKind, zone: Zone): Container {
     default:
       // Boards rotted straight through into the water. No geometry at all
       // above the road, so there is nothing to duck under.
-      g.ellipse(0, 0, w, 0.2).fill(darken(zone.water, 0.55));
+      g.ellipse(0, 0, w, 0.2).fill(0x0c1114);
       g.ellipse(0, -0.02, w * 0.86, 0.15).fill(0x000000);
-      g.ellipse(-0.16, -0.03, 0.16, 0.05).fill({ color: zone.waterLight, alpha: 0.45 });
+      g.ellipse(-0.16, -0.03, 0.16, 0.05).fill({ color: 0x2f6b6b, alpha: 0.45 });
       g.poly([-w, -0.05, -w + 0.16, -0.12, -w + 0.2, 0.02, -w + 0.02, 0.06]).fill(barkDark);
       g.poly([w, -0.05, w - 0.18, -0.13, w - 0.22, 0.01, w - 0.02, 0.06]).fill(barkDark);
       g.ellipse(0, 0, w, 0.2).stroke({ color: JUMP_TINT, width: 0.075 });
