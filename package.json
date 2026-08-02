@@ -13,7 +13,7 @@
     "dev:room": "pnpm --filter @interverse/room dev",
     "dev:taps": "pnpm --filter @interverse/taps dev",
     "relay": "pnpm --filter @interverse/relay dev",
-    "build": "pnpm -r --if-present build",
+    "build": "pnpm -r --if-present build && node scripts/check-budget.mjs",
     "preview": "pnpm --filter @interverse/hello preview",
     "typecheck": "pnpm -r --if-present typecheck",
     "verify": "node scripts/verify.mjs",
@@ -39,7 +39,8 @@
     "dev:rush": "pnpm --filter @interverse/rush dev",
     "verify:rush": "node scripts/verify-rush.mjs",
     "dev:spike3d": "pnpm --filter @interverse/spike3d dev",
-    "verify:spike3d": "node scripts/verify-spike3d.mjs"
+    "verify:spike3d": "node scripts/verify-spike3d.mjs",
+    "budget": "node scripts/check-budget.mjs"
   },
   "devDependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.220",
