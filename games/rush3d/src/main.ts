@@ -79,11 +79,16 @@ const { scene, camera, renderer } = game;
 let camY = CAM_HEIGHT;
 let camZ = CAM_BACK;
 function fitCamera(): void {
-  const k = Math.max(1, Math.min(2.1, 1.35 / camera.aspect));
+  // Tuned against a real 1080x2340 phone shot: the first cut capped the
+  // climb at 2.1x, which left the blob filling a third of the screen and
+  // the outer lanes off the sides. A phone that narrow wants ~3x, and the
+  // aim point moves OUT (not down) as the camera rises, or the extra
+  // height just steepens the stare at the blob.
+  const k = Math.max(1, Math.min(3.4, 1.35 / camera.aspect));
   camY = CAM_HEIGHT * k;
-  camZ = CAM_BACK * k;
+  camZ = CAM_BACK * (0.6 + 0.4 * k);
   camera.position.set(camera.position.x, camY, camZ);
-  camera.lookAt(new Vector3(camera.position.x, -70 * k, -1200));
+  camera.lookAt(new Vector3(camera.position.x, -60, -420 - 200 * k));
 }
 fitCamera();
 window.addEventListener('resize', () => fitCamera());
@@ -665,10 +670,15 @@ function draw(): void {
   const span = TREE_EVERY * (TREE_N / 2);
   for (const [t, post] of posts.entries()) {
     const rel = ((post.z - distance) % span + span) % span;
+    // A tree PAST the corner maps through the corner space onto the far
+    // side of the junction — and for one lateral sign that lands back on
+    // the approach road: a tree in the middle of the causeway. Past the
+    // junction is behind the turn anyway, so those trees simply hide.
+    const behindTurn = corner !== null && rel > corner.ahead - 120;
     for (const part of treeParts) {
       // Rooted in the water, not hovering at road level — a tree whose
       // trunk vanishes into the surface reads as growing out of the swamp.
-      placeInstance(part.inst, t, post.side * post.off, rel, -26, post.scale, false, part.base);
+      placeInstance(part.inst, t, post.side * post.off, behindTurn ? -4000 : rel, behindTurn ? -1000 : -26, behindTurn ? 0.001 : post.scale, false, part.base);
     }
   }
   for (const part of treeParts) part.inst.instanceMatrix.needsUpdate = true;
