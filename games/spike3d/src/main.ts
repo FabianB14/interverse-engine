@@ -33,6 +33,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import {
+  autoQuality,
   createGame3,
   lightRig,
   lowPolyGround,
@@ -43,6 +44,7 @@ import {
   rollingBlob3,
   scatter,
   seededRand,
+  skyDome,
 } from '@interverse/three';
 
 // The Misty Bog palette, translated. Same rule as 2D: colors come from a
@@ -88,8 +90,17 @@ const { scene, camera, renderer } = game;
 renderer.shadowMap.enabled = SHADOWS_ON;
 
 // Fog is the 3D fogAlpha: distant things dissolve into the sky color
-// instead of popping at a draw distance.
+// instead of popping at a draw distance. The sky dome's horizon matches the
+// fog color, which is what makes the world read as hazy rather than as a
+// world with a wall around it.
 scene.fog = new Fog(SKY, 300, FOG_FAR);
+scene.add(skyDome({ horizon: SKY, zenith: 0x647f8c }));
+
+// Quality answers to the frame clock: resolution steps down under load,
+// shadows only at the floor. ?tier=N pins one for testing.
+const quality = autoQuality(game);
+const pinnedTier = params.get('tier');
+if (pinnedTier !== null) quality.pin(Number(pinnedTier));
 
 // ------------------------------------------------------------------ light
 // Intensities tuned DOWN from the first attempt: sun 2.0 + hemi 0.9
@@ -253,6 +264,10 @@ if (BLOOM_ON) {
   composer.addPass(new OutputPass());
   const fitComposer = (): void => {
     const size = renderer.getSize(new Vector2());
+    // Track the renderer's CURRENT pixel ratio — the quality ladder changes
+    // it at runtime, and a composer left on the boot-time ratio would quietly
+    // undo the whole point of stepping resolution down.
+    composer.setPixelRatio(renderer.getPixelRatio());
     composer.setSize(size.x, size.y);
   };
   fitComposer();
@@ -265,6 +280,7 @@ if (BLOOM_ON) {
 let travelled = 0;
 
 function update(dt: number): void {
+  quality.update();
   travelled += RUN_SPEED * dt;
   blob.roll(RUN_SPEED * dt);
   // The world scrolls past the blob, same trick as the 2D runner: the
@@ -303,6 +319,8 @@ declare global {
         triangles: number;
         spin: number;
         hatLevel: number;
+        tier: number;
+        pixelRatio: number;
       };
     };
   }
@@ -318,5 +336,7 @@ window.__spike3d = {
     spin: Math.round(blob.spin * 100) / 100,
     // The rider's pitch: must stay 0 while the wheel spins underneath it.
     hatLevel: Math.round(blob.rider.rotation.x * 1000) / 1000,
+    tier: quality.tier,
+    pixelRatio: Math.round(renderer.getPixelRatio() * 100) / 100,
   }),
 };

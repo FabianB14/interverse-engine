@@ -101,14 +101,19 @@ try {
   const hatOk = full.hatOk && phone.hatOk;
   // Catastrophe gate only; the real numbers are the report.
   const fpsOk = bare.fps > 5;
+  // Software rendering is hopelessly over the 15ms budget, which makes it a
+  // free test of the quality ladder: after the sampling window it MUST have
+  // walked down to the floor tier and actually shrunk the pixel ratio.
+  const tierOk = full.last.tier === 3 && full.last.pixelRatio < 1;
 
-  const ok = renderOk && rollOk && hatOk && fpsOk && errors.length === 0;
+  const ok = renderOk && rollOk && hatOk && fpsOk && tierOk && errors.length === 0;
   report = {
     ok,
     renderOk,
     rollOk,
     hatOk,
     fpsOk,
+    tierOk,
     matrix: [full, noBloom, bare, phone].map(({ label, fps, frameMs, drawCalls, triangles }) => ({
       label,
       fps,
