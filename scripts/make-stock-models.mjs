@@ -16,13 +16,14 @@ const out = (name, nodes, clips) => {
   console.log(`${name}.glb: ${glb.length} bytes`);
 };
 
-// 🔵 The blob: a friendly stack with eyes; idle bob, walk waddle.
+// 🔵 The blob: ROUND, because a blob in a box is a washing machine. The
+// body is near-white on purpose — Studio tints the model with the actor's
+// color, and a neutral albedo is what lets the picked color arrive true.
 {
   const body = makeBuilder(5);
-  body.box(0, 0.45, 0, 0.9, 0.9, 0.85, [0.24, 0.61, 0.86]);
-  body.box(0, 0.95, 0.1, 0.55, 0.25, 0.5, [0.24, 0.61, 0.86]);
-  body.box(-0.18, 0.62, 0.44, 0.12, 0.16, 0.06, [0.13, 0.13, 0.18]);
-  body.box(0.18, 0.62, 0.44, 0.12, 0.16, 0.06, [0.13, 0.13, 0.18]);
+  body.sphere(0, 0.52, 0, 0.55, [0.88, 0.9, 0.93], { squash: 0.92 });
+  body.sphere(-0.2, 0.62, 0.42, 0.09, [0.12, 0.12, 0.16], { rings: 4, segs: 6 });
+  body.sphere(0.2, 0.62, 0.42, 0.09, [0.12, 0.12, 0.16], { rings: 4, segs: 6 });
   out('blob', [{ name: 'body', geometry: body }], [
     {
       name: 'idle',

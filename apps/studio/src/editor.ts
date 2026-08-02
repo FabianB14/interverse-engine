@@ -270,7 +270,36 @@ export class StudioEditor {
     this.sceneId = this.project.startScene;
   }
 
+  private mountEl: HTMLElement | null = null;
+  /** The live 3D EDITOR overlay, when the scene's view is '3d'. */
+  private edit3d: Mounted3d | null = null;
+
+  private disposeEdit3d(): void {
+    if (this.edit3d) {
+      this.edit3d.dispose();
+      this.edit3d = null;
+      document.getElementById('edit3d-host')?.remove();
+    }
+  }
+
+  private mountEdit3d(): void {
+    if (!this.mountEl) return;
+    this.mountEl.style.position = 'relative';
+    const host = document.createElement('div');
+    host.id = 'edit3d-host';
+    // Over the Pixi canvas only — the panels around it stay usable, which
+    // is the whole point of editing in 3D rather than just playing in it.
+    host.style.cssText = 'position:absolute;inset:0;z-index:3;background:#14161c';
+    this.mountEl.appendChild(host);
+    this.edit3d = mount3d(this.project, this.scene, host, {
+      mode: 'edit',
+      onSelect: (id) => this.select(id),
+      onMoved: () => this.touch(),
+    });
+  }
+
   async boot(mount: HTMLElement): Promise<void> {
+    this.mountEl = mount;
     // Adaptive: like real mobile games, the view is a WINDOW into the world —
     // a rotated (landscape) device sees a wide ~720-tall crop, portrait sees
     // a tall one. Nobody ever sees the whole board at once on big levels.
@@ -494,8 +523,12 @@ export class StudioEditor {
   openEditScene(): void {
     this.playing = false;
     this.playScene = null;
+    this.disposeEdit3d();
     this.editScene = new EditScene(this, this.scene);
     this.game.scenes.replace(this.editScene);
+    // A 3D level EDITS in 3D: the overlay owns the canvas area, selection
+    // and dragging feed the same inspector, and defs stay live.
+    if (this.scene.view === '3d') this.mountEdit3d();
     this.onPlayState();
   }
 
@@ -545,6 +578,7 @@ export class StudioEditor {
   private beginPlay(): void {
     this.playing = true;
     this.selectedIds = [];
+    this.disposeEdit3d();
     if (this.scene.view === '3d') {
       // 3D play mounts the three.js preview OVER the Pixi canvas; the Pixi
       // scene underneath stays on the edit view and simply is not seen.

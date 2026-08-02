@@ -16,7 +16,10 @@
  * bug factory wearing a feature's clothes.
  */
 
-import { BoxGeometry, Color, Fog, Group, Mesh, MeshStandardMaterial, PlaneGeometry, SphereGeometry, Vector3 } from 'three';
+import {
+  BoxGeometry, Color, Fog, Group, Mesh, MeshStandardMaterial, Plane, PlaneGeometry,
+  Raycaster, SphereGeometry, Vector2, Vector3,
+} from 'three';
 import {
   Actor3, autoQuality, createGame3, jitterVertices, lightRig, lowPolyMaterial,
   paintFacets, seededRand, skyDome, wireRing,
@@ -58,7 +61,25 @@ export interface Mounted3d {
   debug: () => { actors: number; models: number; playerX: number; playerZ: number };
 }
 
-export function mount3d(project: ProjectDef, scene: SceneDef, host: HTMLElement): Mounted3d {
+export interface Mount3dOptions {
+  /** 'play' walks the level; 'edit' is the 3D EDITOR — click selects (wired
+   *  to the inspector), dragging an actor moves it on the ground plane, and
+   *  every inspector edit lands live because positions, scale and color are
+   *  re-read from the defs each frame. */
+  mode?: 'edit' | 'play';
+  /** Edit mode: called when a click selects an actor (or empty ground). */
+  onSelect?: (id: string | null) => void;
+  /** Edit mode: called after a drag ends, so the editor can save. */
+  onMoved?: () => void;
+}
+
+export function mount3d(
+  project: ProjectDef,
+  scene: SceneDef,
+  host: HTMLElement,
+  opts: Mount3dOptions = {},
+): Mounted3d {
+  const mode = opts.mode ?? 'play';
   const game: Game3 = createGame3({
     background: 0x8fa8b8,
     fov: 50,
@@ -193,8 +214,36 @@ export function mount3d(project: ProjectDef, scene: SceneDef, host: HTMLElement)
   window.addEventListener('keydown', onKeyDown);
   window.addEventListener('keyup', onKeyUp);
 
+  // Per-actor tint: the actor's COLOR belongs to the actor, so it must
+  // reach the model. Clones share materials by design, so the first tint
+  // clones them; near-white stock albedo is what lets the color land true.
+  const applyTint = (entry: { def: EntityDef; actor: Actor3 }, applied: Map<string, number>): void => {
+    if (applied.get(entry.def.id) === entry.def.color) return;
+    applied.set(entry.def.id, entry.def.color);
+    entry.actor.view.traverse((o) => {
+      const mesh = o as Mesh;
+      if (!mesh.isMesh) return;
+      if (!mesh.userData.ownMat) {
+        mesh.material = (mesh.material as MeshStandardMaterial).clone();
+        mesh.userData.ownMat = true;
+      }
+      (mesh.material as MeshStandardMaterial).color.set(entry.def.color);
+    });
+  };
+  const tinted = new Map<string, number>();
+
   function update(dt: number): void {
     quality.update();
+    // Defs are LIVE references into the project: re-reading them each frame
+    // is what makes the inspector's edits appear as you type them.
+    for (const a of actors) {
+      if (mode === 'edit' || a !== playerRef.cur) {
+        a.actor.view.position.x = a.def.x - W / 2;
+        a.actor.view.position.z = a.def.y - H / 2;
+      }
+      a.actor.view.scale.setScalar(a.def.scale);
+      applyTint(a, tinted);
+    }
     for (let i = sparksPool.length - 1; i >= 0; i--) {
       const sp = sparksPool[i]!;
       sp.life -= dt;
@@ -216,7 +265,7 @@ export function mount3d(project: ProjectDef, scene: SceneDef, host: HTMLElement)
       }
     }
     const player = playerRef.cur;
-    if (!player) return;
+    if (mode === 'edit' || !player) return;
     const pv = player.actor.view;
     pv.position.x += held.x * PLAYER_SPEED * dt;
     pv.position.z += held.z * PLAYER_SPEED * dt;
@@ -242,8 +291,65 @@ export function mount3d(project: ProjectDef, scene: SceneDef, host: HTMLElement)
     game.camera.lookAt(new Vector3(pv.position.x, 30, pv.position.z - 120));
   }
 
+  // ------------------------------------------------- edit interactions
+  if (mode === 'edit') {
+    const ray = new Raycaster();
+    const pointer = new Vector2();
+    const groundPlane = new Plane(new Vector3(0, 1, 0), 0);
+    let dragging: { def: EntityDef } | null = null;
+    let camDist = Math.max(W, H) * 1.1 + 500;
+    const camAt = new Vector3(0, 0, 0);
+    const placeCam = (): void => {
+      game.camera.position.set(camAt.x, camDist * 0.75, camAt.z + camDist * 0.7);
+      game.camera.lookAt(new Vector3(camAt.x, 0, camAt.z));
+    };
+    placeCam();
+    const cast = (e: PointerEvent): void => {
+      const r = game.renderer.domElement.getBoundingClientRect();
+      pointer.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+      ray.setFromCamera(pointer, game.camera);
+    };
+    const onDown = (e: PointerEvent): void => {
+      cast(e);
+      // Nearest actor whose mesh the ray hits.
+      let best: { d: number; a: (typeof actors)[number] } | null = null;
+      for (const a of actors) {
+        const hit = ray.intersectObject(a.actor.view, true);
+        if (hit.length && (!best || hit[0]!.distance < best.d)) best = { d: hit[0]!.distance, a };
+      }
+      if (best) {
+        dragging = { def: best.a.def };
+        opts.onSelect?.(best.a.def.id);
+      } else {
+        opts.onSelect?.(null);
+      }
+    };
+    const onMove = (e: PointerEvent): void => {
+      if (!dragging) return;
+      cast(e);
+      const at = new Vector3();
+      if (ray.ray.intersectPlane(groundPlane, at)) {
+        dragging.def.x = Math.round(at.x + W / 2);
+        dragging.def.y = Math.round(at.z + H / 2);
+      }
+    };
+    const onUp = (): void => {
+      if (dragging) opts.onMoved?.();
+      dragging = null;
+    };
+    const onWheel = (e: WheelEvent): void => {
+      camDist = Math.max(500, Math.min(6000, camDist + e.deltaY * 1.6));
+      placeCam();
+    };
+    const dom = game.renderer.domElement;
+    dom.addEventListener('pointerdown', onDown);
+    dom.addEventListener('pointermove', onMove);
+    dom.addEventListener('pointerup', onUp);
+    dom.addEventListener('wheel', onWheel, { passive: true });
+  }
+
   // A gentle overhead start if there is no player to follow.
-  if (!playerRef.cur) {
+  if (mode !== 'edit' && !playerRef.cur) {
     game.camera.position.set(0, 900, H / 2 + 700);
     game.camera.lookAt(new Vector3(0, 0, 0));
   }
