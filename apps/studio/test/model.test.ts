@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { defaultEntity, defaultProject, parseProject } from '../src/model.js';
+import { defaultEntity, defaultProject, groundHeightAt, parseProject, shapeHeightAt } from '../src/model.js';
 
 const roundTrip = (mutate: (p: ReturnType<typeof defaultProject>) => void) => {
   const p = defaultProject();
@@ -157,5 +157,49 @@ describe('3D kinds', () => {
     const kinds = back.scenes[0]!.entities.map((e) => e.kind);
     expect(kinds).toContain('shape');
     expect(kinds).toContain('camera');
+  });
+});
+
+describe('walkable shapes', () => {
+  it('stands on a box, walks up a ramp, ignores off-shape ground', () => {
+    const box = defaultEntity('shape', 500, 500);
+    box.shapeType = 'box';
+    box.sizeX = 200;
+    box.sizeZ = 200;
+    box.sizeH = 120;
+    expect(shapeHeightAt(box, 500, 500)).toBe(120);
+    expect(shapeHeightAt(box, 700, 500)).toBe(0);
+    const ramp = defaultEntity('shape', 0, 0);
+    ramp.shapeType = 'ramp';
+    ramp.sizeZ = 200;
+    ramp.sizeH = 100;
+    // Near edge low, far edge high, middle halfway.
+    expect(shapeHeightAt(ramp, 0, -99)).toBeLessThan(10);
+    expect(shapeHeightAt(ramp, 0, 99)).toBeGreaterThan(90);
+    expect(shapeHeightAt(ramp, 0, 0)).toBeCloseTo(50, 0);
+  });
+
+  it('honors rotation — the point spins into the shape frame', () => {
+    const box = defaultEntity('shape', 0, 0);
+    box.shapeType = 'box';
+    box.sizeX = 400;
+    box.sizeZ = 50;
+    box.sizeH = 80;
+    box.rotation = Math.PI / 2;
+    // Long axis now runs along world Y; a point far along X is OFF it.
+    expect(shapeHeightAt(box, 150, 0)).toBe(0);
+    expect(shapeHeightAt(box, 0, 150)).toBe(80);
+  });
+
+  it('lets the tallest shape win under one point', () => {
+    const p = defaultProject();
+    const sc = p.scenes[0]!;
+    const plane = defaultEntity('shape', 0, 0);
+    plane.shapeType = 'plane';
+    const box = defaultEntity('shape', 0, 0);
+    box.shapeType = 'box';
+    box.sizeH = 90;
+    sc.entities.push(plane, box);
+    expect(groundHeightAt(sc, 0, 0)).toBe(90);
   });
 });
