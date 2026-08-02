@@ -64,6 +64,7 @@ const BLOB_RADIUS = 46;
 const CAM_HEIGHT = 300;
 const CAM_BACK = 420;
 const FOG_FAR = 3600;
+let fogFar = FOG_FAR;
 
 // ------------------------------------------------------------------- boot
 const game = createGame3({ background: 0x8fa08c, fov: 52, update: (dt) => update(dt) });
@@ -78,6 +79,10 @@ const { scene, camera, renderer } = game;
 // wider slice of world — refit on every rotate.
 let camY = CAM_HEIGHT;
 let camZ = CAM_BACK;
+// fitCamera runs once BEFORE the world exists (to place the camera) and
+// again on every rotate; restyle can only run once there is a zone to
+// restyle to.
+let worldReady = false;
 function fitCamera(): void {
   // Tuned against a real 1080x2340 phone shot: the first cut capped the
   // climb at 2.1x, which left the blob filling a third of the screen and
@@ -89,10 +94,14 @@ function fitCamera(): void {
   // a third higher and aims further out, so the world reads as a place
   // you are moving through rather than boards under a microscope.
   const k = Math.max(1, Math.min(3.4, 1.35 / camera.aspect));
-  camY = CAM_HEIGHT * k * 1.4;
-  camZ = CAM_BACK * (0.55 + 0.45 * k);
+  camY = CAM_HEIGHT * k * 1.75;
+  camZ = CAM_BACK * (0.6 + 0.55 * k);
   camera.position.set(camera.position.x, camY, camZ);
-  camera.lookAt(new Vector3(camera.position.x, -60, -480 - 235 * k));
+  camera.lookAt(new Vector3(camera.position.x, -60, -560 - 300 * k));
+  // The higher view earns a further horizon: portrait pushes the fog line
+  // out so the extra distance shows road, not haze.
+  fogFar = FOG_FAR * (0.85 + 0.25 * k);
+  if (worldReady) restyle();
 }
 fitCamera();
 window.addEventListener('resize', () => fitCamera());
@@ -329,7 +338,7 @@ function refreshHud(): void {
 // ------------------------------------------------------------------ zones
 function restyle(): void {
   const z = zone3(zoneN);
-  scene.fog = new Fog(z.sky, 400, FOG_FAR);
+  scene.fog = new Fog(z.sky, 400, fogFar);
   scene.background = new Color(z.sky);
   if (sky) {
     scene.remove(sky);
@@ -763,6 +772,7 @@ function update(dt: number): void {
 }
 
 // Boot into the menu state with the world visible behind it.
+worldReady = true;
 restyle();
 draw();
 {
