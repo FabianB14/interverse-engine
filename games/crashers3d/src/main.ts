@@ -583,7 +583,10 @@ window.__crashers3d = {
     safe = on;
   },
   mob: (i) => {
-    const m = mobs[i];
+    // Index the LIVING only — a downed golem is scenery on its way out,
+    // and a test driver aiming at one would be fighting a corpse.
+    const alive = mobs.filter((x) => x.hp > 0);
+    const m = alive[i];
     if (!m) return null;
     return {
       x: Math.round(m.x),

@@ -117,13 +117,36 @@ try {
   );
   await page.evaluate(() => window.__crashers3d.safe(true));
 
-  // Fight back: attack until the wave clears. The emit counters on the
-  // PLAYER prove the sfx/vfx slots fire on connection.
+  // Fight back LIKE A PLAYER: steer to line up with the nearest golem,
+  // then swing. A driver that mashes attack from the wrong lane proves
+  // nothing except that whiffing exists. The emit counters on the PLAYER
+  // prove the sfx/vfx slots fire on connection.
   const before = await page.evaluate(() => window.__crashers3d.state());
-  for (let i = 0; i < 240 && (await page.evaluate(() => window.__crashers3d.state())).mobs > 0; i++) {
-    await page.evaluate(() => window.__crashers3d.attack());
-    await sleep(90);
-  }
+  const fight = async (rounds) => {
+    for (let i = 0; i < rounds; i++) {
+      const s = await page.evaluate(() => window.__crashers3d.state());
+      if (s.mobs === 0 || s.over) return;
+      const m = await page.evaluate(() => window.__crashers3d.mob(0));
+      if (!m) return;
+      const dx = m.x - s.x;
+      const dz = m.z - s.z;
+      // Thresholds INSIDE the combo's real reach (120+60 tolerance): the
+      // wave gate can pin the player while a golem holds station 170 out,
+      // and a driver stricter than the game's own arms never swings.
+      const mx = Math.abs(dx) > 160 ? Math.sign(dx) : 0;
+      const mz = Math.abs(dz) > 70 ? Math.sign(dz) : 0;
+      await page.evaluate((v) => window.__crashers3d.move(v.x, v.z), { x: mx, z: mz });
+      if (mx === 0 && mz === 0) {
+        // Face it, then swing.
+        await page.evaluate((d) => window.__crashers3d.move(d, 0), Math.sign(dx) || 1);
+        await sleep(40);
+        await page.evaluate(() => window.__crashers3d.move(0, 0));
+        await page.evaluate(() => window.__crashers3d.attack());
+      }
+      await sleep(80);
+    }
+  };
+  await fight(300);
   const cleared = await waitFor(
     () => page.evaluate(() => window.__crashers3d.state()),
     (s) => s.wave.state === 'travelling' || s.wave.index > 0,
@@ -143,14 +166,7 @@ try {
       25_000,
     );
     await page.evaluate(() => window.__crashers3d.move(0, 0));
-    for (
-      let i = 0;
-      i < 400 && (await page.evaluate(() => window.__crashers3d.state())).mobs > 0;
-      i++
-    ) {
-      await page.evaluate(() => window.__crashers3d.attack());
-      await sleep(80);
-    }
+    await fight(500);
     final = await page.evaluate(() => window.__crashers3d.state());
     if (final.wave.state === 'done') {
       await page.evaluate(() => window.__crashers3d.move(1, 0));

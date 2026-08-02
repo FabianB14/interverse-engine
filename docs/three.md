@@ -99,3 +99,45 @@ files here instead of refusing them outright.
 The UI kit. HUD, buttons, dialogue are flat by nature — rush3d does its
 HUD in DOM, which is free layout, free crispness, zero draw calls. A 3D
 UI kit is a solution looking for a problem.
+
+## Actors with slots
+
+```ts
+import { Actor3 } from '@interverse/three';
+
+const golem = new Actor3({
+  model: 'models/golem.glb',   // the MODEL slot ('@assetId' works in Studio)
+  height: 210,
+  autoPlay: 'idle',            // the ANIMATION slot: clips from the file
+  fallback: () => myStandIn(), // shown until (or instead of) the model
+  sfx: { hit: () => audio.pop() },          // the SFX slot
+  vfx: { hit: (at) => sparks.burst(at) },   // the VFX slot
+});
+golem.play('swing');   // cross-fades; same-name calls are free
+golem.emit('hit');     // fires BOTH slots, at the actor's feet
+```
+
+Every actor gets the same four sockets, and gameplay code only ever calls
+`emit()` — what a hit looks and sounds like belongs to the slots, which is
+what lets an actor re-skin without touching the code that fights it. Emit
+counts are queryable (`emitted('hit')`) so playtests can assert the noise
+actually happened. Blob Crashers 3D is the reference use.
+
+In Studio, every actor's inspector carries these slots (model, idle/move
+clips for characters, and per-moment sound/vfx pickers), and the view
+dropdown's **3D** mode plays the level through them.
+
+## Splines
+
+```ts
+import { Spline } from '@interverse/core';
+
+const path = new Spline([a, mid, b]);          // passes through every point
+mob.pos = path.atDistance(speed * t);          // moves in world units
+```
+
+Centripetal Catmull-Rom: no overshoot between tight points, and
+`atDistance` is arc-length parameterized because a mob walking a path must
+cover ground at its speed — segment-time motion visibly lurches between
+control points. Lives in core (renderer-free): 2D patrols and 3D entrance
+paths use the same curve.

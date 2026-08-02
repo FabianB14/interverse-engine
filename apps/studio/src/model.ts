@@ -231,14 +231,29 @@ export interface EntityDef {
   skillTree: string;
   /** No-code events: triggers + action lists (see EventDef). */
   events: EventDef[];
+  /** 🧊 3D model slot: '@assetId' of an uploaded .glb, or a URL. Used by
+   *  the 3D view; 2D views ignore it. Empty = code-drawn stand-in. */
+  model3d: string;
+  /** Clip names inside the model, for characters/NPCs/mobs: what plays
+   *  standing still and what plays moving. Empty = the model's first clip. */
+  animIdle: string;
+  animMove: string;
+  /** 🔊 SFX slot: named moments -> sounds. Every actor has one. */
+  sfxSlot: { on: ActorEvent; sound: TapSound }[];
+  /** ✨ VFX slot: named moments -> particle presets. Every actor has one. */
+  vfxSlot: { on: ActorEvent; preset: string }[];
 }
+
+/** The moments an actor's sfx/vfx slots can hook. */
+export type ActorEvent = 'spawn' | 'tap' | 'hit' | 'down';
+export const ACTOR_EVENTS: readonly ActorEvent[] = ['spawn', 'tap', 'hit', 'down'];
 
 /** How the scene is VIEWED (a device rotated to landscape just letterboxes —
  *  that's presentation, not a game style):
  *  - top:   flat top-down world
  *  - depth: 2.5D — higher on screen = further away (auto scale + z-sort);
  *           these worlds default WIDE, so the journey runs long-ways. */
-export type SceneView = 'top' | 'depth';
+export type SceneView = 'top' | 'depth' | '3d';
 
 export interface SceneDef {
   id: string;
@@ -529,6 +544,11 @@ export function defaultEntity(kind: EntityKind, x: number, y: number): EntityDef
     abilities: [],
     skillTree: '',
     events: [],
+    model3d: '',
+    animIdle: '',
+    animMove: '',
+    sfxSlot: [],
+    vfxSlot: [],
   };
   switch (kind) {
     case 'npc':
@@ -686,7 +706,7 @@ export function parseProject(json: string): ProjectDef {
       s.view = 'top';
       s.gravity = true;
     }
-    s.view = s.view === 'depth' ? 'depth' : 'top';
+    s.view = s.view === 'depth' || s.view === '3d' ? s.view : 'top';
     s.gravity = !!s.gravity;
     s.worldW = Math.max(720, Math.min(2880, Number(s.worldW) || 720));
     s.worldH = Math.max(720, Math.min(2560, Number(s.worldH) || 1280));
@@ -729,6 +749,19 @@ export function parseProject(json: string): ProjectDef {
       e.abilities = (Array.isArray(e.abilities) ? e.abilities : []).filter((a): a is string => typeof a === 'string' && !!a);
       e.skillTree = typeof e.skillTree === 'string' ? e.skillTree : '';
       e.events = normalizeEvents(e.events, 'entity');
+      // 🧊 The 3D + slot fields: absent in every project saved before they
+      // existed, so they repair to their defaults rather than to undefined.
+      e.model3d = typeof e.model3d === 'string' ? e.model3d : '';
+      e.animIdle = typeof e.animIdle === 'string' ? e.animIdle : '';
+      e.animMove = typeof e.animMove === 'string' ? e.animMove : '';
+      const isEvent = (v: unknown): v is ActorEvent =>
+        typeof v === 'string' && (ACTOR_EVENTS as readonly string[]).includes(v);
+      e.sfxSlot = (Array.isArray(e.sfxSlot) ? e.sfxSlot : []).filter(
+        (x) => !!x && typeof x === 'object' && isEvent(x.on) && typeof x.sound === 'string',
+      );
+      e.vfxSlot = (Array.isArray(e.vfxSlot) ? e.vfxSlot : []).filter(
+        (x) => !!x && typeof x === 'object' && isEvent(x.on) && typeof x.preset === 'string',
+      );
     }
     // ⚡ Level events use the same blocks, minus the actor-only ones. Kept
     // absent rather than empty so an untouched level adds nothing to the JSON.

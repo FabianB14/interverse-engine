@@ -15,9 +15,13 @@
     "@interverse/net": "workspace:*",
     "@interverse/platform": "workspace:*",
     "@interverse/ui": "workspace:*",
-    "pixi.js": "^8.6.6"
+    "pixi.js": "^8.6.6",
+    "@interverse/three": "workspace:*",
+    "three": "^0.180.0",
+    "@interverse/core": "workspace:*"
   },
   "devDependencies": {
-    "vite": "^6.0.7"
+    "vite": "^6.0.7",
+    "@types/three": "^0.180.0"
   }
 }

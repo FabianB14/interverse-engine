@@ -82,9 +82,11 @@ async function main(): Promise<void> {
   };
   sceneSelect.onchange = () => editor.switchScene(sceneSelect.value);
   viewSelect.onchange = () => {
-    const v = viewSelect.value as 'top' | 'depth';
+    const v = viewSelect.value as 'top' | 'depth' | '3d';
     editor.scene.view = v;
-    // 2.5D boards are one landscape screen tall; top-down boards a phone tall.
+    // 2.5D boards are one landscape screen tall; top-down boards a phone
+    // tall. 3D edits like top-down (the layout IS top-down data — x across,
+    // y into the world) and only PLAY changes renderer.
     if (v === 'depth' && editor.scene.worldH !== 720) {
       editor.setWorldSize(editor.scene.worldW, 720);
     } else if (v === 'top' && editor.scene.worldH === 720) {
@@ -1676,7 +1678,7 @@ async function main(): Promise<void> {
       editor.scene.gravity = g;
       editor.touch();
     },
-    setView: (v: 'top' | 'depth') => {
+    setView: (v: 'top' | 'depth' | '3d') => {
       editor.scene.view = v;
       editor.touch();
       if (!editor.playing) editor.openEditScene();
