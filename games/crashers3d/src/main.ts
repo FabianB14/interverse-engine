@@ -386,11 +386,17 @@ el('play').addEventListener('click', () => startRun());
 
 // ---------------------------------------------------------------- combat
 let attackCalls = 0;
+/** The last swing, dissected — so a playtest can ask WHY a whiff whiffed
+ *  instead of staking out the arena with a stopwatch. */
+let lastSwing: Record<string, number | string> = {};
 function attack(): void {
   if (over) return;
   attackCalls++;
   const step = combo.swing();
-  if (!step) return;
+  if (!step) {
+    lastSwing = { result: 'busy' };
+    return;
+  }
   player.emit('swing');
   // Squash-and-stretch on the swing — the fallback body has no clips, so
   // the juice is transform-side. If the player ever gets a modeled body
@@ -399,6 +405,10 @@ function attack(): void {
   const facing = player.view.rotation.y;
   const dir = Math.abs(facing) < Math.PI / 2 ? 1 : -1;
   let connected = false;
+  const near = mobs.find((m) => !m.path && m.hp > 0);
+  lastSwing = near
+    ? { result: 'whiff', dx: Math.round(near.x - px), dz: Math.round(near.z - pz), dir, reach: step.reach }
+    : { result: 'no-target' };
   for (const m of mobs) {
     if (m.path) continue; // still arriving — offstage is out of reach
     const dx = m.x - px;
@@ -406,8 +416,14 @@ function attack(): void {
     if (Math.abs(dz) > 95) continue;
     if (dx * dir < -30 || Math.abs(dx) > step.reach + 60) continue;
     connected = true;
-    m.hp -= step.damage;
-    m.knock = knockbackFrom(dir, step.launch ? 520 : 300, step.launch);
+    // Tenth-rounded: 1 + 1.1 + 1.8 in floats leaves 0.0999... of a golem
+    // standing, and a fourth swing for a tenth of a hit point feels broken.
+    m.hp = Math.round((m.hp - step.damage) * 10) / 10;
+    // Power is a SCALAR — knockbackFrom multiplies by 260 internally. The
+    // first cut passed 300 as if it were velocity and golems left the
+    // county: one hit displaced a mob eleven thousand units, found when
+    // the whiff dissector showed dx=9891 the swing after a connect.
+    m.knock = knockbackFrom(dir, step.launch ? 2 : 1.15, step.launch);
     m.actor.emit('hit');
     if (m.hp <= 0) {
       m.actor.emit('down');
@@ -417,7 +433,10 @@ function attack(): void {
       hitStop = Math.max(hitStop, hitStopFor(step.damage));
     }
   }
-  if (connected) player.emit('hit');
+  if (connected) {
+    lastSwing = { ...lastSwing, result: 'hit' };
+    player.emit('hit');
+  }
 }
 
 function hurtPlayer(): void {
@@ -574,6 +593,7 @@ window.__crashers3d = {
     comboStep: combo.step,
     attacks: attackCalls,
     swings: player.emitted('swing'),
+    lastSwing: JSON.stringify(lastSwing),
   }),
   move: (x, z) => {
     held.x = x;
