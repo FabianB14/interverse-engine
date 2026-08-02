@@ -40,7 +40,9 @@
     "verify:rush": "node scripts/verify-rush.mjs",
     "dev:spike3d": "pnpm --filter @interverse/spike3d dev",
     "verify:spike3d": "node scripts/verify-spike3d.mjs",
-    "budget": "node scripts/check-budget.mjs"
+    "budget": "node scripts/check-budget.mjs",
+    "dev:rush3d": "pnpm --filter @interverse/rush3d dev",
+    "verify:rush3d": "node scripts/verify-rush3d.mjs"
   },
   "devDependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.220",
