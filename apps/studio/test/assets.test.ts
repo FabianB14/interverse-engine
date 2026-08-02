@@ -121,8 +121,9 @@ describe('what we accept', () => {
     expect(importRejectReason('x', 'image/jpeg')).toBeNull();
   });
 
-  it('explains a 3D model instead of silently failing', () => {
+  it('routes a 3D model to the 3D engine instead of dead-ending it', () => {
     expect(importRejectReason('hero.glb', '')).toMatch(/2D/);
+    expect(importRejectReason('hero.glb', '')).toMatch(/loadModel/);
     expect(importRejectReason('hero.fbx', '')).toMatch(/spritesheet/);
   });
 

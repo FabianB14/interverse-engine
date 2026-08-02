@@ -10,6 +10,8 @@ export { FrameStats, createGame3 } from './createGame3.js';
 export type { Game3, Game3Config } from './createGame3.js';
 export { lightRig } from './lights.js';
 export type { LightRig, LightRigOptions } from './lights.js';
+export { clearModelCache, fitTransform, loadModel } from './models.js';
+export type { LoadModelOptions } from './models.js';
 export { autoQuality } from './quality.js';
 export type { AutoQuality, AutoQualityOptions } from './quality.js';
 export { skyDome } from './sky.js';

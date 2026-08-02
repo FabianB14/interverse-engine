@@ -198,12 +198,15 @@ try {
   const bankOk = banked.coins > 100 && banked.runs === 1 && banked.best > 0;
   const persistOk = reloaded.coins === banked.coins && reloaded.best === banked.best;
   const renderOk = stats.drawCalls > 4 && stats.drawCalls < 80 && stats.triangles > 3_000;
+  // The imported .glb loaded, parsed, and joined the scene — the whole
+  // model pipeline, gated.
+  const modelOk = stats.modelLoaded === true;
 
   const ok =
     screen0 === 'menu' && rollOk && laneOk && moveOk && bendOk && cornerOk && clearOk &&
-    missOk && bankOk && persistOk && renderOk && errors.length === 0;
+    missOk && bankOk && persistOk && renderOk && modelOk && errors.length === 0;
   report = {
-    ok, rollOk, laneOk, moveOk, bendOk, cornerOk, clearOk, missOk, bankOk, persistOk, renderOk,
+    ok, rollOk, laneOk, moveOk, bendOk, cornerOk, clearOk, missOk, bankOk, persistOk, renderOk, modelOk,
     screen0, run0, roll0, roll1, laneRight, laneClamped,
     inSpan, cornerSecs, zoneBefore, turnDir, peakYaw, turned, ended, banked, reloaded, stats,
     errors,

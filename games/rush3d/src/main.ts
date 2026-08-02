@@ -35,7 +35,7 @@ import {
 } from '@interverse/core';
 import type { ClearSpan, CornerFrame, Hazard, Pickup } from '@interverse/core';
 import {
-  autoQuality, createGame3, lightRig, paintFacets, rollingBlob3, scatter,
+  autoQuality, createGame3, lightRig, loadModel, paintFacets, rollingBlob3, scatter,
   seededRand, skyDome,
 } from '@interverse/three';
 import { BoxGeometry } from 'three';
@@ -176,6 +176,28 @@ const junction = new Mesh(
 );
 junction.receiveShadow = true;
 scene.add(junction);
+
+/**
+ * The corner waymarkers — a pair of carved totems flanking every junction,
+ * and the proof of the model-import pipeline: totem.glb is a real glTF
+ * binary shipped in public/models/, fetched and parsed at runtime, scaled
+ * and grounded by loadModel. One load, two clones; failure to load is a
+ * missing decoration, never a broken game.
+ */
+let totems: Group[] = [];
+let modelLoaded = false;
+void Promise.all([
+  loadModel('models/totem.glb', { height: 260 }),
+  loadModel('models/totem.glb', { height: 260 }),
+])
+  .then((pair) => {
+    totems = pair;
+    for (const t of totems) scene.add(t);
+    modelLoaded = true;
+  })
+  .catch(() => {
+    // The game runs undecorated. A model is never load-bearing.
+  });
 
 // ------------------------------------------------------------------ state
 const rider = new LaneRider(1);
@@ -533,14 +555,25 @@ function draw(): void {
   slabsA.instanceMatrix.needsUpdate = true;
   slabsB.instanceMatrix.needsUpdate = true;
 
-  // Junction pad at the corner, while one is in range.
+  // Junction pad at the corner, while one is in range — flanked by the
+  // imported totems, which stand just wide of the road on either side so
+  // the corner reads as a PLACE from as far away as it can be seen.
   if (corner && turnZ > -ROAD_HALF) {
     junction.visible = true;
     const p = pathXZ(0, turnZ);
     junction.position.set(p.x, -10, p.z);
-    junction.rotation.y = pathYaw(0, Math.max(0, turnZ - 30));
+    const jyaw = pathYaw(0, Math.max(0, turnZ - 30));
+    junction.rotation.y = jyaw;
+    for (const [i, t] of totems.entries()) {
+      const side = i === 0 ? -1 : 1;
+      const tp = pathXZ(side * (ROAD_HALF + 90), turnZ);
+      t.visible = true;
+      t.position.set(tp.x, 0, tp.z);
+      t.rotation.y = jyaw;
+    }
   } else {
     junction.visible = false;
+    for (const t of totems) t.visible = false;
   }
 
   // Trees: wrap forward over the draw distance, place through the path map
@@ -634,7 +667,10 @@ declare global {
       corner: () => number;
       safe: (on: boolean) => void;
       track: () => { count: number; inSpan: number; cornerSecs: number };
-      stats: () => { fps: number; frameMs: number; drawCalls: number; triangles: number; tier: number };
+      stats: () => {
+        fps: number; frameMs: number; drawCalls: number; triangles: number; tier: number;
+        modelLoaded: boolean;
+      };
       hat: () => { children: number; wheel: number; riderPitch: number };
       profile: () => { best: number; coins: number; runs: number };
     };
@@ -704,6 +740,7 @@ window.__rush3d = {
     drawCalls: renderer.info.render.calls,
     triangles: renderer.info.render.triangles,
     tier: quality.tier,
+    modelLoaded,
   }),
   hat: () => ({
     children: hatOn?.children.length ?? 0,

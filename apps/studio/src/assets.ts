@@ -141,7 +141,9 @@ export function importRejectReason(fileName: string, mime: string): string | nul
   if (ext === 'gif') return 'Animated GIFs are not supported yet — export the frames as a PNG spritesheet instead.';
   if (ext === 'svg') return 'SVG is not supported yet — export it as a PNG at the size you want.';
   if (['glb', 'gltf', 'fbx', 'obj', 'blend'].includes(ext)) {
-    return 'This is a 3D model, and the engine is 2D. Render your character to a PNG spritesheet and import that.';
+    // Not a dead end any more — the ENGINE renders 3D now, Studio's canvas
+    // is what doesn't. Say where the file actually goes.
+    return 'Studio projects are 2D. The engine can use this — put the .glb in your game\'s public/models/ and load it with loadModel() from @interverse/three (see docs/three.md). For Studio, render it to a PNG spritesheet and import that.';
   }
   return 'Use a PNG, JPG or WebP image.';
 }

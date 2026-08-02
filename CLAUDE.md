@@ -14,14 +14,22 @@ playable. Verify with the headless playtests before calling work done.
 ## Repo map
 
 ```
-packages/engine       @interverse/engine — core (scenes, entities, art, world, dialogue, audio, save, input)
+packages/core         @interverse/core — renderer-free game logic (runner, brawler, dialogue, save, net authority, palettes); shared by BOTH renderers
+packages/engine       @interverse/engine — 2D renderer (Pixi): scenes, entities, art, world, input; re-exports all of core
+packages/three        @interverse/three — 3D renderer (three.js): createGame3, light rig, low-poly kit, loadModel (.glb), auto quality; see docs/three.md
 packages/ui-kit       @interverse/ui — UIButton, drawPanel, DialogueBox
 packages/net-client   @interverse/net — host/join room-code sessions
 relay/                WebSocket relay server (deployed once on Render; serves ALL games)
 games/hello           Blob Tap (arcade demo)      — dev port 5173
 games/room            Cozy Room (RPG/cozy demo)   — dev port 5174
 games/taps            Tap Party (party demo)      — dev port 5175
+games/blobvale        Blobvale (RPG demo)         — dev port 5176
+games/farm            Bloomstead (cozy farming)   — dev port 5177
+games/hushfall        Hushfall (hide & seek)      — dev port 5178
 games/crashers        Blob Crashers (15-stage brawler)  — dev port 5181
+games/rush            Blob Rush (2D endless runner)     — dev port 5182
+games/spike3d         3D renderer stress scene (not on the hub) — dev port 5183
+games/rush3d          Blob Rush 3D (shares rush's save) — dev port 5184
 games/_template       template consumed by /new-game — dev port 5180
 apps/studio           Interverse Studio (visual game maker) — dev port 5179;
                       projects are JSON (model.ts) run by runtime.ts; Tauri
@@ -78,7 +86,7 @@ net, audio-save-input) — read them before working in an area. Essentials:
 
 - TypeScript strict everywhere; `pnpm` workspaces; ESLint flat + Prettier.
 - Games live in `games/<name>` as `@interverse/<name>`, each with its own
-  vite port (next free: 5182+). Template port 5180 is reserved.
+  vite port (next free: 5185+). Template port 5180 is reserved.
 - Every game exposes a `window.__<name>` debug hook (see existing games)
   so headless playtests can drive it; add debug query params (`?round=`,
   `?host=1`, `?join=CODE`) rather than clicking through UIs in tests.
