@@ -124,6 +124,25 @@ importers:
         specifier: ^6.0.7
         version: 6.4.3(@types/node@22.20.1)
 
+  games/crashers3d:
+    dependencies:
+      '@interverse/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@interverse/three':
+        specifier: workspace:*
+        version: link:../../packages/three
+      three:
+        specifier: ^0.180.0
+        version: 0.180.0
+    devDependencies:
+      '@types/three':
+        specifier: ^0.180.0
+        version: 0.180.0
+      vite:
+        specifier: ^6.0.7
+        version: 6.4.3(@types/node@22.20.1)
+
   games/farm:
     dependencies:
       '@interverse/engine':
