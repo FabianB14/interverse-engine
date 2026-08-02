@@ -84,11 +84,15 @@ function fitCamera(): void {
   // the outer lanes off the sides. A phone that narrow wants ~3x, and the
   // aim point moves OUT (not down) as the camera rises, or the extra
   // height just steepens the stare at the blob.
+  // "Too close" on a real phone even when everything technically fit —
+  // the road filled the frame and hazards had no runway. Portrait now sits
+  // a third higher and aims further out, so the world reads as a place
+  // you are moving through rather than boards under a microscope.
   const k = Math.max(1, Math.min(3.4, 1.35 / camera.aspect));
-  camY = CAM_HEIGHT * k;
-  camZ = CAM_BACK * (0.6 + 0.4 * k);
+  camY = CAM_HEIGHT * k * 1.4;
+  camZ = CAM_BACK * (0.55 + 0.45 * k);
   camera.position.set(camera.position.x, camY, camZ);
-  camera.lookAt(new Vector3(camera.position.x, -60, -420 - 200 * k));
+  camera.lookAt(new Vector3(camera.position.x, -60, -480 - 235 * k));
 }
 fitCamera();
 window.addEventListener('resize', () => fitCamera());
