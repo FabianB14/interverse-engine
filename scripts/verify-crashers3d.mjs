@@ -130,19 +130,19 @@ try {
       if (!m) return;
       const dx = m.x - s.x;
       const dz = m.z - s.z;
-      // Thresholds INSIDE the combo's real reach (120+60 tolerance): the
-      // wave gate can pin the player while a golem holds station 170 out,
-      // and a driver stricter than the game's own arms never swings.
-      const mx = Math.abs(dx) > 160 ? Math.sign(dx) : 0;
-      const mz = Math.abs(dz) > 70 ? Math.sign(dz) : 0;
+      // Steer toward the target AND swing every round. The first version
+      // only attacked once "aligned", and the probe showed why that hangs:
+      // the wave gate pins the player at the line while a golem holds
+      // station just past the driver's threshold — a gap that can never
+      // close. The game's own hit test is the judge of range; whiffs are
+      // free, so the driver stopped having an opinion.
+      const mx = Math.abs(dx) > 120 ? Math.sign(dx) : 0;
+      const mz = Math.abs(dz) > 50 ? Math.sign(dz) : 0;
+      // Face the target on the swing frame — facing is part of the test.
+      await page.evaluate((v) => window.__crashers3d.move(v.x, v.z), { x: Math.sign(dx) || 1, z: mz });
+      await sleep(40);
       await page.evaluate((v) => window.__crashers3d.move(v.x, v.z), { x: mx, z: mz });
-      if (mx === 0 && mz === 0) {
-        // Face it, then swing.
-        await page.evaluate((d) => window.__crashers3d.move(d, 0), Math.sign(dx) || 1);
-        await sleep(40);
-        await page.evaluate(() => window.__crashers3d.move(0, 0));
-        await page.evaluate(() => window.__crashers3d.attack());
-      }
+      await page.evaluate(() => window.__crashers3d.attack());
       await sleep(80);
     }
   };

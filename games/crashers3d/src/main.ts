@@ -385,8 +385,10 @@ const held = { x: 0, z: 0 };
 el('play').addEventListener('click', () => startRun());
 
 // ---------------------------------------------------------------- combat
+let attackCalls = 0;
 function attack(): void {
   if (over) return;
+  attackCalls++;
   const step = combo.swing();
   if (!step) return;
   player.emit('swing');
@@ -570,6 +572,8 @@ window.__crashers3d = {
     mobs: mobs.filter((m) => m.hp > 0).length,
     entering: mobs.filter((m) => m.path !== null).length,
     comboStep: combo.step,
+    attacks: attackCalls,
+    swings: player.emitted('swing'),
   }),
   move: (x, z) => {
     held.x = x;
