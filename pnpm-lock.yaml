@@ -47,6 +47,9 @@ importers:
 
   apps/studio:
     dependencies:
+      '@interverse/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@interverse/engine':
         specifier: workspace:*
         version: link:../../packages/engine
@@ -56,13 +59,22 @@ importers:
       '@interverse/platform':
         specifier: workspace:*
         version: link:../../packages/platform
+      '@interverse/three':
+        specifier: workspace:*
+        version: link:../../packages/three
       '@interverse/ui':
         specifier: workspace:*
         version: link:../../packages/ui-kit
       pixi.js:
         specifier: ^8.6.6
         version: 8.19.0
+      three:
+        specifier: ^0.180.0
+        version: 0.180.0
     devDependencies:
+      '@types/three':
+        specifier: ^0.180.0
+        version: 0.180.0
       vite:
         specifier: ^6.0.7
         version: 6.4.3(@types/node@22.20.1)
@@ -120,6 +132,25 @@ importers:
         specifier: ^8.6.6
         version: 8.19.0
     devDependencies:
+      vite:
+        specifier: ^6.0.7
+        version: 6.4.3(@types/node@22.20.1)
+
+  games/crashers3d:
+    dependencies:
+      '@interverse/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@interverse/three':
+        specifier: workspace:*
+        version: link:../../packages/three
+      three:
+        specifier: ^0.180.0
+        version: 0.180.0
+    devDependencies:
+      '@types/three':
+        specifier: ^0.180.0
+        version: 0.180.0
       vite:
         specifier: ^6.0.7
         version: 6.4.3(@types/node@22.20.1)

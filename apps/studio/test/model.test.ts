@@ -86,3 +86,52 @@ describe('parseProject', () => {
     expect(tiles[0]!.length).toBe(18); // 720 / 40
   });
 });
+
+describe('3D mode + actor slots', () => {
+  it('keeps the 3d view through a save/load round trip', () => {
+    const proj = defaultProject();
+    proj.scenes[0]!.view = '3d';
+    const back = parseProject(JSON.stringify(proj))!;
+    expect(back.scenes[0]!.view).toBe('3d');
+  });
+
+  it('gives every new actor empty model/anim/sfx/vfx slots', () => {
+    const e = defaultEntity('mob', 0, 0);
+    expect(e.model3d).toBe('');
+    expect(e.animIdle).toBe('');
+    expect(e.animMove).toBe('');
+    expect(e.sfxSlot).toEqual([]);
+    expect(e.vfxSlot).toEqual([]);
+  });
+
+  it('repairs pre-slot projects to defaults instead of undefined', () => {
+    const proj = defaultProject();
+    const raw = JSON.parse(JSON.stringify(proj)) as Record<string, unknown>;
+    for (const sc of (raw.scenes as { entities: Record<string, unknown>[] }[])) {
+      for (const e of sc.entities) {
+        delete e.model3d;
+        delete e.animIdle;
+        delete e.animMove;
+        delete e.sfxSlot;
+        delete e.vfxSlot;
+      }
+    }
+    const back = parseProject(JSON.stringify(raw))!;
+    const e = back.scenes[0]!.entities[0]!;
+    expect(e.model3d).toBe('');
+    expect(e.sfxSlot).toEqual([]);
+    expect(e.vfxSlot).toEqual([]);
+  });
+
+  it('drops slot rows with unknown events instead of keeping garbage', () => {
+    const proj = defaultProject();
+    const e = proj.scenes[0]!.entities[0]!;
+    (e as { sfxSlot: unknown }).sfxSlot = [
+      { on: 'hit', sound: 'pop' },
+      { on: 'explode', sound: 'pop' },
+      'junk',
+    ];
+    const back = parseProject(JSON.stringify(proj))!;
+    expect(back.scenes[0]!.entities[0]!.sfxSlot).toEqual([{ on: 'hit', sound: 'pop' }]);
+  });
+});

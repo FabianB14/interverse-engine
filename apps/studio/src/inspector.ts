@@ -5,7 +5,7 @@ import { cmdMenuLabel, cmdSpec, cmdsFor, triggerLabel, triggersFor } from './cmd
 import { EFFECT_LABEL, abilityList, createAbility, grantTo } from './abilities.js';
 import { ATTACK_SPECS, attackSpec } from './attacks.js';
 import type { Scope } from './cmds.js';
-import { danglingDialogueLinks, dialogueFromLines } from './model.js';
+import { ACTOR_EVENTS, danglingDialogueLinks, dialogueFromLines } from './model.js';
 import type { EntityDef, EventAction, EventDef } from './model.js';
 
 const hex = (n: number): string => `#${n.toString(16).padStart(6, '0')}`;
@@ -356,6 +356,79 @@ export function wireInspector(editor: StudioEditor, hooks: InspectorHooks): void
       editor.touch();
     };
     field('Tap sound (sfx)', snd);
+
+    // 🧊 The 3D slots. On EVERY actor, because the contract is the point:
+    // a model if you have one, animations if it is a character, and sfx/vfx
+    // hooks either way. Used by the 3D view; ignored by 2D ones.
+    {
+      const model = document.createElement('input');
+      model.type = 'text';
+      model.placeholder = 'models/thing.glb or @assetId';
+      model.value = def.model3d;
+      model.onchange = () => {
+        def.model3d = model.value.trim();
+        editor.touch();
+      };
+      field('🧊 Model (.glb)', model);
+
+      const isCharacter = def.kind === 'blob' || def.kind === 'npc' || def.kind === 'mob' || def.kind === 'boss';
+      if (isCharacter) {
+        const idle = document.createElement('input');
+        idle.type = 'text';
+        idle.placeholder = 'clip name, e.g. idle';
+        idle.value = def.animIdle;
+        idle.onchange = () => {
+          def.animIdle = idle.value.trim();
+          editor.touch();
+        };
+        field('🎞 Anim: standing', idle);
+        const move = document.createElement('input');
+        move.type = 'text';
+        move.placeholder = 'clip name, e.g. walk';
+        move.value = def.animMove;
+        move.onchange = () => {
+          def.animMove = move.value.trim();
+          editor.touch();
+        };
+        field('🎞 Anim: moving', move);
+      }
+
+      // One compact row per hookable moment: [sound ▾] [vfx ▾].
+      const SOUNDS = ['', 'pop', 'blip', 'chime', 'buzz'] as const;
+      const PRESETS = ['', 'confetti', 'poof', 'sparkle', 'ember', 'heal', 'hit', 'magic'];
+      for (const on of ACTOR_EVENTS) {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;gap:6px;align-items:center';
+        const sSel = document.createElement('select');
+        for (const o of SOUNDS) {
+          const opt = document.createElement('option');
+          opt.value = o;
+          opt.textContent = o === '' ? '🔊 (none)' : `🔊 ${o}`;
+          if ((def.sfxSlot.find((x) => x.on === on)?.sound ?? '') === o) opt.selected = true;
+          sSel.appendChild(opt);
+        }
+        sSel.onchange = () => {
+          def.sfxSlot = def.sfxSlot.filter((x) => x.on !== on);
+          if (sSel.value) def.sfxSlot.push({ on, sound: sSel.value as EntityDef['tapSound'] });
+          editor.touch();
+        };
+        const vSel = document.createElement('select');
+        for (const o of PRESETS) {
+          const opt = document.createElement('option');
+          opt.value = o;
+          opt.textContent = o === '' ? '✨ (none)' : `✨ ${o}`;
+          if ((def.vfxSlot.find((x) => x.on === on)?.preset ?? '') === o) opt.selected = true;
+          vSel.appendChild(opt);
+        }
+        vSel.onchange = () => {
+          def.vfxSlot = def.vfxSlot.filter((x) => x.on !== on);
+          if (vSel.value) def.vfxSlot.push({ on, preset: vSel.value });
+          editor.touch();
+        };
+        row.append(sSel, vSel);
+        field(`on ${on}`, row);
+      }
+    }
 
     if (def.kind === 'npc') {
       const hint = document.createElement('div');

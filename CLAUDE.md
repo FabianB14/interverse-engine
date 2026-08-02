@@ -30,6 +30,7 @@ games/crashers        Blob Crashers (15-stage brawler)  — dev port 5181
 games/rush            Blob Rush (2D endless runner)     — dev port 5182
 games/spike3d         3D renderer stress scene (not on the hub) — dev port 5183
 games/rush3d          Blob Rush 3D (shares rush's save) — dev port 5184
+games/crashers3d      Blob Crashers 3D (animated model golems) — dev port 5185
 games/_template       template consumed by /new-game — dev port 5180
 apps/studio           Interverse Studio (visual game maker) — dev port 5179;
                       projects are JSON (model.ts) run by runtime.ts; Tauri
@@ -86,7 +87,7 @@ net, audio-save-input) — read them before working in an area. Essentials:
 
 - TypeScript strict everywhere; `pnpm` workspaces; ESLint flat + Prettier.
 - Games live in `games/<name>` as `@interverse/<name>`, each with its own
-  vite port (next free: 5185+). Template port 5180 is reserved.
+  vite port (next free: 5186+). Template port 5180 is reserved.
 - Every game exposes a `window.__<name>` debug hook (see existing games)
   so headless playtests can drive it; add debug query params (`?round=`,
   `?host=1`, `?join=CODE`) rather than clicking through UIs in tests.

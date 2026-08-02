@@ -16,6 +16,8 @@ import type { EntityDef, EntityKind, ProjectDef, SceneDef } from './model.js';
 import { defaultEntity, defaultProject, defaultScene, freshId, parseProject } from './model.js';
 import { DEPTH_MIN_Y, PlayScene, buildView, depthScale } from './runtime.js';
 import { StudioNet, resolveRelayUrl } from './net.js';
+import { mount3d } from './runtime3d.js';
+import type { Mounted3d } from './runtime3d.js';
 import { generateRows } from './gen.js';
 import type { GeneratorKind } from './gen.js';
 import { slugify } from './publish.js';
@@ -537,10 +539,25 @@ export class StudioEditor {
     this.beginPlay();
   }
 
+  /** The live 3D preview, when the scene's view is '3d'. */
+  play3d: Mounted3d | null = null;
+
   private beginPlay(): void {
     this.playing = true;
     this.selectedIds = [];
-    this.openPlayScene(this.scene);
+    if (this.scene.view === '3d') {
+      // 3D play mounts the three.js preview OVER the Pixi canvas; the Pixi
+      // scene underneath stays on the edit view and simply is not seen.
+      // Scripts/events run only in 2D for now — the preview is walking,
+      // models, animations and the sfx/vfx slots, and says so in the UI.
+      const host = document.createElement('div');
+      host.id = 'play3d-host';
+      host.style.cssText = 'position:fixed;inset:0;z-index:4;background:#14161c';
+      document.body.appendChild(host);
+      this.play3d = mount3d(this.project, this.scene, host);
+    } else {
+      this.openPlayScene(this.scene);
+    }
     this.onSelection();
     this.onPlayState();
   }
@@ -567,6 +584,11 @@ export class StudioEditor {
   stop(): void {
     this.net?.leave();
     this.net = null;
+    if (this.play3d) {
+      this.play3d.dispose();
+      this.play3d = null;
+      document.getElementById('play3d-host')?.remove();
+    }
     this.openEditScene();
   }
 
