@@ -39,6 +39,13 @@ export const PALETTE: { title: string; items: PaletteItem[] }[] = [
     ],
   },
   {
+    title: '3D',
+    items: [
+      { kind: 'shape', label: 'Shape (plane/box/ramp)', emoji: '🧊' },
+      { kind: 'camera', label: 'Camera', emoji: '🎥' },
+    ],
+  },
+  {
     title: 'UI',
     items: [
       { kind: 'text', label: 'Text label', emoji: '🔤' },

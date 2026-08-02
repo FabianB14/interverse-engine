@@ -224,6 +224,29 @@ export function buildView(def: EntityDef, assets: Record<string, string>): Entit
       body.addChild(g);
       break;
     }
+    case 'shape': {
+      // In 2D the primitive is its footprint — the 3D editor is where it
+      // has a body. Drawn honest: exactly sizeX by sizeZ.
+      g.rect(-def.sizeX / 2, -def.sizeZ / 2, def.sizeX, def.sizeZ).fill({
+        color: def.color,
+        alpha: 0.5,
+      });
+      g.rect(-def.sizeX / 2, -def.sizeZ / 2, def.sizeX, def.sizeZ).stroke({
+        color: def.color,
+        width: 3,
+      });
+      body.addChild(g);
+      break;
+    }
+    case 'camera': {
+      // A viewfinder glyph. Play mode films from here in 3D scenes.
+      g.roundRect(-26, -18, 52, 36, 6).fill(0x2a2740);
+      g.circle(6, 0, 11).fill(def.color);
+      g.circle(6, 0, 11).stroke({ color: 0xffffff, width: 2 });
+      g.rect(-26, -26, 20, 10).fill(0x2a2740);
+      body.addChild(g);
+      break;
+    }
     case 'text': {
       const t = new Text({
         text: tr(def.text) || ' ',

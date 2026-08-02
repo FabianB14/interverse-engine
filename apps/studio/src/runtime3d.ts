@@ -139,6 +139,42 @@ export function mount3d(
     const url = modelUrl(project, def.model3d);
     const standIn = (): Group => {
       const g = new Group();
+      if (def.kind === 'shape') {
+        // The primitive IS its numbers: a plane is flat, a ramp is a box
+        // tipped so its top runs from ground to sizeH along Z.
+        const h = def.shapeType === 'plane' ? 6 : Math.max(10, def.sizeH);
+        const geom = new BoxGeometry(def.sizeX, h, def.sizeZ);
+        const c = new Color(def.color);
+        const mesh = new Mesh(
+          paintFacets(geom, (_x, _y, _z, set) => set(c)),
+          lowPolyMaterial(),
+        );
+        if (def.shapeType === 'ramp') {
+          mesh.rotation.x = -Math.atan2(def.sizeH, def.sizeZ);
+          mesh.position.y = h / 2;
+        } else {
+          mesh.position.y = h / 2;
+        }
+        mesh.castShadow = def.shapeType !== 'plane';
+        mesh.receiveShadow = true;
+        g.add(mesh);
+        return g;
+      }
+      if (def.kind === 'camera') {
+        // Editor-only body; play mode hides it and films from it instead.
+        const cBody = new Mesh(
+          paintFacets(new BoxGeometry(60, 40, 40), (_x, _y, _z, set) => set(new Color(0x2a2740))),
+          lowPolyMaterial(),
+        );
+        cBody.position.y = 40;
+        const lens = new Mesh(
+          paintFacets(new BoxGeometry(24, 24, 20), (_x, _y, _z, set) => set(new Color(def.color))),
+          lowPolyMaterial(),
+        );
+        lens.position.set(0, 40, 28);
+        g.add(cBody, lens);
+        return g;
+      }
       const r = Math.max(14, def.radius) * def.scale;
       const geom = new SphereGeometry(r, 10, 7);
       jitterVertices(geom, r * 0.05, def.seed);
@@ -288,7 +324,23 @@ export function mount3d(
       }
     }
     const player = playerRef.cur;
+    // A placed camera wins: play films from it, aimed at the player (or
+    // scene centre without one). Its body only shows in the editor.
+    const camActor = actors.find((a) => a.def.kind === 'camera');
+    if (camActor) camActor.actor.view.visible = mode === 'edit';
     if (mode === 'edit' || !player) return;
+    if (camActor) {
+      const cd = camActor.def;
+      const target = player.actor.view.position;
+      game.camera.position.set(
+        cd.x - W / 2 + Math.sin(playYaw) * cd.camDist * 0.001,
+        cd.camHeight,
+        cd.y - H / 2,
+      );
+      game.camera.lookAt(new Vector3(target.x, 40, target.z));
+      // fall through: movement still runs below; the follow-cam block is
+      // skipped because the placed camera owns the shot.
+    }
     const pv = player.actor.view;
     pv.position.x += held.x * PLAYER_SPEED * dt;
     pv.position.z += held.z * PLAYER_SPEED * dt;
@@ -310,8 +362,34 @@ export function mount3d(
         a.actor.emit('tap');
       }
     }
-    game.camera.position.set(pv.position.x, 520, pv.position.z + 640);
-    game.camera.lookAt(new Vector3(pv.position.x, 30, pv.position.z - 120));
+    // The follow cam, orbitable: drag swings playYaw, wheel scales playDist.
+    if (!camActor) {
+      game.camera.position.set(
+        pv.position.x + Math.sin(playYaw) * 640 * playDist,
+        520 * playDist,
+        pv.position.z + Math.cos(playYaw) * 640 * playDist,
+      );
+      game.camera.lookAt(new Vector3(pv.position.x, 30, pv.position.z));
+    }
+  }
+
+  // Play-mode orbit: drag to swing the follow camera around the player,
+  // wheel to zoom — the rotate-the-angle ask, in game.
+  let playYaw = 0;
+  let playDist = 1;
+  if (mode === 'play') {
+    let last: { x: number; y: number } | null = null;
+    const dom = game.renderer.domElement;
+    dom.addEventListener('pointerdown', (e) => (last = { x: e.clientX, y: e.clientY }));
+    dom.addEventListener('pointermove', (e) => {
+      if (!last) return;
+      playYaw -= (e.clientX - last.x) * 0.006;
+      last = { x: e.clientX, y: e.clientY };
+    });
+    dom.addEventListener('pointerup', () => (last = null));
+    dom.addEventListener('wheel', (e) => {
+      playDist = Math.max(0.5, Math.min(2.2, playDist + e.deltaY * 0.001));
+    }, { passive: true });
   }
 
   // ------------------------------------------------- edit interactions

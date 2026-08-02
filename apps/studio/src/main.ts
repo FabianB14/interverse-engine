@@ -1134,7 +1134,7 @@ async function main(): Promise<void> {
   // 🌲 Hierarchy: every level and its actors as a tree — click to select.
   const KIND_EMOJI: Record<string, string> = {
     blob: '🙂', npc: '💬', mob: '👾', boss: '👹', crate: '📦', lantern: '🏮',
-    plant: '🪴', text: '🔤', button: '🔘', image: '🖼',
+    plant: '🪴', text: '🔤', button: '🔘', image: '🖼', shape: '🧊', camera: '🎥',
   };
   const refreshHierarchy = (): void => {
     hier.innerHTML = '';
