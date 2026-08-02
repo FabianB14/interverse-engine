@@ -219,8 +219,29 @@ export function hatView3(id: string): Group | null {
     ring.rotation.x = Math.PI / 2;
     ring.position.y = 26;
     g.add(ring);
+  } else if (id === 'top') {
+    const brim = new Mesh(paint(new CylinderGeometry(34, 34, 5, 12), new Color(0x2a2a34)), mat);
+    brim.position.y = 2;
+    const stack = new Mesh(paint(new CylinderGeometry(22, 24, 40, 10), new Color(0x1c1c26)), mat);
+    stack.position.y = 24;
+    const band = new Mesh(paint(new CylinderGeometry(24.5, 24.5, 7, 10), new Color(0xe6a93f)), mat);
+    band.position.y = 8;
+    g.add(brim, stack, band);
+  } else if (id === 'prop') {
+    const beanie = new Mesh(paint(new SphereGeometry(26, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), new Color(0xe86a8a)), mat);
+    const stem = new Mesh(paint(new CylinderGeometry(2.5, 2.5, 12, 5), new Color(0x2a2a34)), mat);
+    stem.position.y = 30;
+    const rotor = new Group();
+    for (const a of [0, Math.PI / 2]) {
+      const blade = new Mesh(paint(new BoxGeometry(56, 3, 9), new Color(0x8affc1)), mat);
+      blade.rotation.y = a;
+      rotor.add(blade);
+    }
+    rotor.position.y = 38;
+    rotor.name = 'spin';
+    g.add(beanie, stem, rotor);
   } else {
-    // party / top / prop / anything future: the celebratory default.
+    // anything future: the celebratory default.
     const cone = new Mesh(paint(new CylinderGeometry(1, 24, 52, 8), new Color(0x2fbf8a)), mat);
     cone.position.y = 26;
     const pom = new Mesh(paint(new SphereGeometry(7, 6, 5), new Color(0xff6f91)), mat);
