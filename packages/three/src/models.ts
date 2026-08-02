@@ -20,9 +20,10 @@
  */
 
 import { Box3, Group, Vector3 } from 'three';
-import type { Mesh } from 'three';
+import type { AnimationClip, Mesh } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 
 export interface LoadModelOptions {
   /** Scale the model so its bounding-box height equals this, in world
@@ -54,7 +55,15 @@ export function fitTransform(
   return { scale, offsetY: -box.min.y * scale || 0 };
 }
 
-const cache = new Map<string, Promise<Group>>();
+/** A loaded model with everything the file carried. */
+export interface LoadedModel {
+  view: Group;
+  /** The file's animation clips, shareable across clones — hand them to an
+   *  AnimationMixer (Actor3 does this for you). */
+  clips: AnimationClip[];
+}
+
+const cache = new Map<string, Promise<{ scene: Group; clips: AnimationClip[] }>>();
 
 function loaderFor(dracoPath?: string): GLTFLoader {
   const loader = new GLTFLoader();
@@ -76,16 +85,28 @@ function loaderFor(dracoPath?: string): GLTFLoader {
  * tints use and is usually what you want.
  */
 export async function loadModel(url: string, opts: LoadModelOptions = {}): Promise<Group> {
+  return (await loadModelWithClips(url, opts)).view;
+}
+
+/**
+ * Like loadModel, but the animations come too. Clones use SkeletonUtils so
+ * a skinned character's bones stay bound to ITS copy of the skeleton —
+ * Object3D.clone alone leaves every clone dancing to the original's bones.
+ */
+export async function loadModelWithClips(
+  url: string,
+  opts: LoadModelOptions = {},
+): Promise<LoadedModel> {
   const { height, castShadow = true, receiveShadow = false, dracoPath } = opts;
   let pending = cache.get(url);
   if (!pending) {
     pending = loaderFor(dracoPath)
       .loadAsync(url)
-      .then((gltf) => gltf.scene);
+      .then((gltf) => ({ scene: gltf.scene, clips: gltf.animations }));
     cache.set(url, pending);
   }
   const source = await pending;
-  const model = source.clone(true);
+  const model = cloneSkeleton(source.scene) as Group;
 
   const box = new Box3().setFromObject(model);
   const fit = fitTransform(box, height);
@@ -106,7 +127,7 @@ export async function loadModel(url: string, opts: LoadModelOptions = {}): Promi
       mesh.receiveShadow = receiveShadow;
     }
   });
-  return wrapper;
+  return { view: wrapper, clips: source.clips };
 }
 
 /** Drop the cache — for tests, or a dev-tools "reload assets". */

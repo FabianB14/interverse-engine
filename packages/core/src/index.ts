@@ -29,6 +29,8 @@ export type { SaveStore } from './save/save.js';
 export { verium } from './economy/wallet.js';
 
 export { tileMapFromRows, solidAt, moveWithCollision } from './world/TileMap.js';
+export { Spline } from './world/spline.js';
+export type { SplineOptions, SplinePoint } from './world/spline.js';
 export type { TileMapData, TileMapObject, TileLegendEntry } from './world/TileMap.js';
 
 export { DialogueRunner } from './dialogue/runner.js';
