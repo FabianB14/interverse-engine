@@ -120,6 +120,11 @@ export function wireInspector(editor: StudioEditor, hooks: InspectorHooks): void
         | 'y'
         | 'scale'
         | 'rotation'
+        | 'sizeX'
+        | 'sizeZ'
+        | 'sizeH'
+        | 'camHeight'
+        | 'camDist'
         | 'radius'
         | 'fontSize'
         | 'seed'
@@ -277,6 +282,31 @@ export function wireInspector(editor: StudioEditor, hooks: InspectorHooks): void
       mkSel('🗡 Held item', HELD_ITEMS, 'held');
     }
     if (def.kind === 'crate') num('Size', 'radius');
+    if (def.kind === 'shape') {
+      // The primitive's numbers, editable — with the H hitbox view on in
+      // the 3D editor, these are the "modify the collisions" controls too.
+      const sel = document.createElement('select');
+      for (const t of ['plane', 'box', 'ramp'] as const) {
+        const o = document.createElement('option');
+        o.value = t;
+        o.textContent = t;
+        o.selected = def.shapeType === t;
+        sel.appendChild(o);
+      }
+      sel.onchange = () => {
+        def.shapeType = sel.value as typeof def.shapeType;
+        editor.touch();
+        render();
+      };
+      field('🧊 Shape', sel);
+      num('Width (X)', 'sizeX');
+      num('Depth (Z)', 'sizeZ');
+      if (def.shapeType !== 'plane') num('Height', 'sizeH');
+    }
+    if (def.kind === 'camera') {
+      num('Eye height', 'camHeight');
+      num('Distance', 'camDist');
+    }
     if (def.kind === 'text' || def.kind === 'button') {
       text('Text', 'text');
       num('Font size', 'fontSize');

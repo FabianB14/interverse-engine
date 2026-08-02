@@ -135,3 +135,27 @@ describe('3D mode + actor slots', () => {
     expect(back.scenes[0]!.entities[0]!.sfxSlot).toEqual([{ on: 'hit', sound: 'pop' }]);
   });
 });
+
+describe('3D kinds', () => {
+  it('gives a shape its primitive and honest sizes', () => {
+    const s = defaultEntity('shape', 100, 200);
+    expect(s.shapeType).toBe('box');
+    expect(s.sizeX).toBeGreaterThan(0);
+    expect(s.sizeH).toBeGreaterThan(0);
+  });
+
+  it('gives a camera an eye height and a distance', () => {
+    const c = defaultEntity('camera', 0, 0);
+    expect(c.camHeight).toBeGreaterThan(0);
+    expect(c.camDist).toBeGreaterThan(0);
+  });
+
+  it('round-trips 3D kinds through save and load', () => {
+    const p = defaultProject();
+    p.scenes[0]!.entities.push(defaultEntity('shape', 50, 60), defaultEntity('camera', 70, 80));
+    const back = parseProject(JSON.stringify(p))!;
+    const kinds = back.scenes[0]!.entities.map((e) => e.kind);
+    expect(kinds).toContain('shape');
+    expect(kinds).toContain('camera');
+  });
+});

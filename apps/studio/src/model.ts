@@ -18,7 +18,14 @@ export type EntityKind =
   | 'plant'
   | 'text'
   | 'button'
-  | 'image';
+  | 'image'
+  // 3D-first kinds. In 2D views they draw as simple markers; their real
+  // bodies live in the 3D editor and 3D play.
+  | 'shape' // primitive geometry: plane / box / ramp
+  | 'camera'; // a placed viewpoint — play mode films from here
+
+/** What a 'shape' actor is shaped like. */
+export type ShapeType = 'plane' | 'box' | 'ramp';
 
 /** Enemy AI (kind 'mob'/'boss'): chase the player, patrol left-right,
  *  wander randomly, or guard a home spot (chase when close, then return). */
@@ -234,6 +241,14 @@ export interface EntityDef {
   /** 🧊 3D model slot: '@assetId' of an uploaded .glb, or a URL. Used by
    *  the 3D view; 2D views ignore it. Empty = code-drawn stand-in. */
   model3d: string;
+  /** kind 'shape': which primitive, and its size in design units. */
+  shapeType: ShapeType;
+  sizeX: number;
+  sizeZ: number;
+  sizeH: number;
+  /** kind 'camera': eye height and pull-back distance for play mode. */
+  camHeight: number;
+  camDist: number;
   /** Clip names inside the model, for characters/NPCs/mobs: what plays
    *  standing still and what plays moving. Empty = the model's first clip. */
   animIdle: string;
@@ -545,6 +560,12 @@ export function defaultEntity(kind: EntityKind, x: number, y: number): EntityDef
     skillTree: '',
     events: [],
     model3d: '',
+    shapeType: kind === 'shape' ? 'box' : 'plane',
+    sizeX: 240,
+    sizeZ: 240,
+    sizeH: kind === 'shape' ? 80 : 0,
+    camHeight: 420,
+    camDist: 520,
     animIdle: '',
     animMove: '',
     sfxSlot: [],
