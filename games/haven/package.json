@@ -1,0 +1,22 @@
+{
+  "name": "@interverse/haven",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@interverse/core": "workspace:*",
+    "@interverse/net": "workspace:*",
+    "@interverse/three": "workspace:*",
+    "three": "^0.180.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.180.0",
+    "vite": "^6.0.7"
+  }
+}

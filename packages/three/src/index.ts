@@ -17,6 +17,8 @@ export type { LoadModelOptions, LoadedModel } from './models.js';
 export { wireBox, wireRing } from './gizmos.js';
 export { autoQuality } from './quality.js';
 export type { AutoQuality, AutoQualityOptions } from './quality.js';
+export { PlayerCam } from './playercam.js';
+export type { PlayerCamMode, PlayerCamOptions } from './playercam.js';
 export { skyDome } from './sky.js';
 export type { SkyDomeOptions } from './sky.js';
 export {

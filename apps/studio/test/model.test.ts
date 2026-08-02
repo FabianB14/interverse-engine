@@ -158,6 +158,19 @@ describe('3D kinds', () => {
     expect(kinds).toContain('shape');
     expect(kinds).toContain('camera');
   });
+
+  it('keeps a camera mode and repairs a bad one to fixed', () => {
+    const p = defaultProject();
+    const cam = defaultEntity('camera', 70, 80);
+    cam.camMode = 'first';
+    p.scenes[0]!.entities.push(cam);
+    const back = parseProject(JSON.stringify(p))!;
+    const c = back.scenes[0]!.entities.find((e) => e.kind === 'camera')!;
+    expect(c.camMode).toBe('first');
+    (c as { camMode: string }).camMode = 'sideways';
+    const again = parseProject(JSON.stringify(back))!;
+    expect(again.scenes[0]!.entities.find((e) => e.kind === 'camera')!.camMode).toBe('fixed');
+  });
 });
 
 describe('walkable shapes', () => {

@@ -23,6 +23,7 @@ const apps = [
   ['games/rush/dist', 'rush'],
   ['games/rush3d/dist', 'rush3d'],
   ['games/crashers3d/dist', 'crashers3d'],
+  ['games/haven/dist', 'haven'],
   ['apps/studio/dist', 'studio'],
 ];
 for (const [src, dest] of apps) {

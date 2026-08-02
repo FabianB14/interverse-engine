@@ -14,6 +14,14 @@
  *   relay -> client: {t:'hosted', code, id} | {t:'joined', code, id, players}
  *                    {t:'player-join', player} | {t:'player-leave', id}
  *                    {t:'msg', from, data} | {t:'host-left'} | {t:'error', code, message}
+ *
+ * Presence (friends lists, no accounts, no DB): a HOST may register an
+ * opaque friend code with {t:'presence', friendCode} after hosting; while
+ * that socket lives, GET /presence?codes=A,B,C answers which of those
+ * codes are online and the room code to join them at. Everything is
+ * in-memory and vanishes with the socket — the friendship GRAPH lives in
+ * each player's local save, never here. Kid-safe: codes are opaque
+ * machine-generated strings, no names, no PII.
  */
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
@@ -45,9 +53,16 @@ interface Room {
   /** Non-host players by id. */
   players: Map<string, Player>;
   lastActive: number;
+  /** Presence: the friend code this room's host registered, if any. */
+  friendCode?: string;
 }
 
 const rooms = new Map<string, Room>();
+
+// friendCode -> the room its owner currently hosts. Entries die with the
+// hosting socket, so "online" means exactly "their world is open".
+const presence = new Map<string, { code: string; game: string }>();
+const FRIEND_CODE_RE = /^[A-Z2-9-]{4,20}$/;
 
 function sanitizeName(raw: unknown): string {
   const cleaned = String(raw ?? '')
@@ -85,6 +100,7 @@ function roomRoster(room: Room): { id: string; name: string; isHost: boolean }[]
 
 function closeRoom(room: Room, reason: string): void {
   rooms.delete(room.code);
+  if (room.friendCode) presence.delete(room.friendCode);
   for (const p of room.players.values()) {
     send(p.ws, { t: 'host-left', reason });
     p.ws.close();
@@ -113,6 +129,20 @@ const httpServer = createServer((req, res) => {
   if (req.url === '/health' || req.url === '/') {
     res.writeHead(200, { 'content-type': 'application/json', ...cors });
     res.end(JSON.stringify({ ok: true, rooms: rooms.size }));
+    return;
+  }
+  // Presence lookup: which of MY friends are online, and where? Answers
+  // only for codes the caller already knows — there is no way to list.
+  if (req.url?.startsWith('/presence?')) {
+    const q = new URL(req.url, 'http://relay').searchParams;
+    const codes = (q.get('codes') ?? '').toUpperCase().split(',').filter(Boolean).slice(0, 50);
+    const online: Record<string, string> = {};
+    for (const fc of codes) {
+      const at = presence.get(fc);
+      if (at && rooms.has(at.code)) online[fc] = at.code;
+    }
+    res.writeHead(200, { 'content-type': 'application/json', ...cors });
+    res.end(JSON.stringify({ online }));
     return;
   }
   const sync = /^\/sync\/([A-Z2-9]{4,8})$/.exec(req.url ?? '');
@@ -256,6 +286,20 @@ wss.on('connection', (ws: WebSocket & { missedPongs?: number }) => {
       // socket and refreshes the room's TTL while players sit in menus.
       case 'ping': {
         send(ws, { t: 'pong' });
+        return;
+      }
+
+      // Presence: the HOST says "friends knowing this code can find me
+      // here". One code per room; re-sending moves the code to this room.
+      case 'presence': {
+        if (!me || !room) return fail('not-in-room', 'host or join first');
+        if (!me.isHost) return fail('host-only', 'only the host has a world to announce');
+        const fc = String(msg.friendCode ?? '').toUpperCase();
+        if (!FRIEND_CODE_RE.test(fc)) return fail('bad-code', 'malformed friend code');
+        if (room.friendCode) presence.delete(room.friendCode);
+        room.friendCode = fc;
+        presence.set(fc, { code: room.code, game: room.game });
+        send(ws, { t: 'presence-ok' });
         return;
       }
 

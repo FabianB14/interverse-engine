@@ -27,6 +27,9 @@ export type EntityKind =
 /** What a 'shape' actor is shaped like. */
 export type ShapeType = 'plane' | 'box' | 'ramp';
 
+/** How a 'camera' actor films in 3D play. */
+export type CamMode = 'fixed' | 'third' | 'first';
+
 /** Enemy AI (kind 'mob'/'boss'): chase the player, patrol left-right,
  *  wander randomly, or guard a home spot (chase when close, then return). */
 export type MobBehavior = 'chase' | 'patrol' | 'wander' | 'guard';
@@ -249,6 +252,10 @@ export interface EntityDef {
   /** kind 'camera': eye height and pull-back distance for play mode. */
   camHeight: number;
   camDist: number;
+  /** kind 'camera': how play films. 'fixed' shoots from where the camera
+   *  stands; 'third' chases behind the player; 'first' looks through the
+   *  player's eyes. */
+  camMode: CamMode;
   /** Clip names inside the model, for characters/NPCs/mobs: what plays
    *  standing still and what plays moving. Empty = the model's first clip. */
   animIdle: string;
@@ -603,6 +610,7 @@ export function defaultEntity(kind: EntityKind, x: number, y: number): EntityDef
     sizeH: kind === 'shape' ? 80 : 0,
     camHeight: 420,
     camDist: 520,
+    camMode: 'fixed',
     animIdle: '',
     animMove: '',
     sfxSlot: [],
@@ -820,6 +828,7 @@ export function parseProject(json: string): ProjectDef {
       e.vfxSlot = (Array.isArray(e.vfxSlot) ? e.vfxSlot : []).filter(
         (x) => !!x && typeof x === 'object' && isEvent(x.on) && typeof x.preset === 'string',
       );
+      if (!['fixed', 'third', 'first'].includes(e.camMode)) e.camMode = 'fixed';
     }
     // ⚡ Level events use the same blocks, minus the actor-only ones. Kept
     // absent rather than empty so an untouched level adds nothing to the JSON.

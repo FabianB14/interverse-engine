@@ -123,6 +123,13 @@ export class Session {
     this.raw({ t: 'broadcast', data });
   }
 
+  /** Host only: register an opaque friend code with the relay's presence
+   *  directory, so friends who saved that code can find this room while
+   *  it is open. Older relays answer with an error message; harmless. */
+  announce(friendCode: string): void {
+    this.raw({ t: 'presence', friendCode });
+  }
+
   leave(): void {
     this.stopKeepalive();
     this.raw({ t: 'leave' });
