@@ -55,7 +55,37 @@ export function makeBuilder(seed = 7) {
     }
   }
 
-  return { rand, box, positions, colors, indices };
+  /** A faceted UV sphere — for anything ALIVE. Boxes read as furniture. */
+  function sphere(cx, cy, cz, r, rgb, { squash = 1, rings = 7, segs = 10 } = {}) {
+    const vert = (ri, si) => {
+      const phi = (ri / rings) * Math.PI;
+      const theta = (si / segs) * Math.PI * 2;
+      return [
+        cx + r * Math.sin(phi) * Math.cos(theta),
+        cy + r * Math.cos(phi) * squash,
+        cz + r * Math.sin(phi) * Math.sin(theta),
+      ];
+    };
+    for (let ri = 0; ri < rings; ri++) {
+      for (let si = 0; si < segs; si++) {
+        const quad = [vert(ri, si), vert(ri + 1, si), vert(ri + 1, si + 1), vert(ri, si + 1)];
+        const shade = 0.88 + rand() * 0.24;
+        for (const tri of [[0, 1, 2], [0, 2, 3]]) {
+          for (const idx of tri) {
+            positions.push(...quad[idx]);
+            colors.push(
+              Math.min(1, rgb[0] * shade),
+              Math.min(1, rgb[1] * shade),
+              Math.min(1, rgb[2] * shade),
+            );
+            indices.push(positions.length / 3 - 1);
+          }
+        }
+      }
+    }
+  }
+
+  return { rand, box, sphere, positions, colors, indices };
 }
 
 const pad4 = (b, fill = 0) =>
