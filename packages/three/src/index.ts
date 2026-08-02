@@ -14,6 +14,7 @@ export { Actor3 } from './actor3.js';
 export type { Actor3Options } from './actor3.js';
 export { clearModelCache, fitTransform, loadModel, loadModelWithClips } from './models.js';
 export type { LoadModelOptions, LoadedModel } from './models.js';
+export { wireBox, wireRing } from './gizmos.js';
 export { autoQuality } from './quality.js';
 export type { AutoQuality, AutoQualityOptions } from './quality.js';
 export { skyDome } from './sky.js';

@@ -19,7 +19,7 @@
 import { BoxGeometry, Color, Fog, Group, Mesh, MeshStandardMaterial, PlaneGeometry, SphereGeometry, Vector3 } from 'three';
 import {
   Actor3, autoQuality, createGame3, jitterVertices, lightRig, lowPolyMaterial,
-  paintFacets, seededRand, skyDome,
+  paintFacets, seededRand, skyDome, wireRing,
 } from '@interverse/three';
 import type { Game3 } from '@interverse/three';
 import { audio } from '@interverse/core';
@@ -148,6 +148,17 @@ export function mount3d(project: ProjectDef, scene: SceneDef, host: HTMLElement)
     if (def.kind === 'blob' && !playerRef.cur) playerRef.cur = entry;
   }
 
+  // 🩻 Collision view (H): a ring per actor, scaled LIVE from def.radius —
+  // edit the radius in the inspector and the ring follows, which is the
+  // "modify them" half of seeing collisions.
+  let showHitboxes = false;
+  const rings = actors.map((a) => {
+    const ring = wireRing(1, a.def.kind === 'blob' ? 0x8affc1 : 0xff6f91);
+    ring.visible = false;
+    game.scene.add(ring);
+    return { a, ring };
+  });
+
   // Walk the level: arrows/WASD, same keys as the 2D runtime.
   const held = { x: 0, z: 0 };
   const keys = new Map<string, [number, number]>([
@@ -169,6 +180,7 @@ export function mount3d(project: ProjectDef, scene: SceneDef, host: HTMLElement)
     }
   };
   const onKeyDown = (e: KeyboardEvent): void => {
+    if (e.key === 'h') showHitboxes = !showHitboxes;
     if (keys.has(e.key)) {
       down.add(e.key);
       applyKeys();
@@ -195,6 +207,14 @@ export function mount3d(project: ProjectDef, scene: SceneDef, host: HTMLElement)
       }
     }
     for (const a of actors) a.actor.update(dt);
+    for (const { a, ring } of rings) {
+      ring.visible = showHitboxes;
+      if (showHitboxes) {
+        ring.position.set(a.actor.view.position.x, 3, a.actor.view.position.z);
+        const rr = Math.max(14, a.def.radius) * a.def.scale;
+        ring.scale.setScalar(rr);
+      }
+    }
     const player = playerRef.cur;
     if (!player) return;
     const pv = player.actor.view;

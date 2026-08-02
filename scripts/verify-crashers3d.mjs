@@ -117,6 +117,14 @@ try {
   );
   await page.evaluate(() => window.__crashers3d.safe(true));
 
+  // The 🌀 ability: a golem is in the sweep's circle right now (it just
+  // slammed us), so spin must connect AND start its cooldown.
+  const hitsBeforeSpin = await page.evaluate(() => window.__crashers3d.emitted('hit'));
+  await page.evaluate(() => window.__crashers3d.ability('spin'));
+  await sleep(400);
+  const cds = await page.evaluate(() => window.__crashers3d.cooldowns());
+  const hitsAfterSpin = await page.evaluate(() => window.__crashers3d.emitted('hit'));
+
   // Fight back LIKE A PLAYER: steer to line up with the nearest golem,
   // then swing. A driver that mashes attack from the wrong lane proves
   // nothing except that whiffing exists. The emit counters on the PLAYER
@@ -192,10 +200,11 @@ try {
   const fightOk = before.mobs > 0 && cleared.mobs === 0 && hits > 0 && swings > 0;
   const winOk = final.won === true;
   const renderOk = stats.drawCalls > 4 && stats.drawCalls < 90 && stats.triangles > 4_000;
+  const abilityOk = cds.spin > 0 && hitsAfterSpin > hitsBeforeSpin;
 
-  const ok = waveOk && splineOk && modelOk && animOk && hurtOk && fightOk && winOk && renderOk && errors.length === 0;
+  const ok = waveOk && splineOk && modelOk && animOk && hurtOk && fightOk && winOk && renderOk && abilityOk && errors.length === 0;
   report = {
-    ok, waveOk, splineOk, modelOk, animOk, hurtOk, fightOk, winOk, renderOk,
+    ok, waveOk, splineOk, modelOk, animOk, hurtOk, fightOk, winOk, renderOk, abilityOk,
     gated, entering, arrived, mob0, mob0b, swinger, hurt: hurt.hearts, hits, swings,
     final, stats, errors,
   };
