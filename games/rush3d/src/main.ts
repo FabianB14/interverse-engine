@@ -18,25 +18,27 @@
 
 import {
   Color,
+  CylinderGeometry,
   Fog,
   Group,
   InstancedMesh,
   Matrix4,
   Mesh,
+  MeshStandardMaterial,
   PlaneGeometry,
   Quaternion,
   Scene,
   Vector3,
 } from 'three';
 import {
-  DRAW_DISTANCE, HIT_DEPTH, LANE_WIDTH, LaneRider, RunnerMoves, TrackBuilder,
+  DRAW_DISTANCE, HAZARD_SHAPES, HIT_DEPTH, LANE_WIDTH, LaneRider, RunnerMoves, TrackBuilder,
   audio, bendAt, collides, cornerClear, laneX, playerBand, speedAt, yawFor,
   RUN_HEIGHT, cornerSpace,
 } from '@interverse/core';
 import type { ClearSpan, CornerFrame, Hazard, Pickup } from '@interverse/core';
 import {
   autoQuality, createGame3, lightRig, loadModel, paintFacets, rollingBlob3, scatter,
-  seededRand, skyDome,
+  seededRand, skyDome, wireBox,
 } from '@interverse/three';
 import { BoxGeometry } from 'three';
 import { MATS, coinView3, hatView3, hazardView3, treeView3 } from './art3.js';
@@ -178,6 +180,29 @@ junction.receiveShadow = true;
 scene.add(junction);
 
 /**
+ * The turn arrow — the 2D game's sign, ported. Small on purpose: the road
+ * visibly ENDING at a crossroad is the real warning, and all the arrow has
+ * to add is WHICH WAY. It floats over the junction, points the turn
+ * direction, and goes mint the moment a sideways swipe would take it.
+ */
+const ARROW_GOLD = new Color(0xffd166);
+const ARROW_MINT = new Color(0x8affc1);
+const arrowMat = new MeshStandardMaterial({
+  color: ARROW_GOLD,
+  emissive: ARROW_GOLD,
+  emissiveIntensity: 0.8,
+});
+const turnArrow = new Group();
+{
+  const shaft = new Mesh(new BoxGeometry(150, 26, 26), arrowMat);
+  const head = new Mesh(new CylinderGeometry(0.1, 44, 90, 4), arrowMat);
+  head.rotation.z = -Math.PI / 2;
+  head.position.x = 115;
+  turnArrow.add(shaft, head);
+}
+scene.add(turnArrow);
+
+/**
  * The corner waymarkers — a pair of carved totems flanking every junction,
  * and the proof of the model-import pipeline: totem.glb is a real glTF
  * binary shipped in public/models/, fetched and parsed at runtime, scaled
@@ -186,6 +211,30 @@ scene.add(junction);
  */
 let totems: Group[] = [];
 let modelLoaded = false;
+/** 0 hidden, 1 showing (gold), 2 armed (mint) — for the playtest. */
+let arrowState = 0;
+
+/**
+ * 🩻 Collision view (H key / ?hitboxes=1): the player's band and every
+ * hazard's band, as wireframe ghosts fed by the SAME numbers the hit test
+ * reads — playerBand and HAZARD_SHAPES. If a ghost ever disagrees with the
+ * art, the art is lying.
+ */
+let showHitboxes = new URLSearchParams(location.search).get('hitboxes') === '1';
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'h') showHitboxes = !showHitboxes;
+});
+const playerGhost = wireBox(0x8affc1);
+scene.add(playerGhost);
+const hazardGhosts: Mesh[] = [];
+function ghostFor(i: number): Mesh {
+  while (hazardGhosts.length <= i) {
+    const g = wireBox(0xff6f91);
+    scene.add(g);
+    hazardGhosts.push(g);
+  }
+  return hazardGhosts[i]!;
+}
 void Promise.all([
   loadModel('models/totem.glb', { height: 260 }),
   loadModel('models/totem.glb', { height: 260 }),
@@ -571,9 +620,24 @@ function draw(): void {
       t.position.set(tp.x, 0, tp.z);
       t.rotation.y = jyaw;
     }
+    // The arrow floats over the crossroad, points the way, arms when a
+    // swipe would take the turn, and hides once you have committed.
+    const armed = !turned && turnZ < Math.max(TURN_WINDOW, speed * 1.6);
+    turnArrow.visible = !turned && turnZ > 0;
+    arrowState = turnArrow.visible ? (armed ? 2 : 1) : 0;
+    turnArrow.position.set(p.x, 330, p.z);
+    // The arrow model points +x; a right turn IS +x in pre-yaw path space,
+    // so only a left turn flips it.
+    turnArrow.rotation.y = jyaw + (turnDir > 0 ? 0 : Math.PI);
+    arrowMat.color.copy(armed ? ARROW_MINT : ARROW_GOLD);
+    arrowMat.emissive.copy(armed ? ARROW_MINT : ARROW_GOLD);
+    // A slow bob, so it reads as a marker and not debris.
+    turnArrow.position.y = 330 + Math.sin(distance * 0.004) * 18;
   } else {
     junction.visible = false;
     for (const t of totems) t.visible = false;
+    turnArrow.visible = false;
+    arrowState = 0;
   }
 
   // Trees: wrap forward over the draw distance, place through the path map
@@ -617,6 +681,27 @@ function draw(): void {
 
   camera.position.x = bp.x * 0.55;
   rig.follow(blob.view.position);
+
+  // Collision ghosts, from the collision's own numbers.
+  playerGhost.visible = showHitboxes;
+  let gi = 0;
+  if (showHitboxes) {
+    playerGhost.position.set(bp.x, (me.low + me.high) / 2, bp.z);
+    playerGhost.scale.set(BLOB_RADIUS * 2, Math.max(1, me.high - me.low), HIT_DEPTH * 2);
+    for (const h of hazards) {
+      const depth = h.data.z - distance;
+      if (depth < -220 || depth > 2400) continue;
+      const shape = HAZARD_SHAPES[h.data.kind];
+      const g = ghostFor(gi++);
+      const hp2 = pathXZ(laneX(h.data.lane), depth);
+      const high = shape.hole ? 8 : shape.high;
+      g.visible = true;
+      g.position.set(hp2.x, (shape.low + high) / 2, hp2.z);
+      g.scale.set(LANE_WIDTH * 0.9, Math.max(6, high - shape.low), HIT_DEPTH * 2);
+      g.rotation.y = pathYaw(laneX(h.data.lane), depth);
+    }
+  }
+  for (let i = gi; i < hazardGhosts.length; i++) hazardGhosts[i]!.visible = false;
 }
 
 function update(dt: number): void {
@@ -662,6 +747,7 @@ declare global {
         metres: number; coins: number; lane: number; airborne: boolean; sliding: boolean;
         hazards: number; chase: number; turnZ: number; zone: string; speed: number;
         over: boolean; spin: number; bend: number; yaw: number; turning: boolean;
+        arrow: number;
       } | null;
       swipe: (d: 'left' | 'right' | 'up' | 'down') => void;
       corner: () => number;
@@ -700,6 +786,7 @@ window.__rush3d = {
           bend: Math.round(bend),
           yaw: Math.round((corner?.yaw ?? 0) * 1000) / 1000,
           turning: turned,
+          arrow: arrowState,
         },
   swipe: (d) => input(d),
   corner: () => {

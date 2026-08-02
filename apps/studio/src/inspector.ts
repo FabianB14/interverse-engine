@@ -6,6 +6,7 @@ import { EFFECT_LABEL, abilityList, createAbility, grantTo } from './abilities.j
 import { ATTACK_SPECS, attackSpec } from './attacks.js';
 import type { Scope } from './cmds.js';
 import { ACTOR_EVENTS, danglingDialogueLinks, dialogueFromLines } from './model.js';
+import { STOCK_MODELS, stockClips } from './stockmodels.js';
 import type { EntityDef, EventAction, EventDef } from './model.js';
 
 const hex = (n: number): string => `#${n.toString(16).padStart(6, '0')}`;
@@ -361,36 +362,85 @@ export function wireInspector(editor: StudioEditor, hooks: InspectorHooks): void
     // a model if you have one, animations if it is a character, and sfx/vfx
     // hooks either way. Used by the 3D view; ignored by 2D ones.
     {
-      const model = document.createElement('input');
-      model.type = 'text';
-      model.placeholder = 'models/thing.glb or @assetId';
-      model.value = def.model3d;
-      model.onchange = () => {
-        def.model3d = model.value.trim();
+      // The Model slot is a DROPDOWN of what is already there — the stock
+      // catalogue, every uploaded asset, and only then a custom URL. A free
+      // text field made everyone a typo away from an empty world.
+      const stockIds = new Set(STOCK_MODELS.map((m) => m.id));
+      const isCustom = !!def.model3d && !stockIds.has(def.model3d) && !def.model3d.startsWith('@');
+      const model = document.createElement('select');
+      const addOpt = (value: string, label: string, selected: boolean): void => {
+        const o = document.createElement('option');
+        o.value = value;
+        o.textContent = label;
+        o.selected = selected;
+        model.appendChild(o);
+      };
+      addOpt('', '(none — code-drawn)', def.model3d === '');
+      for (const m of STOCK_MODELS) addOpt(m.id, m.label, def.model3d === m.id);
+      for (const id of Object.keys(editor.project.assets ?? {})) {
+        addOpt(`@${id}`, `🖼 @${id}`, def.model3d === `@${id}`);
+      }
+      addOpt('__custom', '✏️ custom URL…', isCustom);
+      const custom = document.createElement('input');
+      custom.type = 'text';
+      custom.placeholder = 'models/thing.glb';
+      custom.value = isCustom ? def.model3d : '';
+      custom.style.display = isCustom ? '' : 'none';
+      custom.onchange = () => {
+        def.model3d = custom.value.trim();
         editor.touch();
       };
+      model.onchange = () => {
+        if (model.value === '__custom') {
+          custom.style.display = '';
+          return;
+        }
+        custom.style.display = 'none';
+        def.model3d = model.value;
+        // Picking a stock model fills sensible clips in one move.
+        const clips = stockClips(model.value);
+        def.animIdle = clips.includes('idle') ? 'idle' : '';
+        def.animMove = clips.includes('walk') ? 'walk' : '';
+        editor.touch();
+        render();
+      };
       field('🧊 Model (.glb)', model);
+      field('', custom);
 
       const isCharacter = def.kind === 'blob' || def.kind === 'npc' || def.kind === 'mob' || def.kind === 'boss';
       if (isCharacter) {
-        const idle = document.createElement('input');
-        idle.type = 'text';
-        idle.placeholder = 'clip name, e.g. idle';
-        idle.value = def.animIdle;
-        idle.onchange = () => {
-          def.animIdle = idle.value.trim();
-          editor.touch();
+        // Clip pickers: a dropdown when the model's clips are KNOWN (stock
+        // catalogue), free text for customs whose insides we cannot see.
+        const clips = stockClips(def.model3d);
+        const clipField = (label: string, key: 'animIdle' | 'animMove'): void => {
+          if (clips.length) {
+            const sel = document.createElement('select');
+            for (const c of ['', ...clips]) {
+              const o = document.createElement('option');
+              o.value = c;
+              o.textContent = c === '' ? '(none)' : `🎞 ${c}`;
+              o.selected = def[key] === c;
+              sel.appendChild(o);
+            }
+            sel.onchange = () => {
+              def[key] = sel.value;
+              editor.touch();
+            };
+            field(label, sel);
+          } else {
+            const i = document.createElement('input');
+            i.type = 'text';
+            i.placeholder = 'clip name';
+            i.value = def[key];
+            i.onchange = () => {
+              def[key] = i.value.trim();
+              editor.touch();
+            };
+            field(label, i);
+          }
         };
-        field('🎞 Anim: standing', idle);
-        const move = document.createElement('input');
-        move.type = 'text';
-        move.placeholder = 'clip name, e.g. walk';
-        move.value = def.animMove;
-        move.onchange = () => {
-          def.animMove = move.value.trim();
-          editor.touch();
-        };
-        field('🎞 Anim: moving', move);
+        clipField('🎞 Anim: standing', 'animIdle');
+        clipField('🎞 Anim: moving', 'animMove');
       }
 
       // One compact row per hookable moment: [sound ▾] [vfx ▾].

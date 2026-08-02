@@ -105,6 +105,41 @@
       .hidden {
         display: none !important;
       }
+      /* ⚔ On-screen combat buttons — UI in 3D is DOM: crisp at any DPR,
+         zero draw calls, and a thumb-sized target on a phone. */
+      #btns {
+        position: fixed;
+        right: 18px;
+        bottom: 20px;
+        display: flex;
+        gap: 12px;
+        z-index: 6;
+      }
+      #btns button {
+        pointer-events: auto;
+        width: 74px;
+        height: 74px;
+        border-radius: 999px;
+        border: 0;
+        font-size: 30px;
+        color: #1c1c28;
+        background: #ffd166;
+        box-shadow: 0 3px 10px rgba(0, 0, 0, 0.45);
+        position: relative;
+      }
+      #btns button.cool {
+        filter: grayscale(0.8);
+        opacity: 0.55;
+      }
+      #btns button small {
+        position: absolute;
+        bottom: 4px;
+        left: 0;
+        right: 0;
+        font-size: 12px;
+        font-weight: 800;
+        color: #1c1c28;
+      }
     </style>
   </head>
   <body>
@@ -112,6 +147,11 @@
       <div id="hearts"></div>
       <div id="wave"></div>
       <div id="banner"></div>
+    </div>
+    <div id="btns">
+      <button id="btn-spin" title="Spin sweep (K)">🌀<small id="cd-spin"></small></button>
+      <button id="btn-slam" title="Slam (L)">💥<small id="cd-slam"></small></button>
+      <button id="btn-attack" title="Attack (Space/J)">⚔</button>
     </div>
     <div id="overlay">
       <h1>Blob Crashers <span style="color: #ffb3c1">3D</span></h1>

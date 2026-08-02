@@ -153,6 +153,13 @@ try {
   // A deliberate corner: zone changes, camera yaw seen, yaw settles to 0.
   const zoneBefore = (await page.evaluate(() => window.__rush3d.run())).zone;
   const turnDir = await page.evaluate(() => window.__rush3d.corner());
+  // The corner is inside the turn window now, so the arrow must be showing
+  // AND armed — a sign that appears only after you needed it is decoration.
+  const arrowArmed = await waitFor(
+    () => page.evaluate(() => window.__rush3d.run()),
+    (r) => !!r && r.arrow === 2,
+    4000,
+  );
   await page.screenshot({ path: `${outDir}/rush3d-3-corner.png` });
   await page.evaluate((d) => window.__rush3d.swipe(d > 0 ? 'right' : 'left'), turnDir);
   let peakYaw = 0;
@@ -198,15 +205,16 @@ try {
   const bankOk = banked.coins > 100 && banked.runs === 1 && banked.best > 0;
   const persistOk = reloaded.coins === banked.coins && reloaded.best === banked.best;
   const renderOk = stats.drawCalls > 4 && stats.drawCalls < 80 && stats.triangles > 3_000;
+  const arrowOk = !!arrowArmed && arrowArmed.arrow === 2;
   // The imported .glb loaded, parsed, and joined the scene — the whole
   // model pipeline, gated.
   const modelOk = stats.modelLoaded === true;
 
   const ok =
     screen0 === 'menu' && rollOk && laneOk && moveOk && bendOk && cornerOk && clearOk &&
-    missOk && bankOk && persistOk && renderOk && modelOk && errors.length === 0;
+    missOk && bankOk && persistOk && renderOk && modelOk && arrowOk && errors.length === 0;
   report = {
-    ok, rollOk, laneOk, moveOk, bendOk, cornerOk, clearOk, missOk, bankOk, persistOk, renderOk, modelOk,
+    ok, rollOk, laneOk, moveOk, bendOk, cornerOk, clearOk, missOk, bankOk, persistOk, renderOk, modelOk, arrowOk,
     screen0, run0, roll0, roll1, laneRight, laneClamped,
     inSpan, cornerSecs, zoneBefore, turnDir, peakYaw, turned, ended, banked, reloaded, stats,
     errors,

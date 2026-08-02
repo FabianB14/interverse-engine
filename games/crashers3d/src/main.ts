@@ -36,7 +36,7 @@ import {
 import type { Knock, WaveSpec } from '@interverse/core';
 import {
   Actor3, autoQuality, createGame3, jitterVertices, lightRig, lowPolyMaterial,
-  paintFacets, scatter, seededRand, skyDome,
+  paintFacets, scatter, seededRand, skyDome, wireRing,
 } from '@interverse/three';
 
 // ------------------------------------------------------------ the canyon
@@ -169,6 +169,25 @@ class Sparks {
 }
 const sparks = new Sparks();
 
+// 🩻 Collision view (H / ?hitboxes=1): the melee envelope, the spin sweep,
+// and every golem's slam range — the numbers the fights actually use.
+let showHitboxes = new URLSearchParams(location.search).get('hitboxes') === '1';
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'h') showHitboxes = !showHitboxes;
+});
+const meleeRing = wireRing(210, 0x8affc1);
+const spinRing = wireRing(260, 0xffd166);
+scene.add(meleeRing, spinRing);
+const mobRings: Mesh[] = [];
+function mobRingFor(i: number): Mesh {
+  while (mobRings.length <= i) {
+    const r = wireRing(190, 0xff6f91);
+    scene.add(r);
+    mobRings.push(r);
+  }
+  return mobRings[i]!;
+}
+
 // ---------------------------------------------------------------- player
 function blobBody(): Group {
   const g = new Group();
@@ -192,6 +211,24 @@ function blobBody(): Group {
   return g;
 }
 
+/** The mallet — the weapon you can SEE. Held beside the blob, and driven
+ *  by swingJuice below: gameplay stays in core's Combo, the mallet is how
+ *  the swing reads. */
+const weapon = new Group();
+{
+  const mat = lowPolyMaterial();
+  const paintAll = (g: Parameters<typeof paintFacets>[0], v: number): ReturnType<typeof paintFacets> =>
+    paintFacets(g, (_x, _y, _z, set) => set(new Color().setScalar(v)));
+  const handle = new Mesh(paintAll(new BoxGeometry(10, 86, 10), 0.35), mat);
+  handle.position.y = 43;
+  const head = new Mesh(paintAll(new BoxGeometry(34, 40, 34), 0.55), mat);
+  head.position.y = 96;
+  weapon.add(handle, head);
+  weapon.traverse((o) => ((o as Mesh).castShadow = true));
+}
+weapon.position.set(46, 30, 20);
+let swingJuice = 0;
+
 const player = new Actor3({
   fallback: blobBody,
   sfx: {
@@ -205,6 +242,7 @@ const player = new Actor3({
     hurt: (at) => sparks.burst(at, 8, 0xff6f91),
   },
 });
+player.view.add(weapon);
 scene.add(player.view);
 
 // ------------------------------------------------------------------ mobs
@@ -351,6 +389,14 @@ const held = { x: 0, z: 0 };
       attack();
       return;
     }
+    if (e.key === 'k') {
+      spin();
+      return;
+    }
+    if (e.key === 'l') {
+      slam();
+      return;
+    }
     if (keys.has(e.key)) {
       down.add(e.key);
       apply();
@@ -383,6 +429,82 @@ const held = { x: 0, z: 0 };
   });
 }
 el('play').addEventListener('click', () => startRun());
+el('btn-attack').addEventListener('pointerdown', (e) => {
+  e.stopPropagation();
+  attack();
+});
+el('btn-spin').addEventListener('pointerdown', (e) => {
+  e.stopPropagation();
+  spin();
+});
+el('btn-slam').addEventListener('pointerdown', (e) => {
+  e.stopPropagation();
+  slam();
+});
+
+// -------------------------------------------------------------- abilities
+/**
+ * Two abilities with cooldowns beside the basic chain: the spin sweep hits
+ * EVERYONE in a circle (the crowd answer), the slam is a hard launcher (the
+ * single-target answer). Cooldowns, not resources — a brawler's abilities
+ * are a rhythm, not an economy.
+ */
+const COOLDOWNS = { spin: 5, slam: 8 } as const;
+const cooldown = { spin: 0, slam: 0 };
+
+function spin(): void {
+  if (over || cooldown.spin > 0) return;
+  cooldown.spin = COOLDOWNS.spin;
+  player.emit('swing');
+  swingJuice = 1;
+  let any = false;
+  for (const m of mobs) {
+    if (m.path || m.hp <= 0) continue;
+    const dx = m.x - px;
+    const dz = m.z - pz;
+    if (Math.hypot(dx, dz) > 260) continue;
+    any = true;
+    m.hp = Math.round((m.hp - 1) * 10) / 10;
+    m.knock = knockbackFrom(Math.sign(dx) || 1, 1.4);
+    m.actor.emit('hit');
+    if (m.hp <= 0) {
+      m.actor.emit('down');
+      waves.defeated();
+    }
+  }
+  if (any) {
+    player.emit('hit');
+    hitStop = Math.max(hitStop, hitStopFor(1.5));
+  }
+}
+
+function slam(): void {
+  if (over || cooldown.slam > 0) return;
+  cooldown.slam = COOLDOWNS.slam;
+  player.emit('swing');
+  swingJuice = 1;
+  const facing = player.view.rotation.y;
+  const dir = Math.abs(facing) < Math.PI / 2 ? 1 : -1;
+  let any = false;
+  for (const m of mobs) {
+    if (m.path || m.hp <= 0) continue;
+    const dx = m.x - px;
+    const dz = m.z - pz;
+    if (Math.abs(dz) > 120 || dx * dir < -20 || Math.abs(dx) > 240) continue;
+    any = true;
+    m.hp = Math.round((m.hp - 2) * 10) / 10;
+    m.knock = knockbackFrom(dir, 2.4, true);
+    m.actor.emit('hit');
+    if (m.hp <= 0) {
+      m.actor.emit('down');
+      waves.defeated();
+    }
+  }
+  if (any) {
+    player.emit('hit');
+    hitStop = Math.max(hitStop, hitStopFor(2.5));
+  }
+}
 
 // ---------------------------------------------------------------- combat
 let attackCalls = 0;
@@ -398,6 +520,7 @@ function attack(): void {
     return;
   }
   player.emit('swing');
+  swingJuice = 1;
   // Squash-and-stretch on the swing — the fallback body has no clips, so
   // the juice is transform-side. If the player ever gets a modeled body
   // with a 'swing' clip, play() replaces this for free.
@@ -465,6 +588,12 @@ function update(dt: number): void {
   combo.tick(dt);
   iframes.tick(dt);
   player.update(dt);
+  cooldown.spin = Math.max(0, cooldown.spin - dt);
+  cooldown.slam = Math.max(0, cooldown.slam - dt);
+  // The mallet swing: whipped forward by juice, eased back to rest.
+  swingJuice = Math.max(0, swingJuice - dt * 4);
+  weapon.rotation.z = -0.3 + swingJuice * -1.6;
+  weapon.rotation.x = swingJuice * 0.5;
 
   // Move, clamped to the walkable band and the wave gate.
   if (!combo.busy) {
@@ -541,11 +670,33 @@ function update(dt: number): void {
     return true;
   });
 
+  // Collision ghosts.
+  meleeRing.visible = spinRing.visible = showHitboxes;
+  let ri = 0;
+  if (showHitboxes) {
+    meleeRing.position.set(px, 4, pz);
+    spinRing.position.set(px, 6, pz);
+    for (const m of mobs) {
+      if (m.hp <= 0) continue;
+      const r = mobRingFor(ri++);
+      r.visible = true;
+      r.position.set(m.x, 4, m.z);
+    }
+  }
+  for (let i = ri; i < mobRings.length; i++) mobRings[i]!.visible = false;
+
   // Camera: a 3/4 chase along the canyon.
   camera.position.set(px - 60, 470, 760);
   camera.lookAt(new Vector3(px + 160, 60, pz * 0.4));
 
   if (waves.finished && px >= ARENA_END - 80) endRun(true);
+  // Cooldown rings: class + countdown text, cheap and readable.
+  for (const name of ['spin', 'slam'] as const) {
+    const b = document.getElementById(`btn-${name}`)!;
+    const cd = cooldown[name];
+    b.classList.toggle('cool', cd > 0);
+    document.getElementById(`cd-${name}`)!.textContent = cd > 0 ? cd.toFixed(0) : '';
+  }
   refreshHud();
 }
 
@@ -565,6 +716,8 @@ declare global {
       };
       move: (x: number, z: number) => void;
       attack: () => void;
+      ability: (name: 'spin' | 'slam') => void;
+      cooldowns: () => { spin: number; slam: number };
       warp: (x: number) => void;
       safe: (on: boolean) => void;
       mob: (i: number) => {
@@ -600,6 +753,8 @@ window.__crashers3d = {
     held.z = z;
   },
   attack: () => attack(),
+  ability: (name) => (name === 'spin' ? spin() : slam()),
+  cooldowns: () => ({ spin: Math.round(cooldown.spin * 10) / 10, slam: Math.round(cooldown.slam * 10) / 10 }),
   warp: (x) => {
     px = Math.min(x, waves.limitX);
   },
