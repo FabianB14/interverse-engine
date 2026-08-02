@@ -135,7 +135,7 @@ export function mount3d(
   const playerRef: { cur: { def: EntityDef; actor: Actor3 } | null } = { cur: null };
   const touched = new Set<string>();
 
-  for (const def of scene.entities) {
+  function spawnActor(def: EntityDef): { def: EntityDef; actor: Actor3 } {
     const url = modelUrl(project, def.model3d);
     const standIn = (): Group => {
       const g = new Group();
@@ -167,6 +167,28 @@ export function mount3d(
     const entry = { def, actor };
     actors.push(entry);
     if (def.kind === 'blob' && !playerRef.cur) playerRef.cur = entry;
+    return entry;
+  }
+  for (const def of scene.entities) spawnActor(def);
+
+  /**
+   * Live add/remove: the palette drops actors into scene.entities while the
+   * 3D editor is open, and an actor that only appears after Undo shuffles
+   * the array is a bug someone actually hit. Diff by id every frame — N is
+   * a scene's worth, the map is cheap, and the world stays truthful.
+   */
+  function syncActors(): void {
+    const want = new Map(scene.entities.map((e) => [e.id, e]));
+    for (let i = actors.length - 1; i >= 0; i--) {
+      const a = actors[i]!;
+      if (!want.has(a.def.id)) {
+        game.scene.remove(a.actor.view);
+        if (playerRef.cur === a) playerRef.cur = null;
+        actors.splice(i, 1);
+      }
+      want.delete(a.def.id);
+    }
+    for (const def of want.values()) spawnActor(def);
   }
 
   // 🩻 Collision view (H): a ring per actor, scaled LIVE from def.radius —
@@ -236,6 +258,7 @@ export function mount3d(
     quality.update();
     // Defs are LIVE references into the project: re-reading them each frame
     // is what makes the inspector's edits appear as you type them.
+    if (mode === 'edit') syncActors();
     for (const a of actors) {
       if (mode === 'edit' || a !== playerRef.cur) {
         a.actor.view.position.x = a.def.x - W / 2;
@@ -297,10 +320,17 @@ export function mount3d(
     const pointer = new Vector2();
     const groundPlane = new Plane(new Vector3(0, 1, 0), 0);
     let dragging: { def: EntityDef } | null = null;
+    let orbiting: { x: number; y: number } | null = null;
     let camDist = Math.max(W, H) * 1.1 + 500;
+    let yaw = 0;
+    let pitch = 0.82; // radians above the horizon — the familiar 3/4 view
     const camAt = new Vector3(0, 0, 0);
     const placeCam = (): void => {
-      game.camera.position.set(camAt.x, camDist * 0.75, camAt.z + camDist * 0.7);
+      game.camera.position.set(
+        camAt.x + camDist * Math.cos(pitch) * Math.sin(yaw),
+        camDist * Math.sin(pitch),
+        camAt.z + camDist * Math.cos(pitch) * Math.cos(yaw),
+      );
       game.camera.lookAt(new Vector3(camAt.x, 0, camAt.z));
     };
     placeCam();
@@ -321,10 +351,19 @@ export function mount3d(
         dragging = { def: best.a.def };
         opts.onSelect?.(best.a.def.id);
       } else {
-        opts.onSelect?.(null);
+        // Empty ground: this drag ORBITS, Unity-style. Click-without-drag
+        // still lands as a deselect on pointerup.
+        orbiting = { x: e.clientX, y: e.clientY };
       }
     };
     const onMove = (e: PointerEvent): void => {
+      if (orbiting) {
+        yaw -= (e.clientX - orbiting.x) * 0.008;
+        pitch = Math.max(0.25, Math.min(1.35, pitch + (e.clientY - orbiting.y) * 0.006));
+        orbiting = { x: e.clientX, y: e.clientY };
+        placeCam();
+        return;
+      }
       if (!dragging) return;
       cast(e);
       const at = new Vector3();
@@ -333,9 +372,13 @@ export function mount3d(
         dragging.def.y = Math.round(at.z + H / 2);
       }
     };
-    const onUp = (): void => {
+    const onUp = (e: PointerEvent): void => {
       if (dragging) opts.onMoved?.();
+      else if (orbiting && Math.hypot(e.clientX - orbiting.x, e.clientY - orbiting.y) < 4) {
+        opts.onSelect?.(null);
+      }
       dragging = null;
+      orbiting = null;
     };
     const onWheel = (e: WheelEvent): void => {
       camDist = Math.max(500, Math.min(6000, camDist + e.deltaY * 1.6));

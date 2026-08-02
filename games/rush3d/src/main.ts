@@ -19,7 +19,11 @@
 import {
   Color,
   CylinderGeometry,
+  DirectionalLight,
   Fog,
+  HemisphereLight,
+  PerspectiveCamera,
+  WebGLRenderer,
   Group,
   InstancedMesh,
   Matrix4,
@@ -599,6 +603,42 @@ function input(dir: 'left' | 'right' | 'up' | 'down'): void {
 }
 el('play').addEventListener('click', () => startRun());
 
+/**
+ * Hat thumbnails: each store tile shows the actual 3D hat on the actual
+ * blob — one tiny offscreen renderer, eight renders, cached as data URLs.
+ * The preview IS hatView3's output, so the store cannot advertise a hat
+ * the game does not draw.
+ */
+const thumbCache = new Map<string, string>();
+function hatThumb(id: string): string {
+  const hit = thumbCache.get(id);
+  if (hit) return hit;
+  const r = new WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+  r.setSize(96, 96);
+  const sc = new Scene();
+  sc.add(new HemisphereLight(0xcfe6d8, 0x2c4034, 1.1));
+  const sun = new DirectionalLight(0xfff2d8, 1.6);
+  sun.position.set(60, 120, 90);
+  sc.add(sun);
+  const b = rollingBlob3({ radius: 30, color: BLOB_COLOR, seed: 4 });
+  const h = hatView3(id);
+  if (h) {
+    h.position.y = 30 * 0.72;
+    h.scale.setScalar(0.65);
+    b.rider.add(h);
+  }
+  b.view.position.y = 6;
+  sc.add(b.view);
+  const cam = new PerspectiveCamera(40, 1, 1, 1000);
+  cam.position.set(50, 70, 120);
+  cam.lookAt(0, 26, 0);
+  r.render(sc, cam);
+  const url = r.domElement.toDataURL();
+  r.dispose();
+  thumbCache.set(id, url);
+  return url;
+}
+
 /** The hat store — the same shop as 2D Blob Rush, same prices, same
  *  shared profile: buy here, wear there, and back. */
 function renderStore(): void {
@@ -611,7 +651,7 @@ function renderStore(): void {
     const owned = p.owned.includes(h.id);
     const wearing = p.wearing === h.id;
     b.className = 'hat' + (wearing ? ' wearing' : '');
-    b.innerHTML = `<b>${h.name}</b><small>${wearing ? 'wearing' : owned ? 'owned' : `🪙 ${h.price}`}</small>`;
+    b.innerHTML = `<img src="${hatThumb(h.id)}" alt="" width="48" height="48" style="align-self:center"/><b>${h.name}</b><small>${wearing ? 'wearing' : owned ? 'owned' : `🪙 ${h.price}`}</small>`;
     b.disabled = !owned && p.coins < h.price;
     b.onclick = () => {
       if (owned) wearSaved(h.id);
@@ -763,6 +803,8 @@ function draw(): void {
   blob.view.position.set(bp.x, moves.height + BLOB_RADIUS * squash, bp.z);
   blob.view.scale.set(1 + moves.crouch * 0.3, squash, 1 + moves.crouch * 0.3);
   blob.rider.rotation.z = ((rider.targetX - rider.x) / LANE_WIDTH) * 0.35;
+  // The propeller spins with distance — it does not work, it spins anyway.
+  hatOn?.getObjectByName('spin')?.rotation.setFromVector3(new Vector3(0, distance * 0.02, 0));
 
   // The camera tracks the ROAD, not just the blob: from the left lane with
   // the road bending right, a blob-glued camera pushes the right half of
