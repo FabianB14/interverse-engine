@@ -72,7 +72,15 @@ export interface StudioDebug {
   foldsNow: () => string[];
   foldToggle: (title: string) => boolean;
   leftRowCount: () => number;
-  setView: (v: 'top' | 'depth') => void;
+  setView: (v: 'top' | 'depth' | '3d') => void;
+  /** 🧊 the live 3D runtime (play preview or 3D editor), when mounted. */
+  debug3d: () => {
+    actors: number;
+    models: number;
+    playerX: number;
+    playerZ: number;
+    playerY: number;
+  } | null;
   setGravity: (g: boolean) => void;
   setWorldSize: (w: number, h: number) => void;
   worldSize: () => { w: number; h: number };

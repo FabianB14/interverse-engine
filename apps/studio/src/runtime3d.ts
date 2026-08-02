@@ -17,8 +17,8 @@
  */
 
 import {
-  BoxGeometry, Color, Fog, Group, Mesh, MeshStandardMaterial, Plane, PlaneGeometry,
-  Raycaster, SphereGeometry, Vector2, Vector3,
+  BoxGeometry, Color, Fog, Group, Mesh, MeshBasicMaterial, MeshStandardMaterial, Plane,
+  PlaneGeometry, Raycaster, SphereGeometry, TorusGeometry, Vector2, Vector3,
 } from 'three';
 import {
   Actor3, autoQuality, createGame3, jitterVertices, lightRig, lowPolyMaterial,
@@ -26,6 +26,7 @@ import {
 } from '@interverse/three';
 import type { Game3 } from '@interverse/three';
 import { audio } from '@interverse/core';
+import { STEP_LIMIT, groundHeightAt } from './model.js';
 import type { EntityDef, ProjectDef, SceneDef } from './model.js';
 
 const PLAYER_SPEED = 320;
@@ -58,7 +59,7 @@ const PRESET_COLORS: Record<string, number> = {
 export interface Mounted3d {
   dispose: () => void;
   /** For tests: how many actors mounted, how many have models loaded. */
-  debug: () => { actors: number; models: number; playerX: number; playerZ: number };
+  debug: () => { actors: number; models: number; playerX: number; playerZ: number; playerY: number };
 }
 
 export interface Mount3dOptions {
@@ -71,6 +72,10 @@ export interface Mount3dOptions {
   onSelect?: (id: string | null) => void;
   /** Edit mode: called after a drag ends, so the editor can save. */
   onMoved?: () => void;
+  /** Edit mode: who is selected right now — the transform gizmos follow
+   *  this actor. A getter, because selection lives in the editor and the
+   *  inspector can change it while the 3D view is open. */
+  selected?: () => string | null;
 }
 
 export function mount3d(
@@ -129,6 +134,8 @@ export function mount3d(
   };
 
   const actors: { def: EntityDef; actor: Actor3 }[] = [];
+  /** What each shape's body was last built from — see syncActors. */
+  const shapeSigs = new Map<string, string>();
   // A ref cell rather than a let: closures below read it long after the
   // loop that assigns it, and flow narrowing across that boundary has
   // opinions; a property read has none.
@@ -200,6 +207,9 @@ export function mount3d(
     actor.view.position.set(def.x - W / 2, 0, def.y - H / 2);
     game.scene.add(actor.view);
     actor.emit('spawn');
+    if (def.kind === 'shape') {
+      shapeSigs.set(def.id, `${def.shapeType}|${def.sizeX}|${def.sizeZ}|${def.sizeH}|${def.color}`);
+    }
     const entry = { def, actor };
     actors.push(entry);
     if (def.kind === 'blob' && !playerRef.cur) playerRef.cur = entry;
@@ -225,6 +235,19 @@ export function mount3d(
       want.delete(a.def.id);
     }
     for (const def of want.values()) spawnActor(def);
+    // Shapes bake their dimensions into geometry, so a size edit (gizmo or
+    // inspector) rebuilds the body — cheap at editor scale, and the only
+    // way the box you see stays the box the walk code climbs.
+    for (let i = actors.length - 1; i >= 0; i--) {
+      const a = actors[i]!;
+      if (a.def.kind !== 'shape') continue;
+      const sig = `${a.def.shapeType}|${a.def.sizeX}|${a.def.sizeZ}|${a.def.sizeH}|${a.def.color}`;
+      if (shapeSigs.get(a.def.id) !== sig) {
+        game.scene.remove(a.actor.view);
+        actors.splice(i, 1);
+        spawnActor(a.def);
+      }
+    }
   }
 
   // 🩻 Collision view (H): a ring per actor, scaled LIVE from def.radius —
@@ -290,17 +313,28 @@ export function mount3d(
   };
   const tinted = new Map<string, number>();
 
+  // The edit block below installs this: per-frame editor work (WASD camera
+  // flight, gizmo placement) that needs dt and runs only in edit mode.
+  let editTick: ((dt: number) => void) | null = null;
+
   function update(dt: number): void {
     quality.update();
     // Defs are LIVE references into the project: re-reading them each frame
     // is what makes the inspector's edits appear as you type them.
     if (mode === 'edit') syncActors();
+    editTick?.(dt);
     for (const a of actors) {
       if (mode === 'edit' || a !== playerRef.cur) {
         a.actor.view.position.x = a.def.x - W / 2;
         a.actor.view.position.z = a.def.y - H / 2;
+        // Plan rotation is 2D CCW; three's Y-rotation is CW seen from
+        // above, so the sign flips — the same convention shapeHeightAt
+        // inverts, which is what keeps a ramp's slope where its art is.
+        a.actor.view.rotation.y = -a.def.rotation;
       }
-      a.actor.view.scale.setScalar(a.def.scale);
+      // Shapes size through sizeX/sizeZ (rebuilt on change below), not the
+      // uniform scale — scaling a box's GROUP would also scale its height.
+      if (a.def.kind !== 'shape') a.actor.view.scale.setScalar(a.def.scale);
       applyTint(a, tinted);
     }
     for (let i = sparksPool.length - 1; i >= 0; i--) {
@@ -337,15 +371,28 @@ export function mount3d(
         cd.camHeight,
         cd.y - H / 2,
       );
-      game.camera.lookAt(new Vector3(target.x, 40, target.z));
+      game.camera.lookAt(new Vector3(target.x, 40 + target.y, target.z));
       // fall through: movement still runs below; the follow-cam block is
       // skipped because the placed camera owns the shot.
     }
     const pv = player.actor.view;
-    pv.position.x += held.x * PLAYER_SPEED * dt;
-    pv.position.z += held.z * PLAYER_SPEED * dt;
-    pv.position.x = Math.max(-W / 2, Math.min(W / 2, pv.position.x));
-    pv.position.z = Math.max(-H / 2, Math.min(H / 2, pv.position.z));
+    // Walkable shapes: the ground under your feet is groundHeightAt, and a
+    // rise steeper than STEP_LIMIT is a wall. Axes resolve separately so a
+    // blocked diagonal slides along the face instead of sticking.
+    const planH = (wx: number, wz: number): number => groundHeightAt(scene, wx + W / 2, wz + H / 2);
+    const nx = Math.max(-W / 2, Math.min(W / 2, pv.position.x + held.x * PLAYER_SPEED * dt));
+    const nz = Math.max(-H / 2, Math.min(H / 2, pv.position.z + held.z * PLAYER_SPEED * dt));
+    const hHere = planH(pv.position.x, pv.position.z);
+    if (planH(nx, nz) - hHere <= STEP_LIMIT) {
+      pv.position.x = nx;
+      pv.position.z = nz;
+    } else {
+      if (planH(nx, pv.position.z) - hHere <= STEP_LIMIT) pv.position.x = nx;
+      else if (planH(pv.position.x, nz) - hHere <= STEP_LIMIT) pv.position.z = nz;
+    }
+    // Feet ease onto the ground — ramps read as slopes, steps as steps.
+    const under = planH(pv.position.x, pv.position.z);
+    pv.position.y += (under - pv.position.y) * Math.min(1, dt * 14);
     const moving = held.x !== 0 || held.z !== 0;
     if (moving) pv.rotation.y = Math.atan2(held.x, held.z);
     // The animation slot answers movement: move clip while walking, idle
@@ -366,10 +413,10 @@ export function mount3d(
     if (!camActor) {
       game.camera.position.set(
         pv.position.x + Math.sin(playYaw) * 640 * playDist,
-        520 * playDist,
+        520 * playDist + pv.position.y,
         pv.position.z + Math.cos(playYaw) * 640 * playDist,
       );
-      game.camera.lookAt(new Vector3(pv.position.x, 30, pv.position.z));
+      game.camera.lookAt(new Vector3(pv.position.x, 30 + pv.position.y, pv.position.z));
     }
   }
 
@@ -412,13 +459,67 @@ export function mount3d(
       game.camera.lookAt(new Vector3(camAt.x, 0, camAt.z));
     };
     placeCam();
+
+    // 🔄 Transform gizmos: a ring to ROTATE, a corner cube to SCALE. They
+    // shadow whichever actor the editor says is selected, and dragging them
+    // writes rotation / scale (or a shape's footprint) back into the def —
+    // the same def the inspector shows, so both views agree by construction.
+    const selDef = (): EntityDef | null => {
+      const id = opts.selected?.() ?? null;
+      return id ? (scene.entities.find((en) => en.id === id) ?? null) : null;
+    };
+    const gizmo = new Group();
+    const rotRing = new Mesh(
+      new TorusGeometry(1, 0.05, 8, 48),
+      new MeshBasicMaterial({ color: 0x6ec5ff, transparent: true, opacity: 0.9, depthTest: false }),
+    );
+    rotRing.rotation.x = Math.PI / 2;
+    rotRing.renderOrder = 998;
+    const scaleHandle = new Mesh(
+      new BoxGeometry(0.16, 0.16, 0.16),
+      new MeshBasicMaterial({ color: 0xffd166, depthTest: false }),
+    );
+    scaleHandle.position.set(1, 0, 0);
+    scaleHandle.renderOrder = 999;
+    gizmo.add(rotRing, scaleHandle);
+    gizmo.visible = false;
+    game.scene.add(gizmo);
+    let gizmoDrag:
+      | { kind: 'rotate'; def: EntityDef; grabOffset: number }
+      | { kind: 'scale'; def: EntityDef; startDist: number; scale: number; sizeX: number; sizeZ: number }
+      | null = null;
     const cast = (e: PointerEvent): void => {
       const r = game.renderer.domElement.getBoundingClientRect();
       pointer.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
       ray.setFromCamera(pointer, game.camera);
     };
+    const groundAt = (e: PointerEvent): Vector3 | null => {
+      cast(e);
+      const at = new Vector3();
+      return ray.ray.intersectPlane(groundPlane, at) ? at : null;
+    };
     const onDown = (e: PointerEvent): void => {
       cast(e);
+      // The gizmo outranks the world: a click that lands on it must never
+      // fall through and re-select whatever actor sits underneath.
+      const gDef = selDef();
+      if (gizmo.visible && gDef) {
+        const gHit = ray.intersectObject(gizmo, true);
+        if (gHit.length) {
+          const at = groundAt(e);
+          const dx = (at?.x ?? 0) - (gDef.x - W / 2);
+          const dz = (at?.z ?? 0) - (gDef.y - H / 2);
+          if (gHit[0]!.object === scaleHandle) {
+            gizmoDrag = {
+              kind: 'scale', def: gDef, startDist: Math.max(1, Math.hypot(dx, dz)),
+              scale: gDef.scale, sizeX: gDef.sizeX, sizeZ: gDef.sizeZ,
+            };
+          } else {
+            gizmoDrag = { kind: 'rotate', def: gDef, grabOffset: Math.atan2(dz, dx) - gDef.rotation };
+          }
+          return;
+        }
+      }
       // Nearest actor whose mesh the ray hits.
       let best: { d: number; a: (typeof actors)[number] } | null = null;
       for (const a of actors) {
@@ -435,6 +536,27 @@ export function mount3d(
       }
     };
     const onMove = (e: PointerEvent): void => {
+      if (gizmoDrag) {
+        const at = groundAt(e);
+        if (!at) return;
+        const d = gizmoDrag.def;
+        const dx = at.x - (d.x - W / 2);
+        const dz = at.z - (d.y - H / 2);
+        if (gizmoDrag.kind === 'rotate') {
+          d.rotation = Math.atan2(dz, dx) - gizmoDrag.grabOffset;
+        } else {
+          const factor = Math.hypot(dx, dz) / gizmoDrag.startDist;
+          if (d.kind === 'shape') {
+            // Scaling a shape grows its FOOTPRINT — the numbers the walk
+            // code reads — never a group scale the collision cannot see.
+            d.sizeX = Math.max(20, Math.round(gizmoDrag.sizeX * factor));
+            d.sizeZ = Math.max(20, Math.round(gizmoDrag.sizeZ * factor));
+          } else {
+            d.scale = Math.max(0.2, Math.min(6, Math.round(gizmoDrag.scale * factor * 100) / 100));
+          }
+        }
+        return;
+      }
       if (orbiting) {
         yaw -= (e.clientX - orbiting.x) * 0.008;
         pitch = Math.max(0.25, Math.min(1.35, pitch + (e.clientY - orbiting.y) * 0.006));
@@ -451,10 +573,11 @@ export function mount3d(
       }
     };
     const onUp = (e: PointerEvent): void => {
-      if (dragging) opts.onMoved?.();
+      if (gizmoDrag || dragging) opts.onMoved?.();
       else if (orbiting && Math.hypot(e.clientX - orbiting.x, e.clientY - orbiting.y) < 4) {
         opts.onSelect?.(null);
       }
+      gizmoDrag = null;
       dragging = null;
       orbiting = null;
     };
@@ -467,6 +590,32 @@ export function mount3d(
     dom.addEventListener('pointermove', onMove);
     dom.addEventListener('pointerup', onUp);
     dom.addEventListener('wheel', onWheel, { passive: true });
+
+    editTick = (dt) => {
+      // WASD flies the camera over the board — yaw-relative, like every
+      // scene editor: W is "into the screen" wherever you have orbited to.
+      if (held.x !== 0 || held.z !== 0) {
+        const spd = Math.max(500, camDist * 0.55);
+        const fwd = -held.z; // W pushes forward
+        camAt.x += (fwd * -Math.sin(yaw) + held.x * Math.cos(yaw)) * spd * dt;
+        camAt.z += (fwd * -Math.cos(yaw) - held.x * Math.sin(yaw)) * spd * dt;
+        placeCam();
+      }
+      // The gizmo shadows the selection, sized to clear the actor's body.
+      const def = selDef();
+      if (!def) {
+        gizmo.visible = false;
+        return;
+      }
+      gizmo.visible = true;
+      const r =
+        def.kind === 'shape'
+          ? Math.hypot(def.sizeX, def.sizeZ) / 2 + 30
+          : Math.max(14, def.radius) * def.scale + 40;
+      gizmo.position.set(def.x - W / 2, 6, def.y - H / 2);
+      gizmo.scale.setScalar(r);
+      gizmo.rotation.y = -def.rotation;
+    };
   }
 
   // A gentle overhead start if there is no player to follow.
@@ -488,6 +637,7 @@ export function mount3d(
         models: actors.filter((a) => a.actor.modelLoaded).length,
         playerX: Math.round(p ? p.actor.view.position.x : 0),
         playerZ: Math.round(p ? p.actor.view.position.z : 0),
+        playerY: Math.round(p ? p.actor.view.position.y : 0),
       };
     },
   };

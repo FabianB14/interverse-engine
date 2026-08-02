@@ -1683,6 +1683,7 @@ async function main(): Promise<void> {
       editor.touch();
       if (!editor.playing) editor.openEditScene();
     },
+    debug3d: () => editor.debug3d(),
     setFramePreview: (m: 'off' | 'landscape' | 'portrait') => editor.setFramePreview(m),
     framePreview: () => editor.framePreview,
     mobCount: () => editor.getPlayScene()?.mobCount() ?? 0,

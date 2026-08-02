@@ -274,6 +274,11 @@ export class StudioEditor {
   /** The live 3D EDITOR overlay, when the scene's view is '3d'. */
   private edit3d: Mounted3d | null = null;
 
+  /** For headless probes: whichever 3D runtime is live right now. */
+  debug3d(): ReturnType<Mounted3d['debug']> | null {
+    return (this.play3d ?? this.edit3d)?.debug() ?? null;
+  }
+
   private disposeEdit3d(): void {
     if (this.edit3d) {
       this.edit3d.dispose();
@@ -295,6 +300,7 @@ export class StudioEditor {
       mode: 'edit',
       onSelect: (id) => this.select(id),
       onMoved: () => this.touch(),
+      selected: () => this.selectedIds[this.selectedIds.length - 1] ?? null,
     });
   }
 

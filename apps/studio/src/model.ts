@@ -524,6 +524,43 @@ export function freshId(prefix: string): string {
   return `${prefix}${Date.now().toString(36)}${(nextId++).toString(36)}`;
 }
 
+/**
+ * How tall the ground is on a shape at a world point — the walkable half
+ * of primitives, as pure maths so it tests without a renderer.
+ *
+ * Query is in the same 2D world coordinates entities use (x right, y
+ * down = 3D z). Rotation is honored by spinning the query point into the
+ * shape's local frame — the shape does not care which way it faces, the
+ * point does. Returns 0 off the shape: flat ground.
+ */
+export function shapeHeightAt(e: EntityDef, wx: number, wy: number): number {
+  if (e.kind !== 'shape') return 0;
+  const cos = Math.cos(-e.rotation);
+  const sin = Math.sin(-e.rotation);
+  const dx = wx - e.x;
+  const dy = wy - e.y;
+  const lx = dx * cos - dy * sin;
+  const ly = dx * sin + dy * cos;
+  if (Math.abs(lx) > e.sizeX / 2 || Math.abs(ly) > e.sizeZ / 2) return 0;
+  if (e.shapeType === 'plane') return 6;
+  if (e.shapeType === 'box') return Math.max(10, e.sizeH);
+  // Ramp: rises along local +Y (screen-down / 3D +z), 0 at the near edge
+  // to sizeH at the far one — matching the tipped box the editor draws.
+  const t = ly / e.sizeZ + 0.5;
+  return Math.max(0, Math.min(1, t)) * Math.max(10, e.sizeH);
+}
+
+/** Ground height across every shape in a scene — highest wins, so a box
+ *  on a plane is stood on, not stood inside. */
+export function groundHeightAt(scene: SceneDef, wx: number, wy: number): number {
+  let h = 0;
+  for (const e of scene.entities) h = Math.max(h, shapeHeightAt(e, wx, wy));
+  return h;
+}
+
+/** How big a step legs can take. Rises above this are WALLS. */
+export const STEP_LIMIT = 48;
+
 export function defaultEntity(kind: EntityKind, x: number, y: number): EntityDef {
   const base: EntityDef = {
     id: freshId('e'),
