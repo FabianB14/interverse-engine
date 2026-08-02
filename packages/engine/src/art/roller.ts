@@ -22,7 +22,7 @@
 
 import { Container, Graphics } from 'pixi.js';
 import { blobCharacter } from './character.js';
-import { darken, lighten } from './palettes.js';
+import { darken, lighten } from '@interverse/core';
 
 export interface RollingBlobOptions {
   radius: number;

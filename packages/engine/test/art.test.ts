@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { darken, lighten, palettes, pickColor } from '../src/art/palettes.js';
+import { darken, lighten, palettes, pickColor } from '@interverse/core';
 import { blobPoints } from '../src/art/blob.js';
 
 describe('palette color math', () => {

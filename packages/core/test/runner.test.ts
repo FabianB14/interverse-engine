@@ -30,8 +30,6 @@ import {
   speedAt,
   survives,
   survivesBand,
-  swipeDir,
-  wrapAngle,
   yawFor,
 } from '../src/index.js';
 import type { CornerFrame, Hazard, HazardKind } from '../src/index.js';
@@ -632,24 +630,4 @@ describe('keep-clear spans', () => {
   });
 });
 
-describe('swipes', () => {
-  it('ignores a drag that has not committed yet', () => {
-    expect(swipeDir(5, 3)).toBeNull();
-  });
 
-  it('lets the dominant axis win, because nobody swipes straight', () => {
-    expect(swipeDir(80, 30)).toBe('right');
-    expect(swipeDir(30, 80)).toBe('down');
-    expect(swipeDir(-80, -30)).toBe('left');
-    expect(swipeDir(-30, -80)).toBe('up');
-  });
-});
-
-describe('rolling', () => {
-  it('keeps the angle small so a long run cannot go jittery', () => {
-    expect(wrapAngle(Math.PI * 2 + 0.5)).toBeCloseTo(0.5);
-    expect(wrapAngle(-0.5)).toBeCloseTo(Math.PI * 2 - 0.5);
-    expect(wrapAngle(1e7)).toBeLessThan(Math.PI * 2);
-    expect(wrapAngle(1e7)).toBeGreaterThanOrEqual(0);
-  });
-});

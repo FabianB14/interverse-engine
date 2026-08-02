@@ -1,6 +1,6 @@
 import { Container, Graphics } from 'pixi.js';
 import { drawBlob } from './blob.js';
-import { darken } from './palettes.js';
+import { darken } from '@interverse/core';
 
 export interface BlobCharacterOptions {
   radius: number;

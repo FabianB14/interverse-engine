@@ -1,5 +1,5 @@
 import { Application, Container } from 'pixi.js';
-import { audio } from '../audio/audio.js';
+import { audio } from '@interverse/core';
 import { SceneManager } from '../scene/SceneManager.js';
 import type { Scene } from '../scene/Scene.js';
 

@@ -1,5 +1,5 @@
 import { Container, Graphics } from 'pixi.js';
-import type { TileMapData } from './TileMap.js';
+import type { TileMapData } from '@interverse/core';
 
 /**
  * A tile painter draws one tile with code-drawn vector art (§4.5 + §4.6) —
