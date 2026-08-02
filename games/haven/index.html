@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#1a2420" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='18' r='12' fill='%2381b29a' stroke='%23fff' stroke-width='2'/%3E%3Cpath d='M10 10 L16 4 L22 10' fill='%23e07a5f'/%3E%3Ccircle cx='12.5' cy='16' r='2' fill='%232b2b3a'/%3E%3Ccircle cx='19.5' cy='16' r='2' fill='%232b2b3a'/%3E%3C/svg%3E"
+    />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <title>Blobhaven — Interverse</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #1a2420;
+        touch-action: none;
+        overscroll-behavior: none;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-tap-highlight-color: transparent;
+        font-family: system-ui, sans-serif;
+        color: #f6efe0;
+      }
+      canvas {
+        display: block;
+      }
+      /* Input overlays: left half moves, right half looks. Transparent,
+         above the canvas, below the HUD buttons. */
+      #move,
+      #look {
+        position: fixed;
+        top: 0;
+        bottom: 0;
+        z-index: 2;
+      }
+      #move {
+        left: 0;
+        width: 45%;
+      }
+      #look {
+        right: 0;
+        width: 55%;
+      }
+      #joy {
+        position: fixed;
+        width: 110px;
+        height: 110px;
+        border-radius: 999px;
+        border: 2px solid rgba(246, 239, 224, 0.5);
+        background: rgba(20, 28, 24, 0.25);
+        display: none;
+        z-index: 3;
+        pointer-events: none;
+      }
+      #joyknob {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        border-radius: 999px;
+        background: rgba(246, 239, 224, 0.75);
+        transform: translate(-50%, -50%);
+      }
+      #hud {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 5;
+      }
+      #title {
+        position: absolute;
+        top: 12px;
+        left: 16px;
+        font-size: 19px;
+        font-weight: 800;
+        text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+      }
+      #subtitle {
+        position: absolute;
+        top: 38px;
+        left: 16px;
+        font-size: 13px;
+        color: #bcd0c0;
+        text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+      }
+      #btns {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        display: flex;
+        gap: 8px;
+      }
+      #btns button,
+      .pill {
+        pointer-events: auto;
+        min-width: 46px;
+        height: 46px;
+        border-radius: 999px;
+        border: 0;
+        font-size: 22px;
+        background: rgba(28, 38, 32, 0.85);
+        color: #f6efe0;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+      }
+      #btns button.on {
+        background: #81b29a;
+        color: #1c1c28;
+      }
+      #hint {
+        position: absolute;
+        bottom: 116px;
+        width: 100%;
+        text-align: center;
+        font-size: 15px;
+        color: #f2cc8f;
+        text-shadow: 0 2px 6px rgba(0, 0, 0, 0.7);
+      }
+      #toast {
+        position: absolute;
+        top: 14%;
+        width: 100%;
+        text-align: center;
+        font-size: 17px;
+        font-weight: 700;
+        color: #f6efe0;
+        text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+        opacity: 0;
+        transition: opacity 0.25s;
+      }
+      /* Panels share a card look. */
+      .panel {
+        position: fixed;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        width: min(420px, 92vw);
+        max-height: 82vh;
+        overflow: auto;
+        background: rgba(24, 32, 28, 0.96);
+        border-radius: 18px;
+        padding: 18px;
+        z-index: 10;
+        box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
+      }
+      .panel h2 {
+        margin: 0 0 10px;
+        font-size: 20px;
+      }
+      .panel .close {
+        position: absolute;
+        top: 10px;
+        right: 12px;
+        border: 0;
+        background: none;
+        color: #bcd0c0;
+        font-size: 20px;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin: 8px 0;
+        align-items: center;
+      }
+      .swatch {
+        width: 40px;
+        height: 40px;
+        border-radius: 999px;
+        border: 3px solid transparent;
+      }
+      .swatch.on {
+        border-color: #f6efe0;
+      }
+      .hatbtn {
+        padding: 9px 12px;
+        border-radius: 12px;
+        border: 0;
+        background: #223028;
+        color: #f6efe0;
+        font: 600 14px system-ui;
+      }
+      .hatbtn.on {
+        background: #81b29a;
+        color: #1c1c28;
+      }
+      input[type='text'] {
+        background: #14201a;
+        border: 1px solid #3a4a40;
+        color: #f6efe0;
+        border-radius: 10px;
+        padding: 10px;
+        font-size: 15px;
+        flex: 1;
+        min-width: 0;
+      }
+      .primary {
+        padding: 11px 18px;
+        border-radius: 999px;
+        border: 0;
+        background: #81b29a;
+        color: #1c1c28;
+        font: 800 15px system-ui;
+      }
+      .ghost {
+        padding: 9px 14px;
+        border-radius: 999px;
+        border: 1px solid #3a4a40;
+        background: none;
+        color: #f6efe0;
+        font: 600 13px system-ui;
+      }
+      #mycode {
+        font-size: 26px;
+        font-weight: 800;
+        letter-spacing: 2px;
+        color: #f2cc8f;
+        text-align: center;
+        padding: 8px;
+        background: #14201a;
+        border-radius: 12px;
+      }
+      .friend {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 4px;
+        border-bottom: 1px solid #263229;
+        font-size: 15px;
+      }
+      .friend .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: #4a5a50;
+      }
+      .friend .dot.online {
+        background: #8affc1;
+        box-shadow: 0 0 8px #8affc1;
+      }
+      .friend .who {
+        flex: 1;
+      }
+      .friend small {
+        color: #8ba090;
+        display: block;
+        font-size: 11px;
+      }
+      #decorbar {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        display: none;
+        gap: 8px;
+        padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+        overflow-x: auto;
+        background: rgba(20, 28, 24, 0.92);
+        z-index: 8;
+      }
+      #decorbar button {
+        flex: 0 0 auto;
+        width: 64px;
+        height: 64px;
+        border-radius: 14px;
+        border: 0;
+        background: #223028;
+        color: #f6efe0;
+        font-size: 24px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1px;
+      }
+      #decorbar button small {
+        font-size: 10px;
+      }
+      #decorbar button.on {
+        background: #f2cc8f;
+        color: #1c1c28;
+      }
+      .hidden {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="move"></div>
+    <div id="look"></div>
+    <div id="joy"><div id="joyknob"></div></div>
+    <div id="hud">
+      <div id="title"></div>
+      <div id="subtitle"></div>
+      <div id="btns">
+        <button id="b-cam" title="Camera: third/first person">📷</button>
+        <button id="b-decor" title="Decorate">🛋</button>
+        <button id="b-wardrobe" title="Wardrobe">👒</button>
+        <button id="b-friends" title="Friends">👥</button>
+        <button id="b-invite" title="Invite">✉️</button>
+        <button id="b-home" class="hidden" title="Go home">🏠</button>
+      </div>
+      <div id="hint"></div>
+      <div id="toast"></div>
+    </div>
+
+    <div id="wardrobe" class="panel hidden">
+      <button class="close" data-close="wardrobe">✕</button>
+      <h2>👒 Wardrobe</h2>
+      <div class="row"><input id="w-name" type="text" maxlength="12" placeholder="Your name" /></div>
+      <div class="row" id="w-colors"></div>
+      <div class="row" id="w-hats"></div>
+    </div>
+
+    <div id="friends" class="panel hidden">
+      <button class="close" data-close="friends">✕</button>
+      <h2>👥 Friends</h2>
+      <p style="margin: 4px 0; color: #8ba090; font-size: 13px">Your friend code — share it!</p>
+      <div id="mycode"></div>
+      <div class="row">
+        <input id="f-code" type="text" maxlength="12" placeholder="Friend code" />
+        <input id="f-name" type="text" maxlength="12" placeholder="Name" style="max-width: 110px" />
+        <button id="f-add" class="primary">Add</button>
+      </div>
+      <div id="f-list"></div>
+    </div>
+
+    <div id="invite" class="panel hidden">
+      <button class="close" data-close="invite">✕</button>
+      <h2>✉️ Invite friends over</h2>
+      <p id="i-status" style="margin: 4px 0 10px; color: #8ba090; font-size: 14px"></p>
+      <div id="i-code" class="hidden" style="font-size: 34px; font-weight: 800; letter-spacing: 6px; text-align: center; color: #f2cc8f"></div>
+      <div class="row" style="justify-content: center; margin-top: 12px">
+        <button id="i-open" class="primary">Open my world</button>
+      </div>
+      <hr style="border: 0; border-top: 1px solid #263229; margin: 14px 0" />
+      <p style="margin: 4px 0; color: #8ba090; font-size: 14px">…or visit someone with a room code:</p>
+      <div class="row">
+        <input id="i-join" type="text" maxlength="4" placeholder="CODE" style="text-transform: uppercase" />
+        <button id="i-go" class="primary">Visit</button>
+      </div>
+    </div>
+
+    <div id="decorbar"></div>
+    <script type="module" src="/src/main.ts"></script>
+    <script>
+      if ('serviceWorker' in navigator && location.hostname !== 'localhost') {
+        navigator.serviceWorker.register('./sw.js');
+      }
+      let deferredInstall = null;
+      window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredInstall = e;
+        const b = document.createElement('button');
+        b.textContent = '⬇ Install';
+        b.style.cssText =
+          'position:fixed;bottom:14px;right:12px;z-index:20;padding:9px 16px;' +
+          'border-radius:999px;border:0;background:#f2cc8f;color:#1c1c28;' +
+          'font:700 14px system-ui;box-shadow:0 2px 8px rgba(0,0,0,.4)';
+        b.onclick = () => {
+          if (deferredInstall) deferredInstall.prompt();
+          deferredInstall = null;
+          b.remove();
+        };
+        document.body.appendChild(b);
+      });
+    </script>
+  </body>
+</html>

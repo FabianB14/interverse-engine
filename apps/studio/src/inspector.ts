@@ -304,8 +304,32 @@ export function wireInspector(editor: StudioEditor, hooks: InspectorHooks): void
       if (def.shapeType !== 'plane') num('Height', 'sizeH');
     }
     if (def.kind === 'camera') {
-      num('Eye height', 'camHeight');
-      num('Distance', 'camDist');
+      // 'fixed' films from where the camera stands; 'third' chases behind
+      // the player; 'first' sees through the player's eyes.
+      const modeSel = document.createElement('select');
+      for (const [v, label] of [
+        ['fixed', 'Fixed (from here)'],
+        ['third', 'Third person (chase)'],
+        ['first', 'First person (eyes)'],
+      ] as const) {
+        const o = document.createElement('option');
+        o.value = v;
+        o.textContent = label;
+        o.selected = def.camMode === v;
+        modeSel.appendChild(o);
+      }
+      modeSel.onchange = () => {
+        def.camMode = modeSel.value as typeof def.camMode;
+        editor.touch();
+        render();
+      };
+      field('🎥 Mode', modeSel);
+      if (def.camMode === 'fixed') {
+        num('Eye height', 'camHeight');
+        num('Distance', 'camDist');
+      } else if (def.camMode === 'third') {
+        num('Distance', 'camDist');
+      }
     }
     if (def.kind === 'text' || def.kind === 'button') {
       text('Text', 'text');

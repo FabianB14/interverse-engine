@@ -21,7 +21,7 @@ import {
   PlaneGeometry, Raycaster, SphereGeometry, TorusGeometry, Vector2, Vector3,
 } from 'three';
 import {
-  Actor3, autoQuality, createGame3, jitterVertices, lightRig, lowPolyMaterial,
+  Actor3, PlayerCam, autoQuality, createGame3, jitterVertices, lightRig, lowPolyMaterial,
   paintFacets, seededRand, skyDome, wireRing,
 } from '@interverse/three';
 import type { Game3 } from '@interverse/three';
@@ -363,7 +363,7 @@ export function mount3d(
     const camActor = actors.find((a) => a.def.kind === 'camera');
     if (camActor) camActor.actor.view.visible = mode === 'edit';
     if (mode === 'edit' || !player) return;
-    if (camActor) {
+    if (camActor && !playerCam) {
       const cd = camActor.def;
       const target = player.actor.view.position;
       game.camera.position.set(
@@ -376,12 +376,15 @@ export function mount3d(
       // skipped because the placed camera owns the shot.
     }
     const pv = player.actor.view;
+    // Camera-relative movement under third/first person (W is wherever the
+    // lens looks); world-axis movement otherwise, same as the 2D runtimes.
+    const mv = playerCam ? playerCam.moveVector(held.x, held.z) : { x: held.x, z: held.z };
     // Walkable shapes: the ground under your feet is groundHeightAt, and a
     // rise steeper than STEP_LIMIT is a wall. Axes resolve separately so a
     // blocked diagonal slides along the face instead of sticking.
     const planH = (wx: number, wz: number): number => groundHeightAt(scene, wx + W / 2, wz + H / 2);
-    const nx = Math.max(-W / 2, Math.min(W / 2, pv.position.x + held.x * PLAYER_SPEED * dt));
-    const nz = Math.max(-H / 2, Math.min(H / 2, pv.position.z + held.z * PLAYER_SPEED * dt));
+    const nx = Math.max(-W / 2, Math.min(W / 2, pv.position.x + mv.x * PLAYER_SPEED * dt));
+    const nz = Math.max(-H / 2, Math.min(H / 2, pv.position.z + mv.z * PLAYER_SPEED * dt));
     const hHere = planH(pv.position.x, pv.position.z);
     if (planH(nx, nz) - hHere <= STEP_LIMIT) {
       pv.position.x = nx;
@@ -394,7 +397,7 @@ export function mount3d(
     const under = planH(pv.position.x, pv.position.z);
     pv.position.y += (under - pv.position.y) * Math.min(1, dt * 14);
     const moving = held.x !== 0 || held.z !== 0;
-    if (moving) pv.rotation.y = Math.atan2(held.x, held.z);
+    if (moving) pv.rotation.y = Math.atan2(mv.x, mv.z);
     // The animation slot answers movement: move clip while walking, idle
     // when standing — the exact contract a character model signs up for.
     if (player.def.animMove || player.def.animIdle) {
@@ -409,6 +412,13 @@ export function mount3d(
         a.actor.emit('tap');
       }
     }
+    // Third/first person: PlayerCam writes the camera; in first person the
+    // player's own body must not sit inside the lens.
+    if (playerCam) {
+      playerCam.update(game.camera, pv.position);
+      pv.visible = !playerCam.hidePlayer;
+      return;
+    }
     // The follow cam, orbitable: drag swings playYaw, wheel scales playDist.
     if (!camActor) {
       game.camera.position.set(
@@ -420,23 +430,34 @@ export function mount3d(
     }
   }
 
-  // Play-mode orbit: drag to swing the follow camera around the player,
-  // wheel to zoom — the rotate-the-angle ask, in game.
+  // Play-mode cameras. A camera actor set to third/first person hands the
+  // whole shot to PlayerCam (drag looks, wheel zooms, movement goes
+  // camera-relative); otherwise the classic orbitable follow cam.
   let playYaw = 0;
   let playDist = 1;
+  let playerCam: PlayerCam | null = null;
   if (mode === 'play') {
-    let last: { x: number; y: number } | null = null;
-    const dom = game.renderer.domElement;
-    dom.addEventListener('pointerdown', (e) => (last = { x: e.clientX, y: e.clientY }));
-    dom.addEventListener('pointermove', (e) => {
-      if (!last) return;
-      playYaw -= (e.clientX - last.x) * 0.006;
-      last = { x: e.clientX, y: e.clientY };
-    });
-    dom.addEventListener('pointerup', () => (last = null));
-    dom.addEventListener('wheel', (e) => {
-      playDist = Math.max(0.5, Math.min(2.2, playDist + e.deltaY * 0.001));
-    }, { passive: true });
+    const camDef = scene.entities.find((e) => e.kind === 'camera');
+    if (camDef && camDef.camMode !== 'fixed') {
+      playerCam = new PlayerCam({
+        dom: game.renderer.domElement,
+        mode: camDef.camMode,
+        distance: Math.max(140, camDef.camDist),
+      });
+    } else {
+      let last: { x: number; y: number } | null = null;
+      const dom = game.renderer.domElement;
+      dom.addEventListener('pointerdown', (e) => (last = { x: e.clientX, y: e.clientY }));
+      dom.addEventListener('pointermove', (e) => {
+        if (!last) return;
+        playYaw -= (e.clientX - last.x) * 0.006;
+        last = { x: e.clientX, y: e.clientY };
+      });
+      dom.addEventListener('pointerup', () => (last = null));
+      dom.addEventListener('wheel', (e) => {
+        playDist = Math.max(0.5, Math.min(2.2, playDist + e.deltaY * 0.001));
+      }, { passive: true });
+    }
   }
 
   // ------------------------------------------------- edit interactions
@@ -628,6 +649,7 @@ export function mount3d(
     dispose: () => {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
+      playerCam?.dispose();
       game.destroy();
     },
     debug: () => {

@@ -141,3 +141,31 @@ Centripetal Catmull-Rom: no overshoot between tight points, and
 cover ground at its speed — segment-time motion visibly lurches between
 control points. Lives in core (renderer-free): 2D patrols and 3D entrance
 paths use the same curve.
+
+## Player cameras (third + first person)
+
+```ts
+import { PlayerCam } from '@interverse/three';
+
+const cam = new PlayerCam({ dom: game.renderer.domElement, mode: 'third' });
+// per frame:
+const mv = cam.moveVector(inputX, inputZ);   // camera-relative movement
+player.position.x += mv.x * SPEED * dt;
+player.position.z += mv.z * SPEED * dt;
+cam.update(game.camera, player.position);
+player.visible = !cam.hidePlayer;            // first person hides the body
+```
+
+Drag on `dom` looks around (yaw/pitch), the wheel zooms in third person,
+and `setMode('first' | 'third')` switches live without snapping the view.
+`moveVector` turns pad/key input into world-space movement relative to
+where the lens faces — W always means "away from the camera", which is
+the whole modern-console contract in one function.
+
+On phones, give PlayerCam a right-half overlay div and drive a virtual
+stick from a left-half one (see games/haven): two thumbs, no fighting
+over the same drags.
+
+In Studio, a **camera actor** exposes this as the 🎥 Mode dropdown —
+Fixed films from where the camera stands, Third person chases behind the
+player, First person sees through its eyes.
