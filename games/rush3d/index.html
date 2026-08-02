@@ -138,6 +138,56 @@
       .hidden {
         display: none !important;
       }
+      /* HUD turn arrow: the 3D sign's understudy, always on screen. */
+      #turnhud {
+        position: absolute;
+        top: 12%;
+        width: 100%;
+        text-align: center;
+        font-size: 44px;
+        text-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
+      }
+      #turnhud.coming {
+        opacity: 0.75;
+        filter: sepia(1) saturate(3) hue-rotate(-15deg);
+      }
+      #turnhud.armed {
+        animation: pulse 0.5s infinite alternate;
+        filter: hue-rotate(60deg) saturate(2);
+      }
+      @keyframes pulse {
+        from { transform: scale(1); }
+        to { transform: scale(1.25); }
+      }
+      #hatgrid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(70px, 1fr));
+        gap: 8px;
+        max-width: 420px;
+        width: 90vw;
+      }
+      #hatgrid .hat {
+        pointer-events: auto;
+        padding: 8px 4px;
+        border: 0;
+        border-radius: 12px;
+        background: #223028;
+        color: #f2eff8;
+        font: 600 13px system-ui, sans-serif;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      #hatgrid .hat small {
+        color: #9ab0a4;
+        font-size: 11px;
+      }
+      #hatgrid .hat.wearing {
+        outline: 2px solid #8affc1;
+      }
+      #hatgrid .hat:disabled {
+        opacity: 0.45;
+      }
     </style>
   </head>
   <body>
@@ -147,12 +197,15 @@
       <div id="zone"></div>
       <div id="chase"><div id="chasefill"></div></div>
       <div id="banner"></div>
+      <div id="turnhud" class="hidden"></div>
     </div>
     <div id="overlay">
       <h1>Blob Rush <span style="color: #8affc1">3D</span></h1>
       <p id="stats-line"></p>
       <p>swipe to dodge · up to jump · down to slide · swipe into corners</p>
       <button id="play">▶ Run</button>
+      <p id="coins-line" style="color: #ffd166; font-weight: 800"></p>
+      <div id="hatgrid"></div>
     </div>
     <script type="module" src="/src/main.ts"></script>
     <script>

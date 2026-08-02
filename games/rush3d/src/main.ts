@@ -43,7 +43,7 @@ import {
 import { BoxGeometry } from 'three';
 import { MATS, coinView3, hatView3, hazardView3, treeView3 } from './art3.js';
 import { BLOB_COLOR, MINT, ROSE, ZONES3, zone3 } from './theme.js';
-import { bankRun, loadProfile } from './save.js';
+import { HATS, bankRun, buyHat, loadProfile, wearHat as wearSaved } from './save.js';
 
 // Identical pacing constants to the 2D game — the rhythm IS the game.
 const UNITS_PER_METRE = 12;
@@ -79,6 +79,7 @@ const { scene, camera, renderer } = game;
 // wider slice of world — refit on every rotate.
 let camY = CAM_HEIGHT;
 let camZ = CAM_BACK;
+let aimZ = -1200;
 // fitCamera runs once BEFORE the world exists (to place the camera) and
 // again on every rotate; restyle can only run once there is a zone to
 // restyle to.
@@ -97,7 +98,8 @@ function fitCamera(): void {
   camY = CAM_HEIGHT * k * 1.75;
   camZ = CAM_BACK * (0.6 + 0.55 * k);
   camera.position.set(camera.position.x, camY, camZ);
-  camera.lookAt(new Vector3(camera.position.x, -60, -560 - 300 * k));
+  aimZ = -560 - 300 * k;
+  camera.lookAt(new Vector3(camera.position.x, -60, aimZ));
   // The higher view earns a further horizon: portrait pushes the fog line
   // out so the extra distance shows road, not haze.
   fogFar = FOG_FAR * (0.85 + 0.25 * k);
@@ -326,6 +328,20 @@ function banner(text: string, secs = 1.2): void {
   }, secs * 1000);
 }
 
+const hudTurn = el('turnhud');
+function refreshTurnHud(): void {
+  // The 3D arrow can be behind a rise or off-frame; the HUD one cannot.
+  // It appears when the corner enters the runway and pulses when a swipe
+  // would take it.
+  if (turned || turnZ > DRAW_DISTANCE || over) {
+    hudTurn.className = 'hidden';
+    return;
+  }
+  const armed = turnZ < Math.max(TURN_WINDOW, speed * 2.2);
+  hudTurn.textContent = turnDir > 0 ? '➡' : '⬅';
+  hudTurn.className = armed ? 'armed' : 'coming';
+}
+
 function refreshHud(): void {
   hudMetres.textContent = `${Math.floor(distance / UNITS_PER_METRE)} m`;
   hudCoins.textContent = `🪙 ${purse}`;
@@ -451,6 +467,7 @@ function endRun(cause: 'hit' | 'pit' | 'corner'): void {
     `${metres} m · 🪙 ${purse} banked · ${why}` +
     (newBest ? ' · ✨ NEW BEST' : ` · best ${profile.best} m`);
   overlay.classList.remove('hidden');
+  renderStore();
 }
 
 // ------------------------------------------------------------------ track
@@ -581,6 +598,31 @@ function input(dir: 'left' | 'right' | 'up' | 'down'): void {
   });
 }
 el('play').addEventListener('click', () => startRun());
+
+/** The hat store — the same shop as 2D Blob Rush, same prices, same
+ *  shared profile: buy here, wear there, and back. */
+function renderStore(): void {
+  const grid = el('hatgrid');
+  const p = loadProfile();
+  el('coins-line').textContent = `🪙 ${p.coins}`;
+  grid.innerHTML = '';
+  for (const h of HATS) {
+    const b = document.createElement('button');
+    const owned = p.owned.includes(h.id);
+    const wearing = p.wearing === h.id;
+    b.className = 'hat' + (wearing ? ' wearing' : '');
+    b.innerHTML = `<b>${h.name}</b><small>${wearing ? 'wearing' : owned ? 'owned' : `🪙 ${h.price}`}</small>`;
+    b.disabled = !owned && p.coins < h.price;
+    b.onclick = () => {
+      if (owned) wearSaved(h.id);
+      else buyHat(h.id);
+      wearHat(loadProfile().wearing);
+      renderStore();
+    };
+    grid.appendChild(b);
+  }
+}
+renderStore();
 
 // ------------------------------------------------------------------- tick
 function tickBend(dt: number): void {
@@ -722,7 +764,15 @@ function draw(): void {
   blob.view.scale.set(1 + moves.crouch * 0.3, squash, 1 + moves.crouch * 0.3);
   blob.rider.rotation.z = ((rider.targetX - rider.x) / LANE_WIDTH) * 0.35;
 
-  camera.position.set(bp.x * 0.55, camY, camZ);
+  // The camera tracks the ROAD, not just the blob: from the left lane with
+  // the road bending right, a blob-glued camera pushes the right half of
+  // the world off-screen — exactly where you are being asked to move. So
+  // the eye splits its attention between where you are and where the road
+  // ahead is going.
+  const roadAhead = pathXZ(0, 900);
+  const cx = bp.x * 0.3 + roadAhead.x * 0.4;
+  camera.position.set(cx, camY, camZ);
+  camera.lookAt(new Vector3(cx * 0.6 + roadAhead.x * 0.4, -60, aimZ));
   rig.follow(blob.view.position);
 
   // Collision ghosts, from the collision's own numbers.
@@ -767,6 +817,7 @@ function update(dt: number): void {
   tickTurn(moved);
   checkHits();
   draw();
+  refreshTurnHud();
   refreshHud();
   if (chase >= 1) endRun('hit');
 }

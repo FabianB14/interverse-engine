@@ -45,6 +45,31 @@ export function loadProfile(): Profile {
   };
 }
 
+/** The hat catalogue — MIRRORS games/rush/src/hats.ts ids and prices, so
+ *  the two shops sell the same goods from the same purse. */
+export const HATS: readonly { id: string; name: string; price: number }[] = [
+  { id: 'none', name: 'Bare', price: 0 },
+  { id: 'cap', name: 'Cap', price: 60 },
+  { id: 'party', name: 'Party Cone', price: 150 },
+  { id: 'horns', name: 'Horns', price: 260 },
+  { id: 'crown', name: 'Crown', price: 420 },
+  { id: 'top', name: 'Top Hat', price: 600 },
+  { id: 'halo', name: 'Halo', price: 850 },
+  { id: 'prop', name: 'Propeller', price: 1200 },
+];
+
+export function buyHat(id: string): void {
+  const p = loadProfile();
+  const h = HATS.find((x) => x.id === id);
+  if (!h || p.owned.includes(id) || p.coins < h.price) return;
+  store.set('profile', { ...p, coins: p.coins - h.price, owned: [...p.owned, id], wearing: id });
+}
+
+export function wearHat(id: string): void {
+  const p = loadProfile();
+  if (p.owned.includes(id)) store.set('profile', { ...p, wearing: id });
+}
+
 export function bankRun(metres: number, coins: number): { profile: Profile; newBest: boolean } {
   const p = loadProfile();
   const m = Math.max(0, Math.floor(metres));
