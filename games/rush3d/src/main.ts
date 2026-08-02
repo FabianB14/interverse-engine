@@ -48,7 +48,10 @@ import { bankRun, loadProfile } from './save.js';
 // Identical pacing constants to the 2D game — the rhythm IS the game.
 const UNITS_PER_METRE = 12;
 const TURN_SECS = 11;
-const TURN_WINDOW = 1500;
+// Wider than the 2D game's window: in 3D the corner is read from the road
+// geometry at distance, and the swipe should be accepted as soon as the
+// player can reasonably answer it.
+const TURN_WINDOW = 2400;
 const BEND_MAX = 260;
 const BEND_SECS = 3.4;
 const BEND_EASE = 2.4;
@@ -68,8 +71,22 @@ const { scene, camera, renderer } = game;
 // Aimed slightly DOWN the road: the blob has to sit fully in frame with
 // room under it for its shadow — you cannot dodge with the thing you are
 // steering half off the bottom of the screen.
-camera.position.set(0, CAM_HEIGHT, CAM_BACK);
-camera.lookAt(new Vector3(0, -70, -1200));
+//
+// PORTRAIT is not landscape cropped: a fixed vertical FOV means a narrow
+// screen sees a narrow road, and the outer lanes fall off the sides. So
+// the camera climbs and backs off as the aspect narrows — same look,
+// wider slice of world — refit on every rotate.
+let camY = CAM_HEIGHT;
+let camZ = CAM_BACK;
+function fitCamera(): void {
+  const k = Math.max(1, Math.min(2.1, 1.35 / camera.aspect));
+  camY = CAM_HEIGHT * k;
+  camZ = CAM_BACK * k;
+  camera.position.set(camera.position.x, camY, camZ);
+  camera.lookAt(new Vector3(camera.position.x, -70 * k, -1200));
+}
+fitCamera();
+window.addEventListener('resize', () => fitCamera());
 
 const quality = autoQuality(game);
 const rig = lightRig(scene, {
@@ -500,7 +517,7 @@ function input(dir: 'left' | 'right' | 'up' | 'down'): void {
     audio.blip(0.7);
     return;
   }
-  const window3 = Math.max(TURN_WINDOW, speed * 1.6);
+  const window3 = Math.max(TURN_WINDOW, speed * 2.2);
   if (!turned && turnZ < window3) {
     if ((dir === 'left' ? -1 : 1) === turnDir) takeCorner();
     else endRun('corner');
@@ -622,7 +639,7 @@ function draw(): void {
     }
     // The arrow floats over the crossroad, points the way, arms when a
     // swipe would take the turn, and hides once you have committed.
-    const armed = !turned && turnZ < Math.max(TURN_WINDOW, speed * 1.6);
+    const armed = !turned && turnZ < Math.max(TURN_WINDOW, speed * 2.2);
     turnArrow.visible = !turned && turnZ > 0;
     arrowState = turnArrow.visible ? (armed ? 2 : 1) : 0;
     turnArrow.position.set(p.x, 330, p.z);
@@ -631,8 +648,11 @@ function draw(): void {
     turnArrow.rotation.y = jyaw + (turnDir > 0 ? 0 : Math.PI);
     arrowMat.color.copy(armed ? ARROW_MINT : ARROW_GOLD);
     arrowMat.emissive.copy(armed ? ARROW_MINT : ARROW_GOLD);
-    // A slow bob, so it reads as a marker and not debris.
+    // A slow bob, so it reads as a marker and not debris — and GROWS with
+    // distance, so "a turn is coming" is legible from the whole runway
+    // instead of only the last second of it.
     turnArrow.position.y = 330 + Math.sin(distance * 0.004) * 18;
+    turnArrow.scale.setScalar(Math.max(1, turnZ / 1100));
   } else {
     junction.visible = false;
     for (const t of totems) t.visible = false;
@@ -679,7 +699,7 @@ function draw(): void {
   blob.view.scale.set(1 + moves.crouch * 0.3, squash, 1 + moves.crouch * 0.3);
   blob.rider.rotation.z = ((rider.targetX - rider.x) / LANE_WIDTH) * 0.35;
 
-  camera.position.x = bp.x * 0.55;
+  camera.position.set(bp.x * 0.55, camY, camZ);
   rig.follow(blob.view.position);
 
   // Collision ghosts, from the collision's own numbers.
@@ -790,7 +810,7 @@ window.__rush3d = {
         },
   swipe: (d) => input(d),
   corner: () => {
-    const window3 = Math.max(TURN_WINDOW, speed * 1.6);
+    const window3 = Math.max(TURN_WINDOW, speed * 2.2);
     turnZ = Math.min(turnZ, window3 - 200);
     // Same rule as 2D: dragging the corner back must not manufacture the
     // obstacle-on-corner state the generator can never produce.
