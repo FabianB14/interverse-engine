@@ -247,6 +247,19 @@ const hBag = await waitFor(() => S(hostPage), (s) => s.avatar === 'bag');
 const gSeesBag = await waitFor(() => S(guestPage), (s) => s.othersHere[0]?.avatar === 'bag', 8000);
 const avatarOk = bagBought && hBag.avatar === 'bag' && gSeesBag.othersHere[0]?.avatar === 'bag';
 await hostPage.screenshot({ path: `${outDir}/hv-9-bag.png` });
+
+// 🎟 Redeem codes: a giveaway code unlocks the Gothic Girl for FREE (no
+// ⬡ moves), a junk code unlocks nothing.
+const vBeforeCode = (await S(guestPage)).verium;
+const badOk = !(await guestPage.evaluate(() => window.__haven.redeem('NOTACODE')));
+const redeemed = await guestPage.evaluate(() => window.__haven.redeem('nightbloom'));
+const gGoth = await waitFor(() => S(guestPage), (s) => s.avatar === 'gothic');
+const redeemOk =
+  badOk && redeemed && gGoth.avatar === 'gothic' && gGoth.verium === vBeforeCode;
+// …and the host sees the guest's new body arrive over the wire.
+const hSeesGoth = await waitFor(() => S(hostPage), (s) => s.othersHere[0]?.avatar === 'gothic', 8000);
+const redeemSyncOk = hSeesGoth.othersHere[0]?.avatar === 'gothic';
+await guestPage.screenshot({ path: `${outDir}/hv-10-gothic.png` });
 await hostPage.screenshot({ path: `${outDir}/hv-5-guests.png` });
 await guestPage.screenshot({ path: `${outDir}/hv-6-visiting.png` });
 
@@ -275,7 +288,7 @@ const leaveOk = hostAfterLeave.guests === 0;
 const gates = {
   bootOk, cameraOk, hatBuyOk, brokeOk, storeOk, modelOk, petOk, jumpOk,
   loftOk, refuseOk, persistOk, dailyOk, codeOk, visitOk, meetOk,
-  friendBonusOk, moveOk, hatSyncOk, jumpSyncOk, avatarOk, friendsOk, presenceOk,
+  friendBonusOk, moveOk, hatSyncOk, jumpSyncOk, avatarOk, redeemOk, redeemSyncOk, friendsOk, presenceOk,
   homeOk, leaveOk,
 };
 console.log(JSON.stringify({ ...gates, code, verium: sDaily.verium }, null, 2));

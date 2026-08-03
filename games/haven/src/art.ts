@@ -628,6 +628,7 @@ const MODEL_LABELS: Record<string, [string, string]> = {
   tiger: ['Tiger', '🐯'],
   dino: ['Dino', '🦖'],
   ember: ['Ember', '🔥'],
+  sleepy: ['Snoozer', '😴'],
 };
 
 /** A .glb furnishing: the group mounts instantly (so placement feels

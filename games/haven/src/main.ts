@@ -34,9 +34,10 @@ import type { Avatar, HouseSpec } from './art.js';
 import { addFriend, freshDecorId, loadProfile, removeFriend, saveProfile } from './save.js';
 import type { DecorItem, Profile } from './save.js';
 import {
-  AVATAR_STORE, BASE_COLORS, FURNITURE_STORE, HAT_STORE, HOUSE_SIZES, HOUSE_STORE, PETS,
-  PREMIUM_COLORS, THEME_STORE, themeById,
+  AVATAR_STORE, BASE_COLORS, FURNITURE_STORE, HAT_STORE, HOUSE_SIZES, HOUSE_STORE, MODEL_DECOR,
+  PETS, PREMIUM_COLORS, REDEEM_CODES, THEME_STORE, themeById,
 } from './store.js';
+import { modelThumb } from './thumbs.js';
 import type { HouseSizeId } from './store.js';
 import { GAME_TAG, presenceUrl, resolveRelayUrl } from './config.js';
 
@@ -762,6 +763,29 @@ function sendHouse(): void {
   if (session?.isHost) session.broadcast(worldSnapshot());
 }
 
+// 🎟 Redeem: a typed code unlocks a cosmetic outright — no ⬡ spent.
+function redeem(codeRaw: string): boolean {
+  const code = codeRaw.trim().toUpperCase();
+  const grant = REDEEM_CODES[code];
+  if (!grant) {
+    toast('Hmm, that code does nothing 🤔');
+    return false;
+  }
+  if (grant.kind === 'avatar') {
+    if (!profile.ownedAvatars.includes(grant.id)) profile.ownedAvatars.push(grant.id);
+    profile.avatar = grant.id;
+    setMyAvatar(grant.id);
+    sendLook();
+  } else if (!profile.ownedFurniture.includes(grant.id)) {
+    profile.ownedFurniture.push(grant.id);
+  }
+  saveProfile(profile);
+  audio.chime();
+  toast('Unlocked! 🎁');
+  updateHud();
+  return true;
+}
+
 // ------------------------------------------------------------- presence
 
 let onlineMap: Record<string, string> = {};
@@ -918,6 +942,15 @@ function renderStore(tab = 'hats'): void {
     renderStore(tab);
     updateHud();
   };
+  // The redeem slot: type a giveaway code, own the thing.
+  const redeemBtn = $('s-redeem') as HTMLButtonElement;
+  redeemBtn.onclick = () => {
+    const input = $('s-code') as HTMLInputElement;
+    if (redeem(input.value)) {
+      input.value = '';
+      renderStore(tab);
+    }
+  };
   const list = $('s-list');
   list.innerHTML = '';
   const row = (
@@ -927,6 +960,7 @@ function renderStore(tab = 'hats'): void {
     active: boolean,
     onBuy: () => void,
     swatch?: number,
+    thumbUrl?: { url: string; height: number },
   ): void => {
     const div = document.createElement('div');
     div.className = 'friend';
@@ -934,6 +968,13 @@ function renderStore(tab = 'hats'): void {
       ? `<span class="swatch" style="width:26px;height:26px;background:#${swatch.toString(16).padStart(6, '0')}"></span>`
       : '';
     div.innerHTML = `${dot}<span class="who">${label}</span>`;
+    // A model gets its PHOTO — rendered once, cached forever.
+    if (thumbUrl) {
+      const img = document.createElement('img');
+      img.style.cssText = 'width:44px;height:44px;border-radius:10px;background:#14201a';
+      div.prepend(img);
+      void modelThumb(thumbUrl.url, thumbUrl.height).then((src) => (img.src = src));
+    }
     const b = document.createElement('button');
     b.className = active ? 'ghost' : 'primary';
     b.textContent = active ? 'Using' : owned ? 'Use' : price === 0 ? 'Free' : `⬡ ${price}`;
@@ -960,18 +1001,29 @@ function renderStore(tab = 'hats'): void {
     }
   } else if (tab === 'avatars') {
     for (const a of AVATAR_STORE) {
-      row(a.name, a.price, ownsAvatar(a.id), profile.avatar === a.id, () => {
-        if (buy('avatar', a.id)) renderStore(tab);
-      });
+      row(
+        a.name, a.price, ownsAvatar(a.id), profile.avatar === a.id,
+        () => {
+          if (buy('avatar', a.id)) renderStore(tab);
+        },
+        undefined,
+        a.url ? { url: a.url, height: a.height ?? 120 } : undefined,
+      );
     }
   } else if (tab === 'furniture') {
     for (const f of FURNITURE_STORE) {
-      row(f.name, f.price, ownsFurniture(f.id), false, () => {
-        if (buy('furniture', f.id)) {
-          toast(`${f.name} added to your decorate bar 🛋`);
-          renderStore(tab);
-        }
-      });
+      const model = MODEL_DECOR.find((m) => m.id === f.id);
+      row(
+        f.name, f.price, ownsFurniture(f.id), false,
+        () => {
+          if (buy('furniture', f.id)) {
+            toast(`${f.name} added to your decorate bar 🛋`);
+            renderStore(tab);
+          }
+        },
+        undefined,
+        model ? { url: model.url, height: model.height } : undefined,
+      );
     }
   } else if (tab === 'houses') {
     for (const h of HOUSE_STORE) {
@@ -1342,6 +1394,7 @@ declare global {
       verium: () => number;
       grant: (n: number) => void;
       buy: (kind: BuyKind, id: string | number) => boolean;
+      redeem: (code: string) => boolean;
       owned: () => Record<string, unknown>;
     };
   }
@@ -1436,6 +1489,7 @@ window.__haven = {
     updateHud();
   },
   buy: (kind, id) => buy(kind, id),
+  redeem,
   owned: () => ({
     hats: [...profile.ownedHats],
     colors: [...profile.ownedColors],

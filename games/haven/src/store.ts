@@ -57,6 +57,7 @@ export const FURNITURE_STORE: readonly PricedItem[] = [
   { id: 'tiger', name: 'Tiger Friend', price: 250 },
   { id: 'dino', name: 'Dino Friend', price: 250 },
   { id: 'ember', name: 'Ember Orb', price: 280 },
+  { id: 'sleepy', name: 'Snoozer', price: 200 },
 ];
 
 /** .glb decor: drop a file in public/models/, list it here, price it in
@@ -71,12 +72,13 @@ export const MODEL_DECOR: readonly { id: string; url: string; height: number; gl
   { id: 'tiger', url: 'models/tiger.glb', height: 140 },
   { id: 'dino', url: 'models/dino.glb', height: 170 },
   { id: 'ember', url: 'models/ember.glb', height: 150, glow: 0xff3a1a },
+  { id: 'sleepy', url: 'models/sleepy.glb', height: 100 },
 ];
 
 /** Model decor that is ALIVE: placed like furniture, but it wanders its
  *  home patch, hops, and jumps — the files carry no rigs, so the whole
  *  body animates the way the blobs do. */
-export const PETS: ReadonlySet<string> = new Set(['mouse', 'robot', 'tiger', 'dino']);
+export const PETS: ReadonlySet<string> = new Set(['mouse', 'robot', 'tiger', 'dino', 'sleepy']);
 
 /** 🧍 Avatars: what YOU are. The blob is free and forever; model avatars
  *  are bought once and replace the blob body (hats still sit on top).
@@ -84,7 +86,18 @@ export const PETS: ReadonlySet<string> = new Set(['mouse', 'robot', 'tiger', 'di
 export const AVATAR_STORE: readonly (PricedItem & { url?: string; height?: number })[] = [
   { id: 'blob', name: 'Blob', price: 0 },
   { id: 'bag', name: 'The Bag', price: 350, url: 'models/bag.glb', height: 120 },
+  { id: 'gothic', name: 'Gothic Girl', price: 400, url: 'models/gothic.glb', height: 170 },
+  { id: 'trex', name: 'Rex', price: 400, url: 'models/trex.glb', height: 150 },
 ];
+
+/** 🎟 Redeem codes: type one in the store, own the thing — no ⬡ spent.
+ *  Client-side and kid-safe: codes unlock cosmetics only, never currency.
+ *  (They live in the bundle, so treat them as fun giveaways, not locks.) */
+export const REDEEM_CODES: Readonly<Record<string, { kind: 'avatar' | 'furniture'; id: string }>> = {
+  NIGHTBLOOM: { kind: 'avatar', id: 'gothic' },
+  RAWR: { kind: 'avatar', id: 'trex' },
+  GOODNIGHT: { kind: 'furniture', id: 'sleepy' },
+};
 
 export type HouseSizeId = 'cozy' | 'grand' | 'manor';
 
