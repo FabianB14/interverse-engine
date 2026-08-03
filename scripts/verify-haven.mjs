@@ -399,6 +399,18 @@ await hostPage.keyboard.up('w');
 // mean the clips are not playing.
 const rexRunOk = !shotA.equals(shotB) && midRunClip === 'walk';
 
+// 👗 The dress-rigged Gothic Girl: same contract as Rex — idle clip live
+// while standing, walk clip live mid-stride (her skirt sways as ONE piece).
+await hostPage.evaluate(() => window.__haven.redeem('NIGHTBLOOM'));
+await waitFor(() => S(hostPage), (s) => s.avatar === 'gothic' && s.avatarClip === 'idle', 12000);
+await hostPage.keyboard.down('w');
+await sleep(300);
+const gothicMidRun = (await S(hostPage)).avatarClip;
+await hostPage.screenshot({ path: `${outDir}/hv-15-gothicrun.png` });
+await hostPage.keyboard.up('w');
+await sleep(400);
+const gothicOk = gothicMidRun === 'walk' && (await S(hostPage)).avatarClip === 'idle';
+
 // 🔗 Wallet sync codes (the Bloomstead flow): Send mints a code, Receive
 // ADDS once on another device, and a replay is refused.
 const syncCode = await hostPage.evaluate(() => window.__haven.walletSyncSend());
@@ -416,7 +428,7 @@ const gates = {
   loftOk, refuseOk, persistOk, dailyOk, codeOk, visitOk, meetOk,
   friendBonusOk, moveOk, hatSyncOk, jumpSyncOk, avatarOk, redeemOk, redeemSyncOk, friendsOk, presenceOk,
   homeOk, leaveOk, bagCodeOk, npcsOk, talkOk, swimOk, bounceOk, vaultOk,
-  rexIdleOk, rexRunOk, syncOk,
+  rexIdleOk, rexRunOk, gothicOk, syncOk,
 };
 console.log(JSON.stringify({ ...gates, code, verium: sDaily.verium }, null, 2));
 

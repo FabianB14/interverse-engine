@@ -2,26 +2,31 @@
  * 🦴 Chop-and-rig: give a STATIC low-poly character real walk/idle clips.
  *
  * Models that arrive without skeletons cannot move their limbs — so this
- * carves the mesh itself: triangles are assigned to body / legL / legR /
- * armL / armR / tail by where they sit, each part becomes its own node
- * pivoted at its joint, and walk + idle animations (leg scissor, arm
- * counter-swing, tail sway, body bob) are baked into the file. three.js
- * plays them like any authored clips. Cuts are hidden by low amplitudes —
- * this is cartoon rigging, not surgery.
+ * carves the mesh itself: triangles are assigned to named parts by where
+ * they sit, each part becomes its own node pivoted at its joint, and walk
+ * + idle animations are baked into the file. three.js plays them like any
+ * authored clips. Every cut duplicates a band of triangles into the body
+ * too, so a swinging limb never opens a visible hole (the copies coincide
+ * exactly at rest — same flat material, so no shimmer).
  *
- * Tuned for quadruped-ish bipeds authored FACING +X (the LP dino). The
- * output is rotated to face +Z, our engine's forward.
+ * Two body plans, both authored FACING +X with sides ±Z (the FBX
+ * convention our converts arrive in); output is rotated to face +Z:
+ *   default   quadruped-ish biped: body / legL / legR / armL / armR / tail
+ *   --dress   humanoid in a skirt: body / armL / armR / skirt — the whole
+ *             lower half sways as ONE piece, because chopping legs out of
+ *             a dress would split the dress in half.
  *
- *   node scripts/rig-model.mjs in.glb out.glb
+ *   node scripts/rig-model.mjs in.glb out.glb [--dress]
  */
 import { Document, NodeIO } from '@gltf-transform/core';
 import { dequantize, prune } from '@gltf-transform/functions';
 
-const [src, dst] = process.argv.slice(2);
+const [src, dst, flag] = process.argv.slice(2);
 if (!src || !dst) {
-  console.error('usage: node scripts/rig-model.mjs <in.glb> <out.glb>');
+  console.error('usage: node scripts/rig-model.mjs <in.glb> <out.glb> [--dress]');
   process.exit(1);
 }
+const dress = flag === '--dress';
 
 const io = new NodeIO();
 const srcDoc = await io.read(src);
@@ -44,15 +49,22 @@ for (let i = 0; i < pos.length; i += 3) {
   }
 }
 const h = max[1] - min[1];
-const hipY = min[1] + h * 0.34;
-const armLoY = min[1] + h * 0.42;
-const armHiY = min[1] + h * 0.75;
 const halfZ = Math.max(Math.abs(min[2]), Math.abs(max[2]));
-const armZ = halfZ * 0.55;
+const hipY = min[1] + h * (dress ? 0.48 : 0.34);
+const armLoY = min[1] + h * (dress ? 0.55 : 0.42);
+const armHiY = min[1] + h * (dress ? 0.9 : 0.75);
+// A T-pose human's span IS the arms, so their band starts near the torso;
+// a quadruped's forelimbs sit outboard of a wide body.
+const armZ = halfZ * (dress ? 0.28 : 0.55);
 const tailX = min[0] + (max[0] - min[0]) * 0.22; // rear fifth = tail
 
 /** Which part does a triangle belong to? Centroid decides. */
 function regionOf(cx, cy, cz) {
+  if (dress) {
+    if (cy > armLoY && cy < armHiY && Math.abs(cz) > armZ) return cz >= 0 ? 'armL' : 'armR';
+    if (cy < hipY) return 'skirt';
+    return 'body';
+  }
   if (cy < hipY && cx > tailX) return cz >= 0 ? 'legL' : 'legR';
   if (cx < tailX && cy < armHiY) return 'tail';
   if (cy > armLoY && cy < armHiY && Math.abs(cz) > armZ && cx > 0) {
@@ -61,19 +73,32 @@ function regionOf(cx, cy, cz) {
   return 'body';
 }
 
-const groups = { body: [], legL: [], legR: [], armL: [], armR: [], tail: [] };
+/** Near a cut? Then the triangle ALSO stays with the body, patching the
+ *  hole the limb leaves behind when it swings. Arms are EXCLUDED: their
+ *  rest pose is a baked droop, so a body copy would linger as a frozen
+ *  T-pose stub sticking out of each shoulder. */
+function alsoBody(region, cx, cy) {
+  if (region === 'legL' || region === 'legR' || region === 'skirt') return cy > hipY - 0.08 * h;
+  if (region === 'tail') return cx > tailX - 0.06 * (max[0] - min[0]);
+  return false;
+}
+
+const groups = { body: [], legL: [], legR: [], armL: [], armR: [], tail: [], skirt: [] };
 for (let t = 0; t < idx.length; t += 3) {
   const [a, b, c] = [idx[t], idx[t + 1], idx[t + 2]];
   const cx = (pos[a * 3] + pos[b * 3] + pos[c * 3]) / 3;
   const cy = (pos[a * 3 + 1] + pos[b * 3 + 1] + pos[c * 3 + 1]) / 3;
   const cz = (pos[a * 3 + 2] + pos[b * 3 + 2] + pos[c * 3 + 2]) / 3;
-  groups[regionOf(cx, cy, cz)].push(a, b, c);
+  const region = regionOf(cx, cy, cz);
+  groups[region].push(a, b, c);
+  if (region !== 'body' && alsoBody(region, cx, cy)) groups.body.push(a, b, c);
 }
 
 // Joint pivots: legs at the hip line, arms at their inner-top edge, the
-// tail where it meets the rump.
+// skirt at the waist center, the tail where it meets the rump.
 function pivotOf(name, tris) {
   if (name === 'body') return [0, 0, 0];
+  if (name === 'skirt') return [0, hipY, 0];
   let sx = 0;
   let sz = 0;
   let n = 0;
@@ -129,9 +154,10 @@ for (const [name, tris] of Object.entries(groups)) {
     }
     I.push(m);
   }
+  const IndexArr = remap.size <= 65535 ? Uint16Array : Uint32Array;
   const prim = doc.createPrimitive()
     .setAttribute('POSITION', doc.createAccessor().setArray(new Float32Array(P)).setType('VEC3').setBuffer(buffer))
-    .setIndices(doc.createAccessor().setArray(new Uint32Array(I)).setType('SCALAR').setBuffer(buffer))
+    .setIndices(doc.createAccessor().setArray(new IndexArr(I)).setType('SCALAR').setBuffer(buffer))
     .setMaterial(outMat);
   if (nrm) prim.setAttribute('NORMAL', doc.createAccessor().setArray(new Float32Array(N)).setType('VEC3').setBuffer(buffer));
   if (uv) prim.setAttribute('TEXCOORD_0', doc.createAccessor().setArray(new Float32Array(U)).setType('VEC2').setBuffer(buffer));
@@ -148,17 +174,19 @@ for (const [name, tris] of Object.entries(groups)) {
 // the side axis Z moves feet forward/back — visible. But the T-pose arms
 // point ALONG ±Z: rotating them about Z only rolls them on their own long
 // axis, which moves nothing on screen. Arms get a baked droop about X
-// (goodbye T-pose) plus a forward/back sweep about Y.
+// (goodbye T-pose) plus a forward/back sweep about Y. The skirt sways
+// about the forward axis X — a side-to-side swish.
 const qz = (a) => [0, 0, Math.sin(a / 2), Math.cos(a / 2)]; // leg swing (about side axis Z)
 const qy = (a) => [0, Math.sin(a / 2), 0, Math.cos(a / 2)]; // tail wag / arm sweep
-const qx = (a) => [Math.sin(a / 2), 0, 0, Math.cos(a / 2)]; // arm droop/flap
+const qx = (a) => [Math.sin(a / 2), 0, 0, Math.cos(a / 2)]; // arm droop/flap, skirt sway
 const qmul = (q, r) => [
   q[3] * r[0] + q[0] * r[3] + q[1] * r[2] - q[2] * r[1],
   q[3] * r[1] - q[0] * r[2] + q[1] * r[3] + q[2] * r[0],
   q[3] * r[2] + q[0] * r[1] - q[1] * r[0] + q[2] * r[3],
   q[3] * r[3] - q[0] * r[0] - q[1] * r[1] - q[2] * r[2],
 ];
-const DROOP = 0.7; // rest pose: arms angled down, not a scarecrow
+// Rest pose: arms angled down, not a scarecrow. Humans hang further.
+const DROOP = dress ? 1.05 : 0.7;
 /** side: +1 = armL (+Z), -1 = armR (−Z). sweep>0 pushes the paw forward. */
 const armPose = (side, sweep, flap = 0) => qmul(qx(side * (DROOP + flap)), qy(sweep));
 
@@ -176,44 +204,67 @@ function addClip(name, channels) {
 }
 
 const W = 0.55; // one stride
-const swing = 0.8;
-const armSw = 0.7;
 const bodyBase = nodes.body.getTranslation();
-addClip('walk', [
-  { node: nodes.legL, path: 'rotation', size: 4, times: [0, W / 2, W], values: [...qz(swing), ...qz(-swing), ...qz(swing)] },
-  { node: nodes.legR, path: 'rotation', size: 4, times: [0, W / 2, W], values: [...qz(-swing), ...qz(swing), ...qz(-swing)] },
-  { node: nodes.armL, path: 'rotation', size: 4, times: [0, W / 2, W], values: [...armPose(1, -armSw), ...armPose(1, armSw), ...armPose(1, -armSw)] },
-  { node: nodes.armR, path: 'rotation', size: 4, times: [0, W / 2, W], values: [...armPose(-1, armSw), ...armPose(-1, -armSw), ...armPose(-1, armSw)] },
-  { node: nodes.tail, path: 'rotation', size: 4, times: [0, W / 2, W], values: [...qy(0.3), ...qy(-0.3), ...qy(0.3)] },
-  {
-    node: nodes.body, path: 'translation', size: 3,
-    times: [0, W / 4, W / 2, (3 * W) / 4, W],
-    values: [
-      ...bodyBase,
-      bodyBase[0], bodyBase[1] + h * 0.03, bodyBase[2],
-      ...bodyBase,
-      bodyBase[0], bodyBase[1] + h * 0.03, bodyBase[2],
-      ...bodyBase,
-    ],
-  },
-]);
-// Idle is NOT frozen: a visible weight-shift foot to foot, arms swaying,
-// tail wagging — standing still should still read as a living creature.
-const ID = 1.8;
-addClip('idle', [
-  { node: nodes.tail, path: 'rotation', size: 4, times: [0, ID / 2, ID], values: [...qy(0.22), ...qy(-0.22), ...qy(0.22)] },
-  { node: nodes.legL, path: 'rotation', size: 4, times: [0, ID / 2, ID], values: [...qz(0.12), ...qz(-0.12), ...qz(0.12)] },
-  { node: nodes.legR, path: 'rotation', size: 4, times: [0, ID / 2, ID], values: [...qz(-0.12), ...qz(0.12), ...qz(-0.12)] },
-  { node: nodes.armL, path: 'rotation', size: 4, times: [0, ID / 2, ID], values: [...armPose(1, 0.18, 0.1), ...armPose(1, -0.12, -0.06), ...armPose(1, 0.18, 0.1)] },
-  { node: nodes.armR, path: 'rotation', size: 4, times: [0, ID / 2, ID], values: [...armPose(-1, -0.12, -0.06), ...armPose(-1, 0.18, 0.1), ...armPose(-1, -0.12, -0.06)] },
-  {
-    node: nodes.body, path: 'translation', size: 3,
-    times: [0, ID / 2, ID],
-    values: [...bodyBase, bodyBase[0], bodyBase[1] + h * 0.02, bodyBase[2], ...bodyBase],
-  },
-]);
+const bob = (amp) => ({
+  node: nodes.body, path: 'translation', size: 3,
+  times: [0, W / 4, W / 2, (3 * W) / 4, W],
+  values: [
+    ...bodyBase,
+    bodyBase[0], bodyBase[1] + amp, bodyBase[2],
+    ...bodyBase,
+    bodyBase[0], bodyBase[1] + amp, bodyBase[2],
+    ...bodyBase,
+  ],
+});
+
+if (dress) {
+  const armSw = 0.5;
+  addClip('walk', [
+    { node: nodes.armL, path: 'rotation', size: 4, times: [0, W / 2, W], values: [...armPose(1, -armSw), ...armPose(1, armSw), ...armPose(1, -armSw)] },
+    { node: nodes.armR, path: 'rotation', size: 4, times: [0, W / 2, W], values: [...armPose(-1, armSw), ...armPose(-1, -armSw), ...armPose(-1, armSw)] },
+    { node: nodes.skirt, path: 'rotation', size: 4, times: [0, W / 2, W], values: [...qx(0.07), ...qx(-0.07), ...qx(0.07)] },
+    bob(h * 0.025),
+  ]);
+  const ID = 1.8;
+  addClip('idle', [
+    { node: nodes.armL, path: 'rotation', size: 4, times: [0, ID / 2, ID], values: [...armPose(1, 0.14, 0.08), ...armPose(1, -0.08, -0.05), ...armPose(1, 0.14, 0.08)] },
+    { node: nodes.armR, path: 'rotation', size: 4, times: [0, ID / 2, ID], values: [...armPose(-1, -0.08, -0.05), ...armPose(-1, 0.14, 0.08), ...armPose(-1, -0.08, -0.05)] },
+    { node: nodes.skirt, path: 'rotation', size: 4, times: [0, ID / 2, ID], values: [...qx(0.03), ...qx(-0.03), ...qx(0.03)] },
+    {
+      node: nodes.body, path: 'translation', size: 3,
+      times: [0, ID / 2, ID],
+      values: [...bodyBase, bodyBase[0], bodyBase[1] + h * 0.015, bodyBase[2], ...bodyBase],
+    },
+  ]);
+} else {
+  const swing = 0.8;
+  const armSw = 0.7;
+  addClip('walk', [
+    { node: nodes.legL, path: 'rotation', size: 4, times: [0, W / 2, W], values: [...qz(swing), ...qz(-swing), ...qz(swing)] },
+    { node: nodes.legR, path: 'rotation', size: 4, times: [0, W / 2, W], values: [...qz(-swing), ...qz(swing), ...qz(-swing)] },
+    { node: nodes.armL, path: 'rotation', size: 4, times: [0, W / 2, W], values: [...armPose(1, -armSw), ...armPose(1, armSw), ...armPose(1, -armSw)] },
+    { node: nodes.armR, path: 'rotation', size: 4, times: [0, W / 2, W], values: [...armPose(-1, armSw), ...armPose(-1, -armSw), ...armPose(-1, armSw)] },
+    { node: nodes.tail, path: 'rotation', size: 4, times: [0, W / 2, W], values: [...qy(0.3), ...qy(-0.3), ...qy(0.3)] },
+    bob(h * 0.03),
+  ]);
+  // Idle is NOT frozen: a visible weight-shift foot to foot, arms swaying,
+  // tail wagging — standing still should still read as a living creature.
+  const ID = 1.8;
+  addClip('idle', [
+    { node: nodes.tail, path: 'rotation', size: 4, times: [0, ID / 2, ID], values: [...qy(0.22), ...qy(-0.22), ...qy(0.22)] },
+    { node: nodes.legL, path: 'rotation', size: 4, times: [0, ID / 2, ID], values: [...qz(0.12), ...qz(-0.12), ...qz(0.12)] },
+    { node: nodes.legR, path: 'rotation', size: 4, times: [0, ID / 2, ID], values: [...qz(-0.12), ...qz(0.12), ...qz(-0.12)] },
+    { node: nodes.armL, path: 'rotation', size: 4, times: [0, ID / 2, ID], values: [...armPose(1, 0.18, 0.1), ...armPose(1, -0.12, -0.06), ...armPose(1, 0.18, 0.1)] },
+    { node: nodes.armR, path: 'rotation', size: 4, times: [0, ID / 2, ID], values: [...armPose(-1, -0.12, -0.06), ...armPose(-1, 0.18, 0.1), ...armPose(-1, -0.12, -0.06)] },
+    {
+      node: nodes.body, path: 'translation', size: 3,
+      times: [0, ID / 2, ID],
+      values: [...bodyBase, bodyBase[0], bodyBase[1] + h * 0.02, bodyBase[2], ...bodyBase],
+    },
+  ]);
+}
 
 await doc.transform(prune());
 await io.write(dst, doc);
 const { statSync } = await import('node:fs');
-console.log(`${dst}: ${(statSync(dst).size / 1e6).toFixed(2)} MB, clips: walk, idle`);
+console.log(`${dst}: ${(statSync(dst).size / 1e6).toFixed(2)} MB, clips: walk, idle${dress ? ' (dress)' : ''}`);

@@ -969,7 +969,7 @@ export interface ModelAvatarOptions {
   rotY?: number;
   /** Geometry eyes for models whose face textures never made it out of
    *  the exporter: x spread, height, forward offset, radius. */
-  eyes?: { dx: number; y: number; fz: number; r: number };
+  eyes?: { dx: number; y: number; fz: number; r: number; sclera?: boolean };
 }
 
 /** A bought MODEL as your body: the .glb replaces the blob, the hat still
@@ -1007,6 +1007,24 @@ export function modelAvatar(
   if (opts.eyes) {
     const e = opts.eyes;
     for (const side of [-1, 1]) {
+      if (e.sclera) {
+        // Anime style for dark faces: a white almond behind a dark pupil —
+        // dark-on-dark bead eyes vanish on characters like the Gothic Girl.
+        const white = new Mesh(
+          new SphereGeometry(e.r * 1.3, 8, 6),
+          new MeshStandardMaterial({ color: 0xf2eee8, roughness: 0.5 }),
+        );
+        white.scale.set(1, 0.75, 0.35);
+        white.position.set(side * e.dx, e.y, e.fz);
+        view.add(white);
+        const pupil = new Mesh(
+          new SphereGeometry(e.r * 0.78, 7, 6),
+          new MeshStandardMaterial({ color: 0x2b2b3a, roughness: 0.35 }),
+        );
+        pupil.position.set(side * e.dx, e.y, e.fz + e.r * 0.3);
+        view.add(pupil);
+        continue;
+      }
       const eye = new Mesh(
         new SphereGeometry(e.r, 7, 6),
         new MeshStandardMaterial({ color: 0x2b2b3a, roughness: 0.35 }),

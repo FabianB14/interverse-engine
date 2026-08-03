@@ -97,17 +97,20 @@ export interface AvatarRow extends PricedItem {
   rotY?: number;
   /** Simple geometry eyes for models that arrived without face textures:
    *  x spread, height, forward offset, radius — in world units. */
-  eyes?: { dx: number; y: number; fz: number; r: number };
+  eyes?: { dx: number; y: number; fz: number; r: number; sclera?: boolean };
 }
 
 export const AVATAR_STORE: readonly AvatarRow[] = [
   { id: 'blob', name: 'Blob', price: 0 },
   { id: 'bag', name: 'The Bag', price: 350, url: 'models/bag.glb', height: 120 },
-  { id: 'gothic', name: 'Gothic Girl', price: 400, url: 'models/gothic.glb', height: 170 },
-  // Rex is chop-rigged (scripts/rig-model.mjs): facing is baked into the
-  // file and his walk/idle clips move real legs — no rotY needed.
+  // Both are chop-rigged (scripts/rig-model.mjs): facing is baked into
+  // the file and their walk/idle clips move real limbs — no rotY needed.
   {
-    id: 'trex', name: 'Rex', price: 400, url: 'models/trex2.glb', height: 150,
+    id: 'gothic', name: 'Gothic Girl', price: 400, url: 'models/gothic2.glb', height: 170,
+    eyes: { dx: 5.8, y: 144.5, fz: 12, r: 2, sclera: true },
+  },
+  {
+    id: 'trex', name: 'Rex', price: 400, url: 'models/trex3.glb', height: 150,
     eyes: { dx: 17, y: 112, fz: 34, r: 7 },
   },
 ];
