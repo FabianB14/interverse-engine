@@ -1,20 +1,21 @@
 /**
  * 🏡 Blobhaven — the cozy social hub (spec §2: party/cozy first).
  *
- * Every player owns a WORLD: an island yard and a house you can walk into
- * and decorate. Your world persists on your device; opening it creates a
- * relay room and friends walk in as guests — they see YOUR decor, you all
- * see each other, and nobody but you can move your furniture. Cosmetics
- * ride along: color + hat travel in the hello and roster messages.
+ * Every player owns a WORLD: a big island meadow and a house you can walk
+ * into and decorate — now in three sizes (the manor has a real upstairs)
+ * and five themes, all bought with ⬡ Verium, the SHARED Interverse
+ * wallet (@interverse/core): the same balance Bloomstead pays out, spent
+ * here on hats, coats, furniture and houses. Earning here is cozy too —
+ * a welcome gift, a daily gift, and a little ⬡ for every new friend.
  *
  * Identity is an opaque friend code (no accounts, no PII — spec §8.6);
  * the friends LIST lives in the local save, and the relay's in-memory
  * presence directory only answers "is this code online right now, and
  * what room do I knock on?" Losing the relay loses nothing.
  *
- * Cameras: this is the first game on PlayerCam — third person by default,
- * 📷 toggles first person. Left half of the screen is the walk stick,
- * right half is the look stick, exactly like every mobile 3D game.
+ * Cameras: PlayerCam third person by default, 📷 toggles first person.
+ * Left half of the screen is the walk stick, right half is the look
+ * stick, exactly like every mobile 3D game.
  */
 
 import { Fog, Group, Plane, Raycaster, Vector2, Vector3 } from 'three';
@@ -22,29 +23,35 @@ import {
   PlayerCam, autoQuality, createGame3, lightRig, skyDome,
 } from '@interverse/three';
 import type { Game3 } from '@interverse/three';
-import { audio } from '@interverse/core';
+import { audio, verium } from '@interverse/core';
 import { host, join } from '@interverse/net';
 import type { Session } from '@interverse/net';
 import {
-  CATALOGUE, blobAvatar, buildItem, houseExterior, houseInterior, islandView, pathView, yardTrees,
+  CATALOGUE, blobAvatar, buildItem, houseExterior, houseInterior, islandView, loftInterior,
+  modelStats, pathView, pondView, rockCluster, yardTrees,
 } from './art.js';
-import type { Avatar } from './art.js';
-import {
-  COLORS, HATS, addFriend, freshDecorId, loadProfile, removeFriend, saveProfile,
-} from './save.js';
+import type { Avatar, HouseSpec } from './art.js';
+import { addFriend, freshDecorId, loadProfile, removeFriend, saveProfile } from './save.js';
 import type { DecorItem, Profile } from './save.js';
+import {
+  BASE_COLORS, FURNITURE_STORE, HAT_STORE, HOUSE_SIZES, HOUSE_STORE, PREMIUM_COLORS,
+  THEME_STORE, themeById,
+} from './store.js';
+import type { HouseSizeId } from './store.js';
 import { GAME_TAG, presenceUrl, resolveRelayUrl } from './config.js';
 
 // ------------------------------------------------------------ constants
 
-const YARD_R = 1150;
-const HOUSE = { x: 0, z: -620, w: 640, d: 460, doorW: 150 };
-const HOUSE_HALF_W = 460;
-const HOUSE_HALF_D = 320;
-const SPEED = 340;
+/** 10× the original island's AREA: r 1150 → 3650. */
+const YARD_R = 3650;
+const HOUSE_Z = -620;
+const SPEED = 430;
 const POS_HZ_MS = 100;
+const WELCOME_VRM = 200;
+const DAILY_VRM = 60;
+const FRIEND_VRM = 25;
 
-type Room = 'yard' | 'house';
+type Room = 'yard' | 'house' | 'loft';
 
 const params = new URLSearchParams(location.search);
 if (params.get('fresh')) localStorage.removeItem('interverse:haven');
@@ -55,6 +62,91 @@ if (params.get('name')) {
   saveProfile(profile);
 }
 
+// 🎁 The welcome gift: enough ⬡ for a first hat and a campfire.
+if (!profile.welcomed) {
+  profile.welcomed = true;
+  verium.add(WELCOME_VRM);
+  saveProfile(profile);
+}
+
+// --------------------------------------------------------- ownership
+
+const ownsHat = (id: string): boolean =>
+  (HAT_STORE.find((h) => h.id === id)?.price ?? 1) === 0 || profile.ownedHats.includes(id);
+const ownsColor = (c: number): boolean =>
+  BASE_COLORS.includes(c) || profile.ownedColors.includes(c);
+const ownsFurniture = (id: string): boolean =>
+  !FURNITURE_STORE.some((f) => f.id === id) || profile.ownedFurniture.includes(id);
+const ownsHouse = (id: HouseSizeId): boolean =>
+  id === 'cozy' || profile.ownedHouses.includes(id);
+const ownsTheme = (id: string): boolean =>
+  (THEME_STORE.find((t) => t.id === id)?.price ?? 1) === 0 || profile.ownedThemes.includes(id);
+
+type BuyKind = 'hat' | 'color' | 'furniture' | 'house' | 'theme';
+
+/** Spend ⬡, record ownership, equip/apply immediately. */
+function buy(kind: BuyKind, id: string | number): boolean {
+  const fail = (msg: string): false => {
+    toast(msg);
+    return false;
+  };
+  if (kind === 'hat') {
+    const row = HAT_STORE.find((h) => h.id === id);
+    if (!row) return false;
+    if (!ownsHat(row.id)) {
+      if (!verium.spend(row.price)) return fail(`need ⬡${row.price}`);
+      profile.ownedHats.push(row.id);
+    }
+    profile.hat = row.id;
+    me.setHat(row.id);
+  } else if (kind === 'color') {
+    const c = Number(id);
+    const row = PREMIUM_COLORS.find((p) => p.color === c);
+    if (!ownsColor(c)) {
+      if (!row) return false;
+      if (!verium.spend(row.price)) return fail(`need ⬡${row.price}`);
+      profile.ownedColors.push(c);
+    }
+    profile.color = c;
+    me.setColor(c);
+  } else if (kind === 'furniture') {
+    const row = FURNITURE_STORE.find((f) => f.id === id);
+    if (!row) return false;
+    if (!ownsFurniture(row.id)) {
+      if (!verium.spend(row.price)) return fail(`need ⬡${row.price}`);
+      profile.ownedFurniture.push(row.id);
+    }
+  } else if (kind === 'house') {
+    const row = HOUSE_STORE.find((h) => h.id === id);
+    if (!row) return false;
+    const sizeId = row.id as HouseSizeId;
+    if (!ownsHouse(sizeId)) {
+      if (!verium.spend(row.price)) return fail(`need ⬡${row.price}`);
+      profile.ownedHouses.push(sizeId);
+    }
+    profile.houseSize = sizeId;
+    if (!visiting) {
+      if (room !== 'yard') exitToYard();
+      rebuildWorld();
+    }
+  } else {
+    const row = THEME_STORE.find((t) => t.id === id);
+    if (!row) return false;
+    if (!ownsTheme(row.id)) {
+      if (!verium.spend(row.price)) return fail(`need ⬡${row.price}`);
+      profile.ownedThemes.push(row.id);
+    }
+    profile.houseTheme = row.id;
+    if (!visiting) rebuildWorld();
+  }
+  saveProfile(profile);
+  sendLook();
+  sendHouse();
+  audio.chime();
+  updateHud();
+  return true;
+}
+
 // ------------------------------------------------------------- three.js
 
 const game: Game3 = createGame3({
@@ -63,9 +155,9 @@ const game: Game3 = createGame3({
   update: (dt) => update(dt),
 });
 autoQuality(game);
-const rig = lightRig(game.scene, { intensity: 1.15, shadowArea: 1400 });
+const rig = lightRig(game.scene, { intensity: 1.15, shadowArea: 1600 });
 rig.hemi.intensity = 0.65;
-game.scene.fog = new Fog(0xc9a37c, 1600, 5200);
+game.scene.fog = new Fog(0xc9a37c, 2400, 8600);
 game.scene.add(skyDome({ horizon: 0xd8a878, zenith: 0x5a7a9a }));
 
 const playerCam = new PlayerCam({
@@ -74,7 +166,7 @@ const playerCam = new PlayerCam({
   distance: 470,
   eyeHeight: 96,
 });
-playerCam.yaw = Math.PI; // face the house on spawn
+playerCam.yaw = 0; // spawn vista: the path leading up to YOUR house
 
 // ------------------------------------------------------- world building
 
@@ -82,6 +174,7 @@ const worldRoot = new Group();
 game.scene.add(worldRoot);
 let yardGroup = new Group();
 let houseGroup = new Group();
+let loftGroup = new Group();
 /** Placed decor views by id, for tap-to-remove. */
 const decorViews = new Map<string, { group: Group; item: string }>();
 
@@ -89,27 +182,53 @@ const decorViews = new Map<string, { group: Group; item: string }>();
  *  visiting. Mutating this while at home mutates the save's array. */
 let worldDecor: DecorItem[] = profile.decor;
 let visiting: { hostName: string; hostCode: string } | null = null;
+/** Whose house shape/theme the world wears right now. */
+let worldHouse: { size: HouseSizeId; theme: string } = {
+  size: profile.houseSize,
+  theme: profile.houseTheme,
+};
+
+function houseSpec(): HouseSpec {
+  const dims = HOUSE_SIZES[worldHouse.size];
+  return { x: 0, z: HOUSE_Z, w: dims.w, d: dims.d, doorW: dims.doorW, stories: dims.stories };
+}
 
 function rebuildWorld(): void {
-  worldRoot.remove(yardGroup, houseGroup);
+  if (!visiting) worldHouse = { size: profile.houseSize, theme: profile.houseTheme };
+  const spec = houseSpec();
+  const dims = HOUSE_SIZES[worldHouse.size];
+  const theme = themeById(worldHouse.theme);
+  worldRoot.remove(yardGroup, houseGroup, loftGroup);
   decorViews.clear();
   yardGroup = new Group();
   yardGroup.add(islandView(YARD_R));
-  yardGroup.add(pathView(360, HOUSE.z + HOUSE.d / 2 + 90));
-  yardGroup.add(yardTrees(YARD_R));
-  yardGroup.add(houseExterior(HOUSE));
+  yardGroup.add(pathView(360, HOUSE_Z + spec.d / 2 + 90));
+  yardGroup.add(
+    yardTrees(YARD_R, [
+      { x: 0, z: HOUSE_Z, r: dims.w + 400 },
+      { x: 0, z: 200, r: 700 },
+      { x: 1500, z: 1100, r: 520 },
+    ]),
+  );
+  yardGroup.add(pondView(1500, 1100, 340));
+  yardGroup.add(rockCluster(-1700, -400, 71));
+  yardGroup.add(rockCluster(900, -1900, 83));
+  yardGroup.add(rockCluster(-800, 2100, 97));
+  yardGroup.add(houseExterior(spec, theme));
   houseGroup = new Group();
-  houseGroup.add(houseInterior(HOUSE_HALF_W, HOUSE_HALF_D, HOUSE.doorW));
+  houseGroup.add(houseInterior(dims.halfW, dims.halfD, dims.doorW, theme, { stairs: dims.stories > 1 }));
+  loftGroup = new Group();
+  if (dims.stories > 1) loftGroup.add(loftInterior(dims.halfW - 80, dims.halfD - 80, theme));
   let seed = 5;
   for (const d of worldDecor) {
     const view = buildItem(d.item, seed++);
     if (!view) continue;
     view.position.set(d.x, 0, d.z);
     view.rotation.y = d.rot;
-    (d.room === 'yard' ? yardGroup : houseGroup).add(view);
+    (d.room === 'yard' ? yardGroup : d.room === 'loft' ? loftGroup : houseGroup).add(view);
     decorViews.set(d.id, { group: view, item: d.item });
   }
-  worldRoot.add(yardGroup, houseGroup);
+  worldRoot.add(yardGroup, houseGroup, loftGroup);
   applyRoom();
 }
 
@@ -117,6 +236,7 @@ let room: Room = 'yard';
 function applyRoom(): void {
   yardGroup.visible = room === 'yard';
   houseGroup.visible = room === 'house';
+  loftGroup.visible = room === 'loft';
   for (const o of others.values()) o.avatar.view.visible = o.room === room;
 }
 
@@ -282,11 +402,16 @@ let selItem = 'plant';
 
 function decorAllowedAt(item: string, x: number, z: number): boolean {
   const entry = CATALOGUE.find((c) => c.id === item);
-  if (!entry || !entry.rooms.includes(room)) return false;
-  if (room === 'house') return Math.abs(x) < HOUSE_HALF_W - 60 && Math.abs(z) < HOUSE_HALF_D - 60;
+  if (!entry || !entry.rooms.includes(room) || !ownsFurniture(item)) return false;
+  const dims = HOUSE_SIZES[worldHouse.size];
+  if (room === 'house') return Math.abs(x) < dims.halfW - 60 && Math.abs(z) < dims.halfD - 60;
+  if (room === 'loft') {
+    return Math.abs(x) < dims.halfW - 140 && Math.abs(z) < dims.halfD - 140;
+  }
   if (Math.hypot(x, z) > YARD_R - 110) return false;
+  const spec = houseSpec();
   const inHouse =
-    Math.abs(x - HOUSE.x) < HOUSE.w / 2 + 40 && Math.abs(z - HOUSE.z) < HOUSE.d / 2 + 40;
+    Math.abs(x) < spec.w / 2 + 40 && Math.abs(z - HOUSE_Z) < spec.d / 2 + 40;
   return !inHouse;
 }
 
@@ -329,6 +454,24 @@ function myPos(): [number, number, Room, number, number] {
   ];
 }
 
+function worldSnapshot(): Record<string, unknown> {
+  return {
+    t: 'world',
+    host: pubProfile(),
+    decor: profile.decor,
+    house: { size: profile.houseSize, theme: profile.houseTheme },
+  };
+}
+
+/** A new friendship pays a little ⬡ — meeting people is the game. */
+function metFriend(code: string, name: string): void {
+  if (addFriend(profile, code, name)) {
+    verium.add(FRIEND_VRM);
+    toast(`New friend: ${name} 💛 +⬡${FRIEND_VRM}`);
+    updateHud();
+  }
+}
+
 /** Open my world: host a room, announce presence, greet guests with the
  *  full world snapshot. */
 async function openWorld(): Promise<string> {
@@ -338,7 +481,7 @@ async function openWorld(): Promise<string> {
   session = s;
   s.announce(profile.friendCode);
   s.onPlayerJoin((p) => {
-    s.sendTo(p.id, { t: 'world', host: pubProfile(), decor: worldDecor });
+    s.sendTo(p.id, worldSnapshot());
     toast(`${p.name} arrived! 🌟`);
   });
   s.onPlayerLeave((id) => {
@@ -350,7 +493,7 @@ async function openWorld(): Promise<string> {
     const msg = raw as { t?: string; p?: ReturnType<typeof pubProfile>; l?: unknown[] };
     if (msg.t === 'hi' && msg.p) {
       upsertOther(from, msg.p.name, msg.p.color, msg.p.hat);
-      if (msg.p.friendCode) addFriend(profile, msg.p.friendCode, msg.p.name);
+      if (msg.p.friendCode) metFriend(msg.p.friendCode, msg.p.name);
       meetAll();
       renderFriends();
       updateHud();
@@ -388,7 +531,7 @@ function applyPos(id: string, l: [number, number, Room, number, number]): void {
   if (!o) return;
   o.tx = l[0];
   o.tz = l[1];
-  o.room = l[2] === 'house' ? 'house' : 'yard';
+  o.room = l[2] === 'house' ? 'house' : l[2] === 'loft' ? 'loft' : 'yard';
   o.yaw = l[3];
   o.moving = !!l[4];
   o.avatar.view.visible = o.room === room;
@@ -411,12 +554,18 @@ async function visit(code: string): Promise<void> {
       host?: ReturnType<typeof pubProfile>;
       p?: ReturnType<typeof pubProfile>;
       decor?: DecorItem[];
+      house?: { size?: string; theme?: string };
       l?: Record<string, [number, number, Room, number, number]>;
     };
     if (msg.t === 'world' && msg.host && Array.isArray(msg.decor)) {
       visiting = { hostName: msg.host.name, hostCode: msg.host.friendCode };
       worldDecor = msg.decor;
-      addFriend(profile, msg.host.friendCode, msg.host.name);
+      const size = msg.house?.size;
+      worldHouse = {
+        size: size === 'grand' || size === 'manor' ? size : 'cozy',
+        theme: typeof msg.house?.theme === 'string' ? msg.house.theme : 'meadow',
+      };
+      metFriend(msg.host.friendCode, msg.host.name);
       rebuildWorld();
       room = 'yard';
       me.view.position.set(120, 0, 420);
@@ -460,9 +609,25 @@ function goHome(reason?: string): void {
   rebuildWorld();
   room = 'yard';
   me.view.position.set(0, 0, 420);
+  rig.hemi.intensity = 0.65;
   applyRoom();
   updateHud();
   if (reason) toast(reason);
+}
+
+/** Cosmetics changed mid-session: re-introduce myself. */
+function sendLook(): void {
+  if (!session) return;
+  if (session.isHost) {
+    session.broadcast({ t: 'meet', id: session.id, p: pubProfile() });
+  } else {
+    session.send({ t: 'hi', p: pubProfile() });
+  }
+}
+
+/** House size/theme changed while guests are over: re-send the world. */
+function sendHouse(): void {
+  if (session?.isHost) session.broadcast(worldSnapshot());
 }
 
 // ------------------------------------------------------------- presence
@@ -485,8 +650,8 @@ async function pollPresence(): Promise<number> {
   updateHud();
   return Object.keys(onlineMap).length;
 }
+// (First poll happens in the boot section — the UI it repaints must exist.)
 setInterval(() => void pollPresence(), 25_000);
-void pollPresence();
 
 // ------------------------------------------------------------------- UI
 
@@ -512,6 +677,7 @@ function updateHud(): void {
   const online = Object.keys(onlineMap).length;
   if (!session && online) bits.push(`${online} online`);
   subtitleEl.textContent = bits.join(' · ');
+  $('verium').textContent = `⬡ ${verium.balance()}`;
   $('b-decor').classList.toggle('hidden', !!visiting);
   $('b-home').classList.toggle('hidden', !visiting);
   hintEl.textContent = decorMode ? 'tap the ground to place · tap a furnishing to pick it up' : '';
@@ -520,7 +686,7 @@ function updateHud(): void {
 function togglePanel(id: string, open?: boolean): void {
   const el = $(id);
   const want = open ?? el.classList.contains('hidden');
-  for (const p of ['wardrobe', 'friends', 'invite']) $(p).classList.add('hidden');
+  for (const p of ['wardrobe', 'friends', 'invite', 'store']) $(p).classList.add('hidden');
   if (want) el.classList.remove('hidden');
 }
 for (const el of document.querySelectorAll<HTMLElement>('[data-close]')) {
@@ -556,20 +722,132 @@ $('b-invite').onclick = () => {
   renderInvite();
   togglePanel('invite');
 };
+$('b-store').onclick = () => {
+  renderStore();
+  togglePanel('store');
+};
 
 function renderDecorBar(): void {
   const bar = $('decorbar');
   bar.innerHTML = '';
   for (const item of CATALOGUE) {
     if (!item.rooms.includes(room)) continue;
+    const owned = ownsFurniture(item.id);
     const b = document.createElement('button');
-    b.innerHTML = `${item.emoji}<small>${item.label}</small>`;
-    b.classList.toggle('on', selItem === item.id);
+    b.innerHTML = owned
+      ? `${item.emoji}<small>${item.label}</small>`
+      : `🔒<small>${item.label}</small>`;
+    b.classList.toggle('on', selItem === item.id && owned);
     b.onclick = () => {
+      if (!owned) {
+        togglePanel('store', true);
+        renderStore('furniture');
+        return;
+      }
       selItem = item.id;
       renderDecorBar();
     };
     bar.appendChild(b);
+  }
+}
+
+// 🏪 The store: five shelves, one buy() path.
+function renderStore(tab = 'hats'): void {
+  const tabs = $('s-tabs');
+  tabs.innerHTML = '';
+  const sections: [string, string][] = [
+    ['hats', '👒 Hats'], ['coats', '🎨 Coats'], ['furniture', '🛋 Furniture'],
+    ['houses', '🏠 Houses'], ['themes', '🖌 Themes'],
+  ];
+  for (const [id, label] of sections) {
+    const b = document.createElement('button');
+    b.className = `hatbtn${tab === id ? ' on' : ''}`;
+    b.textContent = label;
+    b.onclick = () => renderStore(id);
+    tabs.appendChild(b);
+  }
+  $('s-balance').textContent = `⬡ ${verium.balance()}`;
+  // The daily gift lives in the store's header — one tap a day.
+  const today = new Date().toISOString().slice(0, 10);
+  const daily = $('s-daily') as HTMLButtonElement;
+  daily.disabled = profile.lastDaily === today;
+  daily.textContent = daily.disabled ? '🎁 come back tomorrow' : `🎁 Daily gift +⬡${DAILY_VRM}`;
+  daily.onclick = () => {
+    if (profile.lastDaily === today) return;
+    profile.lastDaily = today;
+    saveProfile(profile);
+    verium.add(DAILY_VRM);
+    audio.chime();
+    renderStore(tab);
+    updateHud();
+  };
+  const list = $('s-list');
+  list.innerHTML = '';
+  const row = (
+    label: string,
+    price: number,
+    owned: boolean,
+    active: boolean,
+    onBuy: () => void,
+    swatch?: number,
+  ): void => {
+    const div = document.createElement('div');
+    div.className = 'friend';
+    const dot = swatch !== undefined
+      ? `<span class="swatch" style="width:26px;height:26px;background:#${swatch.toString(16).padStart(6, '0')}"></span>`
+      : '';
+    div.innerHTML = `${dot}<span class="who">${label}</span>`;
+    const b = document.createElement('button');
+    b.className = active ? 'ghost' : 'primary';
+    b.textContent = active ? 'Using' : owned ? 'Use' : price === 0 ? 'Free' : `⬡ ${price}`;
+    if (!active) b.onclick = onBuy;
+    div.appendChild(b);
+    list.appendChild(div);
+  };
+  if (tab === 'hats') {
+    for (const h of HAT_STORE) {
+      row(h.name, h.price, ownsHat(h.id), profile.hat === h.id, () => {
+        if (buy('hat', h.id)) renderStore(tab);
+      });
+    }
+  } else if (tab === 'coats') {
+    for (const c of BASE_COLORS) {
+      row('Coat', 0, true, profile.color === c, () => {
+        if (buy('color', c)) renderStore(tab);
+      }, c);
+    }
+    for (const p of PREMIUM_COLORS) {
+      row(p.name, p.price, ownsColor(p.color), profile.color === p.color, () => {
+        if (buy('color', p.color)) renderStore(tab);
+      }, p.color);
+    }
+  } else if (tab === 'furniture') {
+    for (const f of FURNITURE_STORE) {
+      row(f.name, f.price, ownsFurniture(f.id), false, () => {
+        if (buy('furniture', f.id)) {
+          toast(`${f.name} added to your decorate bar 🛋`);
+          renderStore(tab);
+        }
+      });
+    }
+  } else if (tab === 'houses') {
+    for (const h of HOUSE_STORE) {
+      row(
+        `${h.name} — ${h.blurb}`,
+        h.price,
+        ownsHouse(h.id as HouseSizeId),
+        !visiting && profile.houseSize === h.id,
+        () => {
+          if (buy('house', h.id)) renderStore(tab);
+        },
+      );
+    }
+  } else {
+    for (const t of THEME_STORE) {
+      row(t.name, t.price, ownsTheme(t.id), profile.houseTheme === t.id, () => {
+        if (buy('theme', t.id)) renderStore(tab);
+      }, t.wall);
+    }
   }
 }
 
@@ -584,44 +862,37 @@ function renderWardrobe(): void {
   };
   const colors = $('w-colors');
   colors.innerHTML = '';
-  for (const c of COLORS) {
+  for (const c of [...BASE_COLORS, ...profile.ownedColors]) {
     const b = document.createElement('button');
     b.className = `swatch${profile.color === c ? ' on' : ''}`;
     b.style.background = `#${c.toString(16).padStart(6, '0')}`;
     b.onclick = () => {
-      profile.color = c;
-      saveProfile(profile);
-      me.setColor(c);
-      sendLook();
+      buy('color', c);
       renderWardrobe();
     };
     colors.appendChild(b);
   }
   const hats = $('w-hats');
   hats.innerHTML = '';
-  for (const h of HATS) {
+  for (const h of HAT_STORE) {
+    if (!ownsHat(h.id)) continue;
     const b = document.createElement('button');
     b.className = `hatbtn${profile.hat === h.id ? ' on' : ''}`;
     b.textContent = h.name;
     b.onclick = () => {
-      profile.hat = h.id;
-      saveProfile(profile);
-      me.setHat(h.id);
-      sendLook();
+      buy('hat', h.id);
       renderWardrobe();
     };
     hats.appendChild(b);
   }
-}
-
-/** Cosmetics changed mid-session: re-introduce myself. */
-function sendLook(): void {
-  if (!session) return;
-  if (session.isHost) {
-    session.broadcast({ t: 'meet', id: session.id, p: pubProfile() });
-  } else {
-    session.send({ t: 'hi', p: pubProfile() });
-  }
+  const more = document.createElement('button');
+  more.className = 'hatbtn';
+  more.textContent = '🏪 more in the Store…';
+  more.onclick = () => {
+    renderStore('hats');
+    togglePanel('store', true);
+  };
+  hats.appendChild(more);
 }
 
 function renderFriends(): void {
@@ -633,9 +904,9 @@ function renderFriends(): void {
   }
   for (const f of profile.friends) {
     const roomCode = onlineMap[f.code];
-    const row = document.createElement('div');
-    row.className = 'friend';
-    row.innerHTML = `<span class="dot${roomCode ? ' online' : ''}"></span><span class="who">${f.name}<small>${f.code}</small></span>`;
+    const rowEl = document.createElement('div');
+    rowEl.className = 'friend';
+    rowEl.innerHTML = `<span class="dot${roomCode ? ' online' : ''}"></span><span class="who">${f.name}<small>${f.code}</small></span>`;
     if (roomCode) {
       const go = document.createElement('button');
       go.className = 'primary';
@@ -644,7 +915,7 @@ function renderFriends(): void {
         togglePanel('friends', false);
         void visit(roomCode).catch((err: Error) => toast(err.message));
       };
-      row.appendChild(go);
+      rowEl.appendChild(go);
     }
     const del = document.createElement('button');
     del.className = 'ghost';
@@ -653,14 +924,14 @@ function renderFriends(): void {
       removeFriend(profile, f.code);
       renderFriends();
     };
-    row.appendChild(del);
-    list.appendChild(row);
+    rowEl.appendChild(del);
+    list.appendChild(rowEl);
   }
   ($('f-add') as HTMLButtonElement).onclick = () => {
     const code = ($('f-code') as HTMLInputElement).value.trim().toUpperCase();
     const name = ($('f-name') as HTMLInputElement).value.trim() || 'Friend';
     if (code.length >= 4) {
-      addFriend(profile, code, name);
+      metFriend(code, name);
       ($('f-code') as HTMLInputElement).value = '';
       ($('f-name') as HTMLInputElement).value = '';
       renderFriends();
@@ -720,6 +991,8 @@ function update(dt: number): void {
   const iz = Math.max(-1, Math.min(1, held.z + stick.z));
   const mv = playerCam.moveVector(ix, iz);
   const moving = mv.x !== 0 || mv.z !== 0;
+  const dims = HOUSE_SIZES[worldHouse.size];
+  const spec = houseSpec();
   if (moving) {
     let nx = me.view.position.x + mv.x * SPEED * dt;
     let nz = me.view.position.z + mv.z * SPEED * dt;
@@ -731,15 +1004,13 @@ function update(dt: number): void {
         nz *= (YARD_R - 70) / r;
       }
       // …and out of the house walls (the door strip is the way in).
-      const inX = Math.abs(nx - HOUSE.x) < HOUSE.w / 2 + 30;
-      const inZ = Math.abs(nz - HOUSE.z) < HOUSE.d / 2 + 30;
+      const inX = Math.abs(nx) < spec.w / 2 + 30;
+      const inZ = Math.abs(nz - HOUSE_Z) < spec.d / 2 + 30;
       const inDoor =
-        Math.abs(nx - HOUSE.x) < HOUSE.doorW / 2 &&
-        nz > HOUSE.z &&
-        nz < HOUSE.z + HOUSE.d / 2 + 80;
+        Math.abs(nx) < spec.doorW / 2 && nz > HOUSE_Z && nz < HOUSE_Z + spec.d / 2 + 80;
       if (inX && inZ && !inDoor) {
-        const keepX = Math.abs(me.view.position.x - HOUSE.x) >= HOUSE.w / 2 + 30;
-        const keepZ = Math.abs(me.view.position.z - HOUSE.z) >= HOUSE.d / 2 + 30;
+        const keepX = Math.abs(me.view.position.x) >= spec.w / 2 + 30;
+        const keepZ = Math.abs(me.view.position.z - HOUSE_Z) >= spec.d / 2 + 30;
         if (keepX) nx = me.view.position.x;
         else if (keepZ) nz = me.view.position.z;
         else {
@@ -750,13 +1021,28 @@ function update(dt: number): void {
       me.view.position.x = nx;
       me.view.position.z = nz;
       // Through the door: into the house.
-      if (inDoor && nz < HOUSE.z + HOUSE.d / 2 - 10) enterHouse();
-    } else {
-      nx = Math.max(-HOUSE_HALF_W + 50, Math.min(HOUSE_HALF_W - 50, nx));
-      nz = Math.max(-HOUSE_HALF_D + 50, Math.min(HOUSE_HALF_D + 40, nz));
+      if (inDoor && nz < HOUSE_Z + spec.d / 2 - 10) enterHouse();
+    } else if (room === 'house') {
+      nx = Math.max(-dims.halfW + 50, Math.min(dims.halfW - 50, nx));
+      nz = Math.max(-dims.halfD + 50, Math.min(dims.halfD + 40, nz));
       me.view.position.x = nx;
       me.view.position.z = nz;
-      if (nz > HOUSE_HALF_D - 20 && Math.abs(nx) < HOUSE.doorW / 2) exitHouse();
+      if (nz > dims.halfD - 20 && Math.abs(nx) < spec.doorW / 2) exitToYard();
+      // The stairs' rectangle (only drawn when there ARE stairs).
+      else if (
+        dims.stories > 1 &&
+        nx < -dims.halfW + 170 &&
+        nz < -dims.halfD + 180
+      ) {
+        goUpstairs();
+      }
+    } else {
+      // The loft: tighter bounds, the stairwell corner goes back down.
+      nx = Math.max(-dims.halfW + 130, Math.min(dims.halfW - 130, nx));
+      nz = Math.max(-dims.halfD + 130, Math.min(dims.halfD - 130, nz));
+      me.view.position.x = nx;
+      me.view.position.z = nz;
+      if (nx < -dims.halfW + 220 && nz < -dims.halfD + 240) goDownstairs();
     }
     myYaw = Math.atan2(mv.x, mv.z);
     me.view.rotation.y = myYaw;
@@ -764,6 +1050,24 @@ function update(dt: number): void {
   me.tick(t, moving);
   me.view.visible = !playerCam.hidePlayer;
   playerCam.update(game.camera, me.view.position);
+  // Indoors the chase camera must stay INSIDE the room — a lens that
+  // backs through the wall films the wall. Clamp it into the shell and
+  // re-aim at the player's head.
+  if (room !== 'yard' && playerCam.mode === 'third') {
+    const inW = (room === 'loft' ? dims.halfW - 80 : dims.halfW) - 40;
+    const inD = (room === 'loft' ? dims.halfD - 80 : dims.halfD) - 40;
+    const cp = game.camera.position;
+    const clamped =
+      cp.x < -inW || cp.x > inW || cp.z < -inD || cp.z > inD || cp.y > 300;
+    cp.x = Math.max(-inW, Math.min(inW, cp.x));
+    cp.z = Math.max(-inD, Math.min(inD, cp.z));
+    cp.y = Math.min(300, cp.y);
+    if (clamped) {
+      game.camera.lookAt(new Vector3(me.view.position.x, 80, me.view.position.z));
+    }
+  }
+  // The shadow box can't cover a 10× island — it follows the player.
+  rig.follow(me.view.position);
   // Friends drift toward their reported spots; snap across room changes.
   for (const o of others.values()) {
     const v = o.avatar.view;
@@ -773,15 +1077,18 @@ function update(dt: number): void {
     v.rotation.y += (o.yaw - v.rotation.y) * k;
     o.avatar.tick(t, o.moving);
   }
-  // The fountain (and anything else named bob) bobs.
+  // Anything named bob (fountain drops, flames, fish) bobs.
   worldRoot.traverse((obj) => {
-    if (obj.name === 'bob') obj.position.y = 128 + Math.sin(t * 3) * 8;
+    if (obj.name !== 'bob') return;
+    if (obj.userData.baseY === undefined) obj.userData.baseY = obj.position.y;
+    obj.position.y = (obj.userData.baseY as number) + Math.sin(t * 3 + obj.id) * 8;
   });
 }
 
 function enterHouse(): void {
+  const dims = HOUSE_SIZES[worldHouse.size];
   room = 'house';
-  me.view.position.set(0, 0, HOUSE_HALF_D - 90);
+  me.view.position.set(0, 0, dims.halfD - 90);
   playerCam.distance = Math.min(playerCam.distance, 320);
   // Indoors the sun can't reach the walls' inner faces — the hemisphere
   // becomes the room's lamplight.
@@ -791,11 +1098,30 @@ function enterHouse(): void {
   audio.blip();
 }
 
-function exitHouse(): void {
+function exitToYard(): void {
+  const spec = houseSpec();
   room = 'yard';
-  me.view.position.set(HOUSE.x, 0, HOUSE.z + HOUSE.d / 2 + 130);
+  me.view.position.set(0, 0, HOUSE_Z + spec.d / 2 + 130);
   playerCam.distance = Math.max(playerCam.distance, 470);
   rig.hemi.intensity = 0.65;
+  applyRoom();
+  if (decorMode) renderDecorBar();
+  audio.blip();
+}
+
+function goUpstairs(): void {
+  const dims = HOUSE_SIZES[worldHouse.size];
+  room = 'loft';
+  me.view.position.set(-dims.halfW + 320, 0, -dims.halfD + 320);
+  applyRoom();
+  if (decorMode) renderDecorBar();
+  audio.blip();
+}
+
+function goDownstairs(): void {
+  const dims = HOUSE_SIZES[worldHouse.size];
+  room = 'house';
+  me.view.position.set(-dims.halfW + 260, 0, -dims.halfD + 300);
   applyRoom();
   if (decorMode) renderDecorBar();
   audio.blip();
@@ -805,6 +1131,7 @@ function exitHouse(): void {
 
 rebuildWorld();
 updateHud();
+void pollPresence();
 
 const joinParam = params.get('join');
 if (joinParam) {
@@ -824,6 +1151,8 @@ declare global {
       setCam: (m: 'third' | 'first') => void;
       enterHouse: () => void;
       exitHouse: () => void;
+      goUpstairs: () => void;
+      goDownstairs: () => void;
       setDecorMode: (on: boolean, item?: string) => void;
       placeAt: (item: string, x: number, z: number) => boolean;
       decorCount: () => number;
@@ -836,6 +1165,10 @@ declare global {
       setHat: (id: string) => void;
       setColor: (c: number) => void;
       profile: () => { name: string; friendCode: string; color: number; hat: string };
+      verium: () => number;
+      grant: (n: number) => void;
+      buy: (kind: BuyKind, id: string | number) => boolean;
+      owned: () => Record<string, unknown>;
     };
   }
 }
@@ -856,6 +1189,11 @@ window.__haven = {
     hostName: visiting?.hostName ?? null,
     friends: profile.friends.length,
     online: Object.keys(onlineMap).length,
+    worldR: YARD_R,
+    houseSize: worldHouse.size,
+    houseTheme: worldHouse.theme,
+    verium: verium.balance(),
+    modelsLoaded: modelStats.loaded,
     othersHere: [...others.values()].map((o) => ({
       name: o.name,
       room: o.room,
@@ -872,7 +1210,9 @@ window.__haven = {
     playerCam.setMode(m);
   },
   enterHouse,
-  exitHouse,
+  exitHouse: exitToYard,
+  goUpstairs,
+  goDownstairs,
   setDecorMode: (on, item) => {
     decorMode = on;
     if (item) selItem = item;
@@ -883,7 +1223,7 @@ window.__haven = {
   visit,
   goHome: () => goHome(),
   addFriend: (code, name) => {
-    addFriend(profile, code, name);
+    metFriend(code, name);
     renderFriends();
   },
   friends: () => profile.friends.map((f) => ({ ...f, online: !!onlineMap[f.code] })),
@@ -901,4 +1241,19 @@ window.__haven = {
     sendLook();
   },
   profile: () => ({ name: profile.name, friendCode: profile.friendCode, color: profile.color, hat: profile.hat }),
+  verium: () => verium.balance(),
+  grant: (n) => {
+    verium.add(n);
+    updateHud();
+  },
+  buy: (kind, id) => buy(kind, id),
+  owned: () => ({
+    hats: [...profile.ownedHats],
+    colors: [...profile.ownedColors],
+    furniture: [...profile.ownedFurniture],
+    houses: [...profile.ownedHouses],
+    themes: [...profile.ownedThemes],
+    houseSize: profile.houseSize,
+    houseTheme: profile.houseTheme,
+  }),
 };

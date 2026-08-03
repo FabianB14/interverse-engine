@@ -98,6 +98,15 @@
         color: #bcd0c0;
         text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
       }
+      #verium {
+        position: absolute;
+        top: 58px;
+        left: 16px;
+        font-size: 15px;
+        font-weight: 800;
+        color: #8affc1;
+        text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+      }
       #btns {
         position: absolute;
         top: 10px;
@@ -306,10 +315,12 @@
     <div id="hud">
       <div id="title"></div>
       <div id="subtitle"></div>
+      <div id="verium" title="Verium — the shared Interverse wallet"></div>
       <div id="btns">
         <button id="b-cam" title="Camera: third/first person">📷</button>
         <button id="b-decor" title="Decorate">🛋</button>
         <button id="b-wardrobe" title="Wardrobe">👒</button>
+        <button id="b-store" title="Store">🏪</button>
         <button id="b-friends" title="Friends">👥</button>
         <button id="b-invite" title="Invite">✉️</button>
         <button id="b-home" class="hidden" title="Go home">🏠</button>
@@ -324,6 +335,14 @@
       <div class="row"><input id="w-name" type="text" maxlength="12" placeholder="Your name" /></div>
       <div class="row" id="w-colors"></div>
       <div class="row" id="w-hats"></div>
+    </div>
+
+    <div id="store" class="panel hidden">
+      <button class="close" data-close="store">✕</button>
+      <h2>🏪 Store <span id="s-balance" style="float: right; color: #8affc1"></span></h2>
+      <div class="row"><button id="s-daily" class="primary"></button></div>
+      <div class="row" id="s-tabs"></div>
+      <div id="s-list"></div>
     </div>
 
     <div id="friends" class="panel hidden">

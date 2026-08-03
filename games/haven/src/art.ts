@@ -19,9 +19,14 @@ import {
   SphereGeometry,
   TorusGeometry,
 } from 'three';
-import { jitterVertices, lowPolyMaterial, lowPolyTree, paintFacets, seededRand } from '@interverse/three';
+import { jitterVertices, loadModel, lowPolyMaterial, lowPolyTree, paintFacets, seededRand } from '@interverse/three';
+import { MODEL_DECOR } from './store.js';
+import type { HouseTheme } from './store.js';
 
 const mat = (): MeshStandardMaterial => lowPolyMaterial();
+
+/** How many model-decor loads have finished — a verify gate reads this. */
+export const modelStats = { loaded: 0 };
 
 const paint = (geom: Parameters<typeof paintFacets>[0], c: number): ReturnType<typeof paintFacets> =>
   paintFacets(geom, (_x, _y, _z, set) => set(new Color(c)));
@@ -82,34 +87,45 @@ export interface HouseSpec {
   d: number;
   /** Door strip: centred on x, this wide, on the +z face. */
   doorW: number;
+  /** 1 = cottage, 2 = manor with a loft up the stairs. */
+  stories: number;
 }
 
-/** The house from outside: cream walls, terracotta roof, a real door. */
-export function houseExterior(spec: HouseSpec): Group {
+/** The house from outside — walls, roof, door and windows all wear the
+ *  owner's THEME, and a second story stacks a real floor of windows. */
+export function houseExterior(spec: HouseSpec, theme: HouseTheme): Group {
   const g = new Group();
-  const wallH = 300;
-  const walls = new Mesh(paint(new BoxGeometry(spec.w, wallH, spec.d), 0xd8c9a8), mat());
+  const wallH = spec.stories > 1 ? 520 : 300;
+  const walls = new Mesh(paint(new BoxGeometry(spec.w, wallH, spec.d), theme.wall), mat());
   walls.position.set(spec.x, wallH / 2, spec.z);
   g.add(walls);
-  const roofGeom = new ConeGeometry(Math.max(spec.w, spec.d) * 0.78, 200, 4);
-  const roof = new Mesh(paint(roofGeom, 0xa8543a), mat());
-  roof.position.set(spec.x, wallH + 98, spec.z);
+  // A trim band between stories, so "two floors" reads at a distance.
+  if (spec.stories > 1) {
+    const band = new Mesh(paint(new BoxGeometry(spec.w + 16, 18, spec.d + 16), theme.roof), mat());
+    band.position.set(spec.x, 300, spec.z);
+    g.add(band);
+  }
+  const roofGeom = new ConeGeometry(Math.max(spec.w, spec.d) * 0.78, spec.stories > 1 ? 240 : 200, 4);
+  const roof = new Mesh(paint(roofGeom, theme.roof), mat());
+  roof.position.set(spec.x, wallH + (spec.stories > 1 ? 118 : 98), spec.z);
   roof.rotation.y = Math.PI / 4;
   g.add(roof);
-  // Door on the +z face — dark warm wood, slightly proud of the wall so
-  // it reads at a distance. This is the SAME rectangle the walk-in
-  // trigger uses; the picture and the rule are one object.
-  const door = new Mesh(paint(new BoxGeometry(spec.doorW, 190, 14), 0x6a4a32), mat());
+  // Door on the +z face — slightly proud of the wall so it reads at a
+  // distance. This is the SAME rectangle the walk-in trigger uses; the
+  // picture and the rule are one object.
+  const door = new Mesh(paint(new BoxGeometry(spec.doorW, 190, 14), theme.door), mat());
   door.position.set(spec.x, 95, spec.z + spec.d / 2 + 5);
   g.add(door);
   const knob = new Mesh(paint(new SphereGeometry(8, 6, 5), 0xe8c860), mat());
   knob.position.set(spec.x + spec.doorW / 2 - 24, 95, spec.z + spec.d / 2 + 14);
   g.add(knob);
-  // Two windows, glowing from the life inside.
-  for (const side of [-1, 1]) {
-    const win = new Mesh(paint(new BoxGeometry(70, 70, 10), 0xffe9a8), winGlowMat());
-    win.position.set(spec.x + side * spec.w * 0.3, 170, spec.z + spec.d / 2 + 4);
-    g.add(win);
+  // Windows, glowing from the life inside — one row per story.
+  for (let story = 0; story < spec.stories; story++) {
+    for (const side of [-1, 1]) {
+      const win = new Mesh(paint(new BoxGeometry(70, 70, 10), 0xffe9a8), winGlowMat());
+      win.position.set(spec.x + side * spec.w * 0.3, 170 + story * 240, spec.z + spec.d / 2 + 4);
+      g.add(win);
+    }
   }
   return shadowed(g);
 }
@@ -121,18 +137,25 @@ function winGlowMat(): MeshStandardMaterial {
   return m;
 }
 
-/** The house from inside: its own little box of warm light. Bounds are
- *  half-extents; the door mat marks the exit on the +z wall. */
-export function houseInterior(halfW: number, halfD: number, doorW: number): Group {
+/** The house from inside: its own little box of warm light, wearing the
+ *  owner's theme. Bounds are half-extents; the door mat marks the exit on
+ *  the +z wall. A 2-story house gets STAIRS in the back-left corner —
+ *  the same rectangle the go-upstairs trigger reads. */
+export function houseInterior(
+  halfW: number,
+  halfD: number,
+  doorW: number,
+  theme: HouseTheme,
+  opts: { stairs?: boolean } = {},
+): Group {
   const g = new Group();
-  const floor = new Mesh(paint(new BoxGeometry(halfW * 2, 16, halfD * 2), 0x8a6a48), mat());
+  const floor = new Mesh(paint(new BoxGeometry(halfW * 2, 16, halfD * 2), theme.floor), mat());
   floor.position.y = -8;
   floor.receiveShadow = true;
   g.add(floor);
   const wallH = 340;
-  const wallC = 0xc9b896;
   const mkWall = (w: number, d: number, x: number, z: number): void => {
-    const wall = new Mesh(paint(new BoxGeometry(w, wallH, d), wallC), mat());
+    const wall = new Mesh(paint(new BoxGeometry(w, wallH, d), theme.inWall), mat());
     wall.position.set(x, wallH / 2, z);
     wall.receiveShadow = true;
     g.add(wall);
@@ -149,24 +172,117 @@ export function houseInterior(halfW: number, halfD: number, doorW: number): Grou
   win.position.set(0, 190, -halfD - 2);
   g.add(win);
   // Door mat: the exit's picture.
-  const matRug = new Mesh(paint(new CylinderGeometry(70, 70, 6, 8), 0xa8543a), mat());
+  const matRug = new Mesh(paint(new CylinderGeometry(70, 70, 6, 8), theme.roof), mat());
   matRug.position.set(0, 3, halfD - 60);
   g.add(matRug);
+  if (opts.stairs) {
+    // Steps rising along the left wall toward the back corner.
+    for (let i = 0; i < 6; i++) {
+      const step = new Mesh(paint(new BoxGeometry(150, 24, 60), theme.door), mat());
+      step.position.set(-halfW + 90, 12 + i * 24, -halfD + 260 - i * 55);
+      step.castShadow = true;
+      g.add(step);
+    }
+    const rail = new Mesh(paint(new BoxGeometry(14, 170, 340), theme.roof), mat());
+    rail.position.set(-halfW + 170, 100, -halfD + 130);
+    g.add(rail);
+  }
   return g;
 }
 
-/** Roadside trees around the island rim. */
-export function yardTrees(radius: number): Group {
+/** The loft — the manor's upstairs. Smaller than the ground floor, warm
+ *  rail around the stairwell, its own round window. */
+export function loftInterior(halfW: number, halfD: number, theme: HouseTheme): Group {
+  const g = new Group();
+  const floor = new Mesh(paint(new BoxGeometry(halfW * 2, 16, halfD * 2), theme.floor), mat());
+  floor.position.y = -8;
+  floor.receiveShadow = true;
+  g.add(floor);
+  const wallH = 300;
+  const mkWall = (w: number, d: number, x: number, z: number): void => {
+    const wall = new Mesh(paint(new BoxGeometry(w, wallH, d), theme.inWall), mat());
+    wall.position.set(x, wallH / 2, z);
+    wall.receiveShadow = true;
+    g.add(wall);
+  };
+  mkWall(halfW * 2 + 40, 20, 0, -halfD - 10);
+  mkWall(halfW * 2 + 40, 20, 0, halfD + 10);
+  mkWall(20, halfD * 2, -halfW - 10, 0);
+  mkWall(20, halfD * 2, halfW + 10, 0);
+  // The stairwell opening's rail — the way back down lives inside it.
+  const rail1 = new Mesh(paint(new BoxGeometry(14, 90, 360), theme.door), mat());
+  rail1.position.set(-halfW + 180, 45, -halfD + 200);
+  g.add(rail1);
+  const rail2 = new Mesh(paint(new BoxGeometry(180, 90, 14), theme.door), mat());
+  rail2.position.set(-halfW + 100, 45, -halfD + 380);
+  g.add(rail2);
+  // A round window for the loft — moonlight.
+  const win = new Mesh(paint(new CylinderGeometry(60, 60, 12, 12), 0xa8d8ff), winGlowMat());
+  win.rotation.x = Math.PI / 2;
+  win.position.set(0, 190, -halfD - 2);
+  g.add(win);
+  return g;
+}
+
+/** Trees for the big island: a ring at the rim plus a loose scatter
+ *  inland, thinned near the house and the spawn path so the middle stays
+ *  a meadow you can actually decorate. */
+export function yardTrees(radius: number, avoid: { x: number; z: number; r: number }[]): Group {
   const g = new Group();
   const rand = seededRand(31);
-  for (let i = 0; i < 10; i++) {
-    const a = (i / 10) * Math.PI * 2 + rand() * 0.3;
-    const r = radius * (0.82 + rand() * 0.12);
-    const tree = lowPolyTree({ height: 180 + rand() * 120, seed: i * 13 + 5 });
+  for (let i = 0; i < 16; i++) {
+    const a = (i / 16) * Math.PI * 2 + rand() * 0.3;
+    const r = radius * (0.86 + rand() * 0.08);
+    const tree = lowPolyTree({ height: 200 + rand() * 140, seed: i * 13 + 5 });
     tree.position.set(Math.cos(a) * r, 0, Math.sin(a) * r);
     g.add(tree);
   }
+  for (let i = 0; i < 22; i++) {
+    const a = rand() * Math.PI * 2;
+    const r = radius * (0.3 + rand() * 0.52);
+    const x = Math.cos(a) * r;
+    const z = Math.sin(a) * r;
+    if (avoid.some((k) => Math.hypot(x - k.x, z - k.z) < k.r)) continue;
+    const tree = lowPolyTree({ height: 170 + rand() * 160, seed: i * 29 + 7 });
+    tree.position.set(x, 0, z);
+    g.add(tree);
+  }
   return shadowed(g);
+}
+
+/** A pond: still water in a stone lip, for the far meadow. */
+export function pondView(x: number, z: number, r: number): Group {
+  const g = new Group();
+  const lip = new Mesh(paint(new CylinderGeometry(r + 26, r + 40, 26, 18), 0x9a8a68), mat());
+  lip.position.set(x, 13, z);
+  g.add(lip);
+  const water = new Mesh(paint(new CylinderGeometry(r, r, 10, 18), 0x5a9ac8), waterMat());
+  water.position.set(x, 22, z);
+  g.add(water);
+  const pad = new Mesh(paint(new CylinderGeometry(26, 26, 4, 8), 0x5d8a50), mat());
+  pad.position.set(x + r * 0.4, 28, z - r * 0.3);
+  g.add(pad);
+  return g;
+}
+
+/** Mossy boulder clusters — landmarks so the big meadow has bones. */
+export function rockCluster(x: number, z: number, seed: number): Group {
+  const g = new Group();
+  const rand = seededRand(seed);
+  for (let i = 0; i < 3 + Math.floor(rand() * 3); i++) {
+    const r = 40 + rand() * 70;
+    const geom = new SphereGeometry(r, 6, 5);
+    jitterVertices(geom, r * 0.18, seed + i);
+    const rock = new Mesh(
+      paintFacets(geom, (_x, y, _z, set) => set(new Color(y > r * 0.3 ? 0x6d8a5e : 0x8a8a84))),
+      mat(),
+    );
+    rock.scale.y = 0.6 + rand() * 0.25;
+    rock.position.set(x + (rand() - 0.5) * 180, 0, z + (rand() - 0.5) * 180);
+    rock.castShadow = true;
+    g.add(rock);
+  }
+  return g;
 }
 
 // ------------------------------------------------------- the furniture
@@ -175,7 +291,7 @@ export interface CatalogueItem {
   id: string;
   label: string;
   emoji: string;
-  rooms: readonly ('yard' | 'house')[];
+  rooms: readonly ('yard' | 'house' | 'loft')[];
   build: (seed: number) => Group;
 }
 
@@ -383,19 +499,172 @@ const buildBed = (): Group => {
   return shadowed(g);
 };
 
+// Premium pieces — bought once in the store, then placed like anything.
+
+const buildCampfire = (): Group => {
+  const g = new Group();
+  const rand = seededRand(53);
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2;
+    const log = new Mesh(paint(new CylinderGeometry(9, 11, 90, 6), 0x6a4a32), mat());
+    log.position.set(Math.cos(a) * 30, 14, Math.sin(a) * 30);
+    log.rotation.z = Math.PI / 2.3;
+    log.rotation.y = a;
+    g.add(log);
+  }
+  const flameMat = lowPolyMaterial();
+  flameMat.emissive = new Color(0xff8a3a);
+  flameMat.emissiveIntensity = 1.4;
+  for (let i = 0; i < 3; i++) {
+    const flame = new Mesh(paint(new ConeGeometry(16 - i * 4, 46 + i * 18, 5), 0xffb35a), flameMat);
+    flame.position.set((rand() - 0.5) * 14, 34 + i * 8, (rand() - 0.5) * 14);
+    flame.name = 'bob';
+    g.add(flame);
+  }
+  return shadowed(g);
+};
+
+const buildSwing = (): Group => {
+  const g = new Group();
+  for (const sx of [-70, 70]) {
+    const post = new Mesh(paint(new CylinderGeometry(7, 9, 200, 6), 0x6a4a32), mat());
+    post.position.set(sx, 100, 0);
+    post.rotation.z = sx > 0 ? -0.12 : 0.12;
+    g.add(post);
+  }
+  const bar = new Mesh(paint(new CylinderGeometry(6, 6, 170, 6), 0x6a4a32), mat());
+  bar.rotation.z = Math.PI / 2;
+  bar.position.y = 196;
+  g.add(bar);
+  for (const sx of [-26, 26]) {
+    const rope = new Mesh(paint(new CylinderGeometry(2, 2, 130, 4), 0xe8dcc0), mat());
+    rope.position.set(sx, 128, 0);
+    g.add(rope);
+  }
+  const seat = new Mesh(paint(new BoxGeometry(70, 8, 30), 0xa8543a), mat());
+  seat.position.y = 62;
+  g.add(seat);
+  return shadowed(g);
+};
+
+const buildTelescope = (): Group => {
+  const g = new Group();
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2;
+    const leg = new Mesh(paint(new CylinderGeometry(4, 5, 110, 5), 0x4a4038), mat());
+    leg.position.set(Math.cos(a) * 30, 52, Math.sin(a) * 30);
+    leg.rotation.x = Math.sin(a) * 0.3;
+    leg.rotation.z = Math.cos(a) * 0.3;
+    g.add(leg);
+  }
+  const tube = new Mesh(paint(new CylinderGeometry(16, 22, 130, 8), 0x3a628a), mat());
+  tube.position.set(0, 130, 0);
+  tube.rotation.x = -0.7;
+  g.add(tube);
+  const eye = new Mesh(paint(new CylinderGeometry(8, 8, 18, 6), 0xe6b33f), mat());
+  eye.position.set(0, 100, 42);
+  eye.rotation.x = -0.7;
+  g.add(eye);
+  return shadowed(g);
+};
+
+const buildPiano = (): Group => {
+  const g = new Group();
+  const body = new Mesh(paint(new BoxGeometry(170, 100, 70), 0x22222e), mat());
+  body.position.set(0, 90, -10);
+  g.add(body);
+  const keybed = new Mesh(paint(new BoxGeometry(170, 12, 40), 0x2a2a36), mat());
+  keybed.position.set(0, 66, 30);
+  g.add(keybed);
+  const keys = new Mesh(paint(new BoxGeometry(160, 8, 34), 0xf2ede0), mat());
+  keys.position.set(0, 70, 32);
+  g.add(keys);
+  const rand = seededRand(61);
+  for (let i = 0; i < 7; i++) {
+    if (rand() < 0.4) continue;
+    const black = new Mesh(paint(new BoxGeometry(9, 6, 18), 0x14141c), mat());
+    black.position.set(-66 + i * 22, 76, 26);
+    g.add(black);
+  }
+  for (const sx of [-72, 72]) {
+    const leg = new Mesh(paint(new BoxGeometry(14, 60, 14), 0x22222e), mat());
+    leg.position.set(sx, 30, 20);
+    g.add(leg);
+  }
+  return shadowed(g);
+};
+
+const buildAquarium = (): Group => {
+  const g = new Group();
+  const stand = new Mesh(paint(new BoxGeometry(150, 60, 60), 0x6a4a32), mat());
+  stand.position.y = 30;
+  g.add(stand);
+  const tankMat = lowPolyMaterial();
+  tankMat.emissive = new Color(0x2a6a8a);
+  tankMat.emissiveIntensity = 0.8;
+  const tank = new Mesh(paint(new BoxGeometry(140, 80, 50), 0x5ab0d8), tankMat);
+  tank.position.y = 100;
+  g.add(tank);
+  const rand = seededRand(67);
+  for (let i = 0; i < 3; i++) {
+    const fish = new Mesh(
+      paint(new SphereGeometry(9, 5, 4), [0xff9a4a, 0xffd166, 0xff6f91][i]!),
+      mat(),
+    );
+    fish.scale.x = 1.6;
+    fish.position.set((rand() - 0.5) * 100, 90 + rand() * 30, (rand() - 0.5) * 20);
+    fish.name = 'bob';
+    g.add(fish);
+  }
+  return shadowed(g);
+};
+
+/** A .glb furnishing: the group mounts instantly (so placement feels
+ *  immediate) and the model pops in when the load lands. loadModel caches
+ *  by URL, so ten gnomes cost one fetch. */
+const buildModelItem = (url: string, height: number): Group => {
+  const g = new Group();
+  void loadModel(url, { height })
+    .then((m) => {
+      g.add(m);
+      modelStats.loaded++;
+    })
+    .catch(() => {
+      // A missing file still needs a body — the classic crate.
+      const ph = new Mesh(paint(new BoxGeometry(height * 0.6, height * 0.6, height * 0.6), 0xc98a4b), mat());
+      ph.position.y = height * 0.3;
+      ph.castShadow = true;
+      g.add(ph);
+    });
+  return g;
+};
+
 export const CATALOGUE: readonly CatalogueItem[] = [
-  { id: 'plant', label: 'Plant', emoji: '🪴', rooms: ['yard', 'house'], build: buildPlant },
+  { id: 'plant', label: 'Plant', emoji: '🪴', rooms: ['yard', 'house', 'loft'], build: buildPlant },
   { id: 'flower', label: 'Flowers', emoji: '🌼', rooms: ['yard'], build: buildFlower },
-  { id: 'lamp', label: 'Lamp', emoji: '🏮', rooms: ['yard', 'house'], build: () => buildLamp() },
+  { id: 'lamp', label: 'Lamp', emoji: '🏮', rooms: ['yard', 'house', 'loft'], build: () => buildLamp() },
   { id: 'bench', label: 'Bench', emoji: '🪑', rooms: ['yard'], build: () => buildBench() },
   { id: 'fountain', label: 'Fountain', emoji: '⛲', rooms: ['yard'], build: () => buildFountain() },
   { id: 'mailbox', label: 'Mailbox', emoji: '📮', rooms: ['yard'], build: () => buildMailbox() },
   { id: 'mushroom', label: 'Shrooms', emoji: '🍄', rooms: ['yard'], build: buildMushroom },
-  { id: 'table', label: 'Table', emoji: '🍽', rooms: ['house'], build: () => buildTable() },
-  { id: 'chair', label: 'Chair', emoji: '🪑', rooms: ['house'], build: () => buildChair() },
-  { id: 'rug', label: 'Rug', emoji: '🟠', rooms: ['house'], build: () => buildRug() },
-  { id: 'shelf', label: 'Books', emoji: '📚', rooms: ['house'], build: () => buildShelf() },
-  { id: 'bed', label: 'Bed', emoji: '🛏', rooms: ['house'], build: () => buildBed() },
+  { id: 'table', label: 'Table', emoji: '🍽', rooms: ['house', 'loft'], build: () => buildTable() },
+  { id: 'chair', label: 'Chair', emoji: '🪑', rooms: ['house', 'loft'], build: () => buildChair() },
+  { id: 'rug', label: 'Rug', emoji: '🟠', rooms: ['house', 'loft'], build: () => buildRug() },
+  { id: 'shelf', label: 'Books', emoji: '📚', rooms: ['house', 'loft'], build: () => buildShelf() },
+  { id: 'bed', label: 'Bed', emoji: '🛏', rooms: ['house', 'loft'], build: () => buildBed() },
+  // Store pieces (owned before they can be placed):
+  { id: 'campfire', label: 'Campfire', emoji: '🔥', rooms: ['yard'], build: () => buildCampfire() },
+  { id: 'swing', label: 'Swing', emoji: '🎠', rooms: ['yard'], build: () => buildSwing() },
+  { id: 'telescope', label: 'Scope', emoji: '🔭', rooms: ['yard', 'loft'], build: () => buildTelescope() },
+  { id: 'piano', label: 'Piano', emoji: '🎹', rooms: ['house', 'loft'], build: () => buildPiano() },
+  { id: 'aquarium', label: 'Fish', emoji: '🐠', rooms: ['house', 'loft'], build: () => buildAquarium() },
+  ...MODEL_DECOR.map((m) => ({
+    id: m.id,
+    label: m.id === 'gnome' ? 'Gnome' : m.id === 'bear' ? 'Teddy' : m.id,
+    emoji: m.id === 'gnome' ? '🍄' : '🧸',
+    rooms: ['yard', 'house', 'loft'] as const,
+    build: () => buildModelItem(m.url, m.height),
+  })),
 ];
 
 export function buildItem(item: string, seed: number): Group | null {
@@ -456,6 +725,82 @@ export function hatView(id: string): Group | null {
     ring.rotation.x = Math.PI / 2;
     ring.position.y = 22;
     g.add(ring);
+  } else if (id === 'flower') {
+    const stem = new Mesh(paint(new CylinderGeometry(2.5, 2.5, 16, 4), 0x4e7a46), mat());
+    stem.position.y = 8;
+    g.add(stem);
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2;
+      const petal = new Mesh(paint(new SphereGeometry(8, 5, 4), 0xffc75f), mat());
+      petal.scale.set(1.3, 0.5, 0.9);
+      petal.position.set(Math.cos(a) * 11, 18, Math.sin(a) * 11);
+      petal.rotation.y = -a;
+      g.add(petal);
+    }
+    const heart = new Mesh(paint(new SphereGeometry(7, 6, 5), 0xe07a5f), mat());
+    heart.position.y = 19;
+    g.add(heart);
+  } else if (id === 'party') {
+    const cone = new Mesh(paint(new ConeGeometry(20, 46, 8), 0x2fbf8a), mat());
+    cone.position.y = 22;
+    g.add(cone);
+    const pom = new Mesh(paint(new SphereGeometry(7, 6, 5), 0xff6f91), mat());
+    pom.position.y = 48;
+    g.add(pom);
+  } else if (id === 'wizard') {
+    const brim = new Mesh(paint(new CylinderGeometry(34, 38, 6, 10), 0x4a3a7a), mat());
+    brim.position.y = 2;
+    g.add(brim);
+    const cone = new Mesh(paint(new ConeGeometry(22, 60, 8), 0x5a4a92), mat());
+    cone.position.y = 32;
+    cone.rotation.z = 0.14;
+    g.add(cone);
+    const star = new Mesh(paint(new SphereGeometry(6, 5, 4), 0xffd166), mat());
+    star.position.set(12, 30, 14);
+    g.add(star);
+  } else if (id === 'viking') {
+    const dome = new Mesh(
+      paint(new SphereGeometry(26, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), 0x8a8a94),
+      mat(),
+    );
+    g.add(dome);
+    const band = new Mesh(paint(new CylinderGeometry(26.5, 26.5, 8, 10), 0x6a5a42), mat());
+    band.position.y = 2;
+    g.add(band);
+    for (const side of [-1, 1]) {
+      const horn = new Mesh(paint(new CylinderGeometry(2.5, 9, 30, 6), 0xe8e2cc), mat());
+      horn.position.set(side * 26, 16, 0);
+      horn.rotation.z = side * -0.55;
+      g.add(horn);
+    }
+  } else if (id === 'tophat') {
+    const brim = new Mesh(paint(new CylinderGeometry(32, 32, 5, 12), 0x2a2a34), mat());
+    brim.position.y = 2;
+    g.add(brim);
+    const stack = new Mesh(paint(new CylinderGeometry(20, 22, 38, 10), 0x1c1c26), mat());
+    stack.position.y = 22;
+    g.add(stack);
+    const band = new Mesh(paint(new CylinderGeometry(22.5, 22.5, 7, 10), 0xe6a93f), mat());
+    band.position.y = 7;
+    g.add(band);
+  } else if (id === 'prop') {
+    const beanie = new Mesh(
+      paint(new SphereGeometry(24, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), 0xe86a8a),
+      mat(),
+    );
+    g.add(beanie);
+    const stem = new Mesh(paint(new CylinderGeometry(2.5, 2.5, 10, 5), 0x2a2a34), mat());
+    stem.position.y = 26;
+    g.add(stem);
+    const rotor = new Group();
+    for (const a of [0, Math.PI / 2]) {
+      const blade = new Mesh(paint(new BoxGeometry(50, 3, 8), 0x8affc1), mat());
+      blade.rotation.y = a;
+      rotor.add(blade);
+    }
+    rotor.position.y = 33;
+    rotor.name = 'spin';
+    g.add(rotor);
   }
   return shadowed(g);
 }
@@ -509,6 +854,8 @@ export function blobAvatar(color: number, hat: string): Avatar {
       hatAnchor.position.y = R * 1.86 + bounce;
       const squash = moving ? 1 - Math.abs(Math.sin(t * 9)) * 0.06 : 1;
       body.scale.set(1 + (1 - squash) * 0.7, squash, 1 + (1 - squash) * 0.7);
+      const rotor = hatAnchor.getObjectByName('spin');
+      if (rotor) rotor.rotation.y = t * (moving ? 14 : 5);
     },
   };
 }
