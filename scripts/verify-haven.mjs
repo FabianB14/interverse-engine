@@ -135,6 +135,26 @@ await hostPage.evaluate(() => {
 const sModel = await waitFor(() => S(hostPage), (s) => s.modelsLoaded >= 1, 15000);
 const modelOk = sModel.modelsLoaded >= 1 && sModel.decor === 5;
 
+// 🐾 A pet: buy the dino, set it loose in the yard, and watch it LIVE —
+// it must wander away from where it was dropped (and hop doing it).
+await hostPage.evaluate(() => {
+  window.__haven.grant(300);
+  window.__haven.buy('furniture', 'dino');
+  window.__haven.placeAt('dino', 600, 800);
+});
+const sPet = await waitFor(
+  () => S(hostPage),
+  (s) => s.pets.length >= 1 && Math.hypot(s.pets[0].x - 600, s.pets[0].z - 800) > 30,
+  20000,
+);
+const petOk = sPet.pets.length >= 1 && Math.hypot(sPet.pets[0].x - 600, sPet.pets[0].z - 800) > 30;
+
+// 🦘 The jump: up on the impulse, back on the ground shortly after.
+await hostPage.evaluate(() => window.__haven.jump());
+const sAir = await waitFor(() => S(hostPage), (s) => s.playerY > 20, 3000);
+const sLand = await waitFor(() => S(hostPage), (s) => s.playerY === 0, 3000);
+const jumpOk = sAir.playerY > 20 && sLand.playerY === 0;
+
 // The manor's loft: upstairs is a real room you can furnish.
 await hostPage.evaluate(() => window.__haven.enterHouse());
 await sleep(300);
@@ -146,7 +166,7 @@ await hostPage.evaluate(() => window.__haven.placeAt('bed', 100, 0));
 await sleep(400);
 const sLoftBed = await S(hostPage);
 await hostPage.screenshot({ path: `${outDir}/hv-4-loft.png` });
-const loftOk = sHouse.room === 'house' && sLoft.room === 'loft' && sLoftBed.decor === 6;
+const loftOk = sHouse.room === 'house' && sLoft.room === 'loft' && sLoftBed.decor === 7;
 // A yard-only item must refuse to land indoors.
 const refuseOk = !(await hostPage.evaluate(() => window.__haven.placeAt('fountain', 0, 0)));
 await hostPage.evaluate(() => window.__haven.goDownstairs());
@@ -160,7 +180,7 @@ await hostPage.waitForFunction(() => !!window.__haven, null, { timeout: 30000 })
 await sleep(800);
 const sReload = await S(hostPage);
 const persistOk =
-  sReload.decor === 6 && sReload.houseSize === 'manor' && sReload.houseTheme === 'dusk' &&
+  sReload.decor === 7 && sReload.houseSize === 'manor' && sReload.houseTheme === 'dusk' &&
   sReload.verium === vPreReload;
 
 // The daily gift: one tap pays ⬡60, the second tap is told "tomorrow".
@@ -184,7 +204,7 @@ await guestPage.evaluate((c) => window.__haven.visit(c), code);
 const gVisit = await waitFor(() => S(guestPage), (s) => s.visiting === true);
 // The guest stands in the HOST's world: the manor, the theme, 6 pieces.
 const visitOk =
-  gVisit.visiting === true && gVisit.hostName === 'Hosty' && gVisit.decor === 6 &&
+  gVisit.visiting === true && gVisit.hostName === 'Hosty' && gVisit.decor === 7 &&
   gVisit.houseSize === 'manor' && gVisit.houseTheme === 'dusk';
 
 // Both sides see a friend arrive — and both got the new-friend ⬡ bonus.
@@ -210,6 +230,12 @@ await guestPage.evaluate(() => {
 });
 const hSeesHat = await waitFor(() => S(hostPage), (s) => s.othersHere[0]?.hat === 'crown');
 const hatSyncOk = hSeesHat.othersHere[0]?.hat === 'crown';
+
+// The jump crosses the wire: host hops, the guest's copy of the host
+// leaves the ground.
+await hostPage.evaluate(() => window.__haven.jump());
+const gSeesJump = await waitFor(() => S(guestPage), (s) => (s.othersHere[0]?.y ?? 0) > 15, 4000);
+const jumpSyncOk = (gSeesJump.othersHere[0]?.y ?? 0) > 15;
 await hostPage.screenshot({ path: `${outDir}/hv-5-guests.png` });
 await guestPage.screenshot({ path: `${outDir}/hv-6-visiting.png` });
 
@@ -236,9 +262,10 @@ const hostAfterLeave = await waitFor(() => S(hostPage), (s) => s.guests === 0);
 const leaveOk = hostAfterLeave.guests === 0;
 
 const gates = {
-  bootOk, cameraOk, hatBuyOk, brokeOk, storeOk, modelOk, loftOk, refuseOk,
-  persistOk, dailyOk, codeOk, visitOk, meetOk, friendBonusOk, moveOk,
-  hatSyncOk, friendsOk, presenceOk, homeOk, leaveOk,
+  bootOk, cameraOk, hatBuyOk, brokeOk, storeOk, modelOk, petOk, jumpOk,
+  loftOk, refuseOk, persistOk, dailyOk, codeOk, visitOk, meetOk,
+  friendBonusOk, moveOk, hatSyncOk, jumpSyncOk, friendsOk, presenceOk,
+  homeOk, leaveOk,
 };
 console.log(JSON.stringify({ ...gates, code, verium: sDaily.verium }, null, 2));
 

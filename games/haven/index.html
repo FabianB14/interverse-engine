@@ -76,6 +76,25 @@
         background: rgba(246, 239, 224, 0.75);
         transform: translate(-50%, -50%);
       }
+      /* 🦘 The jump thumb-button: bottom-right, above the look overlay. */
+      #b-jump {
+        position: fixed;
+        right: 22px;
+        bottom: 26px;
+        width: 78px;
+        height: 78px;
+        border-radius: 999px;
+        border: 0;
+        font-size: 34px;
+        color: #1c1c28;
+        background: #f2cc8f;
+        box-shadow: 0 3px 10px rgba(0, 0, 0, 0.45);
+        z-index: 4;
+        touch-action: none;
+      }
+      #b-jump:active {
+        transform: scale(0.92);
+      }
       #hud {
         position: fixed;
         inset: 0;
@@ -312,6 +331,7 @@
     <div id="move"></div>
     <div id="look"></div>
     <div id="joy"><div id="joyknob"></div></div>
+    <button id="b-jump" title="Jump (Space)">⬆</button>
     <div id="hud">
       <div id="title"></div>
       <div id="subtitle"></div>

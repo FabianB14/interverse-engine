@@ -34,7 +34,7 @@ import type { Avatar, HouseSpec } from './art.js';
 import { addFriend, freshDecorId, loadProfile, removeFriend, saveProfile } from './save.js';
 import type { DecorItem, Profile } from './save.js';
 import {
-  BASE_COLORS, FURNITURE_STORE, HAT_STORE, HOUSE_SIZES, HOUSE_STORE, PREMIUM_COLORS,
+  BASE_COLORS, FURNITURE_STORE, HAT_STORE, HOUSE_SIZES, HOUSE_STORE, PETS, PREMIUM_COLORS,
   THEME_STORE, themeById,
 } from './store.js';
 import type { HouseSizeId } from './store.js';
@@ -229,7 +229,92 @@ function rebuildWorld(): void {
     decorViews.set(d.id, { group: view, item: d.item });
   }
   worldRoot.add(yardGroup, houseGroup, loftGroup);
+  initPets();
   applyRoom();
+}
+
+/**
+ * 🐾 Pets: model decor that LIVES. The uploaded files carry no rigs, so
+ * the whole body animates — wander a patch around where they were
+ * placed, hop while walking, and throw in a real jump now and then.
+ */
+interface PetState {
+  home: { x: number; z: number };
+  tx: number;
+  tz: number;
+  pause: number;
+  jump: number;
+  phase: number;
+  room: Room;
+}
+const petStates = new Map<string, PetState>();
+
+function initPets(): void {
+  petStates.clear();
+  for (const d of worldDecor) {
+    if (!PETS.has(d.item)) continue;
+    petStates.set(d.id, {
+      home: { x: d.x, z: d.z },
+      tx: d.x,
+      tz: d.z,
+      pause: Math.random() * 2,
+      jump: 3 + Math.random() * 5,
+      phase: Math.random() * 6,
+      room: d.room,
+    });
+  }
+}
+
+function tickPets(dt: number): void {
+  const dims = HOUSE_SIZES[worldHouse.size];
+  for (const [id, pet] of petStates) {
+    const view = decorViews.get(id)?.group;
+    if (!view) continue;
+    const dx = pet.tx - view.position.x;
+    const dz = pet.tz - view.position.z;
+    const dist = Math.hypot(dx, dz);
+    let walking = false;
+    if (pet.pause > 0) {
+      pet.pause -= dt;
+    } else if (dist > 12) {
+      walking = true;
+      view.position.x += (dx / dist) * 105 * dt;
+      view.position.z += (dz / dist) * 105 * dt;
+      view.rotation.y = Math.atan2(dx, dz);
+    } else {
+      // Arrived: sniff around a moment, then pick a new spot near home.
+      pet.pause = 0.8 + Math.random() * 2.4;
+      const a = Math.random() * Math.PI * 2;
+      const r = 60 + Math.random() * 220;
+      let nx = pet.home.x + Math.cos(a) * r;
+      let nz = pet.home.z + Math.sin(a) * r;
+      if (pet.room === 'yard') {
+        const rr = Math.hypot(nx, nz);
+        if (rr > YARD_R - 140) {
+          nx *= (YARD_R - 140) / rr;
+          nz *= (YARD_R - 140) / rr;
+        }
+      } else {
+        const bw = (pet.room === 'loft' ? dims.halfW - 80 : dims.halfW) - 100;
+        const bd = (pet.room === 'loft' ? dims.halfD - 80 : dims.halfD) - 100;
+        nx = Math.max(-bw, Math.min(bw, nx));
+        nz = Math.max(-bd, Math.min(bd, nz));
+      }
+      pet.tx = nx;
+      pet.tz = nz;
+    }
+    // The gait: quick hops while walking, an occasional REAL jump.
+    pet.jump -= dt;
+    let y = walking ? Math.abs(Math.sin(t * 7 + pet.phase)) * 10 : 0;
+    if (pet.jump < 0.6 && pet.jump > 0) {
+      y += Math.sin(((0.6 - pet.jump) / 0.6) * Math.PI) * 55;
+    } else if (pet.jump <= 0) {
+      pet.jump = 4 + Math.random() * 6;
+    }
+    view.position.y = y;
+    // A happy lean into the hop.
+    view.rotation.z = walking ? Math.sin(t * 7 + pet.phase) * 0.06 : 0;
+  }
 }
 
 let room: Room = 'yard';
@@ -255,6 +340,7 @@ interface Other {
   room: Room;
   tx: number;
   tz: number;
+  ty: number;
   yaw: number;
   moving: boolean;
 }
@@ -265,7 +351,7 @@ function upsertOther(id: string, name: string, color: number, hat: string): Othe
   if (!o) {
     o = {
       avatar: blobAvatar(color, hat), name, color, hat,
-      room: 'yard', tx: 0, tz: 300, yaw: 0, moving: false,
+      room: 'yard', tx: 0, tz: 300, ty: 0, yaw: 0, moving: false,
     };
     o.avatar.view.position.set(0, 0, 300);
     game.scene.add(o.avatar.view);
@@ -322,6 +408,7 @@ window.addEventListener('keydown', (e) => {
     applyKeys();
   }
   if (k === 'c') toggleCam();
+  if (k === ' ') doJump();
 });
 window.addEventListener('keyup', (e) => {
   down.delete(e.key.toLowerCase());
@@ -444,13 +531,14 @@ function pubProfile(): { name: string; color: number; hat: string; friendCode: s
   return { name: profile.name, color: profile.color, hat: profile.hat, friendCode: profile.friendCode };
 }
 
-function myPos(): [number, number, Room, number, number] {
+function myPos(): [number, number, Room, number, number, number] {
   return [
     Math.round(me.view.position.x),
     Math.round(me.view.position.z),
     room,
     Math.round(myYaw * 100) / 100,
     held.x || held.z || stick.x || stick.z ? 1 : 0,
+    Math.round(me.view.position.y),
   ];
 }
 
@@ -498,7 +586,7 @@ async function openWorld(): Promise<string> {
       renderFriends();
       updateHud();
     } else if (msg.t === 'pos' && Array.isArray(msg.l)) {
-      applyPos(from, msg.l as [number, number, Room, number, number]);
+      applyPos(from, msg.l as [number, number, Room, number, number, number?]);
     }
   });
   s.onClose(() => goHome('Your world closed'));
@@ -526,7 +614,7 @@ function meetAll(): void {
   }
 }
 
-function applyPos(id: string, l: [number, number, Room, number, number]): void {
+function applyPos(id: string, l: [number, number, Room, number, number, number?]): void {
   const o = others.get(id);
   if (!o) return;
   o.tx = l[0];
@@ -534,6 +622,7 @@ function applyPos(id: string, l: [number, number, Room, number, number]): void {
   o.room = l[2] === 'house' ? 'house' : l[2] === 'loft' ? 'loft' : 'yard';
   o.yaw = l[3];
   o.moving = !!l[4];
+  o.ty = Number(l[5]) || 0;
   o.avatar.view.visible = o.room === room;
 }
 
@@ -555,7 +644,7 @@ async function visit(code: string): Promise<void> {
       p?: ReturnType<typeof pubProfile>;
       decor?: DecorItem[];
       house?: { size?: string; theme?: string };
-      l?: Record<string, [number, number, Room, number, number]>;
+      l?: Record<string, [number, number, Room, number, number, number?]>;
     };
     if (msg.t === 'world' && msg.host && Array.isArray(msg.decor)) {
       visiting = { hostName: msg.host.name, hostCode: msg.host.friendCode };
@@ -699,6 +788,11 @@ function toggleCam(): void {
   toast(playerCam.mode === 'third' ? 'Third person' : 'First person');
 }
 $('b-cam').onclick = toggleCam;
+// pointerdown, not click: a jump must fire the instant the thumb lands.
+$('b-jump').addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  doJump();
+});
 
 $('b-decor').onclick = () => {
   decorMode = !decorMode;
@@ -984,9 +1078,26 @@ function renderInvite(): void {
 
 // ------------------------------------------------------------ main loop
 
+// 🦘 The jump: one impulse, one gravity, one ground. Guests see it too —
+// the y rides the same position stream as everything else.
+let vy = 0;
+function doJump(): void {
+  if (me.view.position.y > 0.5) return; // no double jumps — cozy, not Quake
+  vy = 640;
+  audio.blip();
+}
+
 let t = 0;
 function update(dt: number): void {
   t += dt;
+  if (vy !== 0 || me.view.position.y > 0) {
+    me.view.position.y += vy * dt;
+    vy -= 1900 * dt;
+    if (me.view.position.y <= 0) {
+      me.view.position.y = 0;
+      vy = 0;
+    }
+  }
   const ix = Math.max(-1, Math.min(1, held.x + stick.x));
   const iz = Math.max(-1, Math.min(1, held.z + stick.z));
   const mv = playerCam.moveVector(ix, iz);
@@ -1074,9 +1185,11 @@ function update(dt: number): void {
     const k = Math.min(1, dt * 10);
     v.position.x += (o.tx - v.position.x) * k;
     v.position.z += (o.tz - v.position.z) * k;
+    v.position.y += (o.ty - v.position.y) * Math.min(1, dt * 14);
     v.rotation.y += (o.yaw - v.rotation.y) * k;
     o.avatar.tick(t, o.moving);
   }
+  tickPets(dt);
   // Anything named bob (fountain drops, flames, fish) bobs.
   worldRoot.traverse((obj) => {
     if (obj.name !== 'bob') return;
@@ -1153,6 +1266,7 @@ declare global {
       exitHouse: () => void;
       goUpstairs: () => void;
       goDownstairs: () => void;
+      jump: () => void;
       setDecorMode: (on: boolean, item?: string) => void;
       placeAt: (item: string, x: number, z: number) => boolean;
       decorCount: () => number;
@@ -1194,6 +1308,17 @@ window.__haven = {
     houseTheme: worldHouse.theme,
     verium: verium.balance(),
     modelsLoaded: modelStats.loaded,
+    playerY: Math.round(me.view.position.y),
+    pets: [...petStates.entries()].map(([id, p]) => {
+      const v = decorViews.get(id)?.group;
+      return {
+        id,
+        x: Math.round(v?.position.x ?? 0),
+        z: Math.round(v?.position.z ?? 0),
+        y: Math.round(v?.position.y ?? 0),
+        room: p.room,
+      };
+    }),
     othersHere: [...others.values()].map((o) => ({
       name: o.name,
       room: o.room,
@@ -1201,6 +1326,7 @@ window.__haven = {
       color: o.color,
       x: Math.round(o.avatar.view.position.x),
       z: Math.round(o.avatar.view.position.z),
+      y: Math.round(o.avatar.view.position.y),
     })),
   }),
   warp: (x, z) => {
@@ -1213,6 +1339,7 @@ window.__haven = {
   exitHouse: exitToYard,
   goUpstairs,
   goDownstairs,
+  jump: doJump,
   setDecorMode: (on, item) => {
     decorMode = on;
     if (item) selItem = item;
