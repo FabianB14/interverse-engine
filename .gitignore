@@ -33,3 +33,4 @@ pnpm-debug.log*
 .env.*
 !.env.example
 dist-site/
+data/
