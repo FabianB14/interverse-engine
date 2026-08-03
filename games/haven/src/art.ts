@@ -834,6 +834,43 @@ export interface Avatar {
   tick: (t: number, moving: boolean) => void;
 }
 
+/** A bought MODEL as your body: the .glb replaces the blob, the hat still
+ *  sits on top, and the walk animates whole-body (hop + lean) because
+ *  these files carry no rigs. Color taps are ignored — a model keeps its
+ *  own skin; that is the point of buying one. */
+export function modelAvatar(url: string, height: number, hat: string): Avatar {
+  const view = new Group();
+  const body = new Group();
+  view.add(body);
+  void loadModel(url, { height }).then((m) => {
+    body.add(m);
+    modelStats.loaded++;
+  });
+  const hatAnchor = new Group();
+  hatAnchor.position.y = height * 1.02;
+  view.add(hatAnchor);
+  let hatNow: Group | null = null;
+  const setHat = (id: string): void => {
+    if (hatNow) hatAnchor.remove(hatNow);
+    hatNow = hatView(id);
+    if (hatNow) hatAnchor.add(hatNow);
+  };
+  setHat(hat);
+  return {
+    view,
+    setColor: () => undefined,
+    setHat,
+    tick: (t, moving) => {
+      const bounce = moving ? Math.abs(Math.sin(t * 8)) * 12 : Math.sin(t * 2) * 2;
+      body.position.y = bounce;
+      hatAnchor.position.y = height * 1.02 + bounce;
+      body.rotation.z = moving ? Math.sin(t * 8) * 0.05 : 0;
+      const rotor = hatAnchor.getObjectByName('spin');
+      if (rotor) rotor.rotation.y = t * (moving ? 14 : 5);
+    },
+  };
+}
+
 /** A haven blob: soft body, friendly face, hat anchor on top. */
 export function blobAvatar(color: number, hat: string): Avatar {
   const view = new Group();

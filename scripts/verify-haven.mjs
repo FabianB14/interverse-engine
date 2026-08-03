@@ -236,6 +236,17 @@ const hatSyncOk = hSeesHat.othersHere[0]?.hat === 'crown';
 await hostPage.evaluate(() => window.__haven.jump());
 const gSeesJump = await waitFor(() => S(guestPage), (s) => (s.othersHere[0]?.y ?? 0) > 15, 4000);
 const jumpSyncOk = (gSeesJump.othersHere[0]?.y ?? 0) > 15;
+
+// 🧍 Avatars: the host trades the blob for The Bag; the guest's copy of
+// the host rebuilds with the model body.
+const bagBought = await hostPage.evaluate(() => {
+  window.__haven.grant(500);
+  return window.__haven.buy('avatar', 'bag');
+});
+const hBag = await waitFor(() => S(hostPage), (s) => s.avatar === 'bag');
+const gSeesBag = await waitFor(() => S(guestPage), (s) => s.othersHere[0]?.avatar === 'bag', 8000);
+const avatarOk = bagBought && hBag.avatar === 'bag' && gSeesBag.othersHere[0]?.avatar === 'bag';
+await hostPage.screenshot({ path: `${outDir}/hv-9-bag.png` });
 await hostPage.screenshot({ path: `${outDir}/hv-5-guests.png` });
 await guestPage.screenshot({ path: `${outDir}/hv-6-visiting.png` });
 
@@ -264,7 +275,7 @@ const leaveOk = hostAfterLeave.guests === 0;
 const gates = {
   bootOk, cameraOk, hatBuyOk, brokeOk, storeOk, modelOk, petOk, jumpOk,
   loftOk, refuseOk, persistOk, dailyOk, codeOk, visitOk, meetOk,
-  friendBonusOk, moveOk, hatSyncOk, jumpSyncOk, friendsOk, presenceOk,
+  friendBonusOk, moveOk, hatSyncOk, jumpSyncOk, avatarOk, friendsOk, presenceOk,
   homeOk, leaveOk,
 };
 console.log(JSON.stringify({ ...gates, code, verium: sDaily.verium }, null, 2));

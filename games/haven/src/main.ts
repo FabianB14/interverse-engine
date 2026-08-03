@@ -28,14 +28,14 @@ import { host, join } from '@interverse/net';
 import type { Session } from '@interverse/net';
 import {
   CATALOGUE, blobAvatar, buildItem, houseExterior, houseInterior, islandView, loftInterior,
-  modelStats, pathView, pondView, rockCluster, yardTrees,
+  modelAvatar, modelStats, pathView, pondView, rockCluster, yardTrees,
 } from './art.js';
 import type { Avatar, HouseSpec } from './art.js';
 import { addFriend, freshDecorId, loadProfile, removeFriend, saveProfile } from './save.js';
 import type { DecorItem, Profile } from './save.js';
 import {
-  BASE_COLORS, FURNITURE_STORE, HAT_STORE, HOUSE_SIZES, HOUSE_STORE, PETS, PREMIUM_COLORS,
-  THEME_STORE, themeById,
+  AVATAR_STORE, BASE_COLORS, FURNITURE_STORE, HAT_STORE, HOUSE_SIZES, HOUSE_STORE, PETS,
+  PREMIUM_COLORS, THEME_STORE, themeById,
 } from './store.js';
 import type { HouseSizeId } from './store.js';
 import { GAME_TAG, presenceUrl, resolveRelayUrl } from './config.js';
@@ -81,8 +81,10 @@ const ownsHouse = (id: HouseSizeId): boolean =>
   id === 'cozy' || profile.ownedHouses.includes(id);
 const ownsTheme = (id: string): boolean =>
   (THEME_STORE.find((t) => t.id === id)?.price ?? 1) === 0 || profile.ownedThemes.includes(id);
+const ownsAvatar = (id: string): boolean =>
+  (AVATAR_STORE.find((a) => a.id === id)?.price ?? 1) === 0 || profile.ownedAvatars.includes(id);
 
-type BuyKind = 'hat' | 'color' | 'furniture' | 'house' | 'theme';
+type BuyKind = 'hat' | 'color' | 'furniture' | 'house' | 'theme' | 'avatar';
 
 /** Spend ⬡, record ownership, equip/apply immediately. */
 function buy(kind: BuyKind, id: string | number): boolean {
@@ -129,6 +131,15 @@ function buy(kind: BuyKind, id: string | number): boolean {
       if (room !== 'yard') exitToYard();
       rebuildWorld();
     }
+  } else if (kind === 'avatar') {
+    const row = AVATAR_STORE.find((a) => a.id === id);
+    if (!row) return false;
+    if (!ownsAvatar(row.id)) {
+      if (!verium.spend(row.price)) return fail(`need ⬡${row.price}`);
+      profile.ownedAvatars.push(row.id);
+    }
+    profile.avatar = row.id;
+    setMyAvatar(row.id);
   } else {
     const row = THEME_STORE.find((t) => t.id === id);
     if (!row) return false;
@@ -327,13 +338,32 @@ function applyRoom(): void {
 
 // --------------------------------------------------------- the avatars
 
-const me: Avatar = blobAvatar(profile.color, profile.hat);
+/** Build a body for an avatar id: the blob, or a bought model. */
+function makeAvatar(avatarId: string, color: number, hat: string): Avatar {
+  const row = AVATAR_STORE.find((a) => a.id === avatarId);
+  if (row?.url) return modelAvatar(row.url, row.height ?? 120, hat);
+  return blobAvatar(color, hat);
+}
+
+let me: Avatar = makeAvatar(profile.avatar, profile.color, profile.hat);
 game.scene.add(me.view);
 me.view.position.set(0, 0, 420);
 let myYaw = Math.PI;
 
+/** Swap my body live: keep where I stand and where I face. */
+function setMyAvatar(avatarId: string): void {
+  const pos = me.view.position.clone();
+  const rotY = me.view.rotation.y;
+  game.scene.remove(me.view);
+  me = makeAvatar(avatarId, profile.color, profile.hat);
+  me.view.position.copy(pos);
+  me.view.rotation.y = rotY;
+  game.scene.add(me.view);
+}
+
 interface Other {
   avatar: Avatar;
+  avatarId: string;
   name: string;
   color: number;
   hat: string;
@@ -346,11 +376,21 @@ interface Other {
 }
 const others = new Map<string, Other>();
 
-function upsertOther(id: string, name: string, color: number, hat: string): Other {
+function upsertOther(id: string, name: string, color: number, hat: string, avatarId = 'blob'): Other {
   let o = others.get(id);
+  // A changed BODY needs a rebuild; everything else patches in place.
+  if (o && o.avatarId !== avatarId) {
+    const pos = o.avatar.view.position.clone();
+    game.scene.remove(o.avatar.view);
+    others.delete(id);
+    o = undefined;
+    const fresh = upsertOther(id, name, color, hat, avatarId);
+    fresh.avatar.view.position.copy(pos);
+    return fresh;
+  }
   if (!o) {
     o = {
-      avatar: blobAvatar(color, hat), name, color, hat,
+      avatar: makeAvatar(avatarId, color, hat), avatarId, name, color, hat,
       room: 'yard', tx: 0, tz: 300, ty: 0, yaw: 0, moving: false,
     };
     o.avatar.view.position.set(0, 0, 300);
@@ -527,8 +567,11 @@ const relayUrl = resolveRelayUrl();
 let session: Session | null = null;
 let posTimer: ReturnType<typeof setInterval> | null = null;
 
-function pubProfile(): { name: string; color: number; hat: string; friendCode: string } {
-  return { name: profile.name, color: profile.color, hat: profile.hat, friendCode: profile.friendCode };
+function pubProfile(): { name: string; color: number; hat: string; avatar: string; friendCode: string } {
+  return {
+    name: profile.name, color: profile.color, hat: profile.hat,
+    avatar: profile.avatar, friendCode: profile.friendCode,
+  };
 }
 
 function myPos(): [number, number, Room, number, number, number] {
@@ -580,7 +623,7 @@ async function openWorld(): Promise<string> {
   s.onMessage((from, raw) => {
     const msg = raw as { t?: string; p?: ReturnType<typeof pubProfile>; l?: unknown[] };
     if (msg.t === 'hi' && msg.p) {
-      upsertOther(from, msg.p.name, msg.p.color, msg.p.hat);
+      upsertOther(from, msg.p.name, msg.p.color, msg.p.hat, msg.p.avatar ?? 'blob');
       if (msg.p.friendCode) metFriend(msg.p.friendCode, msg.p.name);
       meetAll();
       renderFriends();
@@ -609,7 +652,7 @@ function meetAll(): void {
   for (const [id, o] of others) {
     session.broadcast({
       t: 'meet', id,
-      p: { name: o.name, color: o.color, hat: o.hat, friendCode: '' },
+      p: { name: o.name, color: o.color, hat: o.hat, avatar: o.avatarId, friendCode: '' },
     });
   }
 }
@@ -660,7 +703,7 @@ async function visit(code: string): Promise<void> {
       me.view.position.set(120, 0, 420);
       applyRoom();
       const hostId = s.players.find((p) => p.isHost)?.id;
-      if (hostId) upsertOther(hostId, msg.host.name, msg.host.color, msg.host.hat);
+      if (hostId) upsertOther(hostId, msg.host.name, msg.host.color, msg.host.hat, msg.host.avatar ?? 'blob');
       updateHud();
       renderFriends();
       toast(`Welcome to ${msg.host.name}'s haven 💛`);
@@ -671,7 +714,7 @@ async function visit(code: string): Promise<void> {
       }
     } else if (msg.t === 'meet' && msg.p && msg.id && msg.id !== s.id) {
       // Someone else in the room (or a fresh look), mirrored by the host.
-      upsertOther(msg.id, msg.p.name, msg.p.color, msg.p.hat);
+      upsertOther(msg.id, msg.p.name, msg.p.color, msg.p.hat, msg.p.avatar ?? 'blob');
     }
   });
   s.onPlayerJoin(() => undefined);
@@ -850,8 +893,8 @@ function renderStore(tab = 'hats'): void {
   const tabs = $('s-tabs');
   tabs.innerHTML = '';
   const sections: [string, string][] = [
-    ['hats', '👒 Hats'], ['coats', '🎨 Coats'], ['furniture', '🛋 Furniture'],
-    ['houses', '🏠 Houses'], ['themes', '🖌 Themes'],
+    ['hats', '👒 Hats'], ['coats', '🎨 Coats'], ['avatars', '🧍 Avatars'],
+    ['furniture', '🛋 Furniture'], ['houses', '🏠 Houses'], ['themes', '🖌 Themes'],
   ];
   for (const [id, label] of sections) {
     const b = document.createElement('button');
@@ -915,6 +958,12 @@ function renderStore(tab = 'hats'): void {
         if (buy('color', p.color)) renderStore(tab);
       }, p.color);
     }
+  } else if (tab === 'avatars') {
+    for (const a of AVATAR_STORE) {
+      row(a.name, a.price, ownsAvatar(a.id), profile.avatar === a.id, () => {
+        if (buy('avatar', a.id)) renderStore(tab);
+      });
+    }
   } else if (tab === 'furniture') {
     for (const f of FURNITURE_STORE) {
       row(f.name, f.price, ownsFurniture(f.id), false, () => {
@@ -975,6 +1024,17 @@ function renderWardrobe(): void {
     b.textContent = h.name;
     b.onclick = () => {
       buy('hat', h.id);
+      renderWardrobe();
+    };
+    hats.appendChild(b);
+  }
+  for (const a of AVATAR_STORE) {
+    if (!ownsAvatar(a.id)) continue;
+    const b = document.createElement('button');
+    b.className = `hatbtn${profile.avatar === a.id ? ' on' : ''}`;
+    b.textContent = `🧍 ${a.name}`;
+    b.onclick = () => {
+      buy('avatar', a.id);
       renderWardrobe();
     };
     hats.appendChild(b);
@@ -1307,6 +1367,7 @@ window.__haven = {
     houseSize: worldHouse.size,
     houseTheme: worldHouse.theme,
     verium: verium.balance(),
+    avatar: profile.avatar,
     modelsLoaded: modelStats.loaded,
     playerY: Math.round(me.view.position.y),
     pets: [...petStates.entries()].map(([id, p]) => {
@@ -1323,6 +1384,7 @@ window.__haven = {
       name: o.name,
       room: o.room,
       hat: o.hat,
+      avatar: o.avatarId,
       color: o.color,
       x: Math.round(o.avatar.view.position.x),
       z: Math.round(o.avatar.view.position.z),
@@ -1377,6 +1439,7 @@ window.__haven = {
   owned: () => ({
     hats: [...profile.ownedHats],
     colors: [...profile.ownedColors],
+    avatars: [...profile.ownedAvatars],
     furniture: [...profile.ownedFurniture],
     houses: [...profile.ownedHouses],
     themes: [...profile.ownedThemes],

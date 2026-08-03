@@ -78,6 +78,14 @@ export const MODEL_DECOR: readonly { id: string; url: string; height: number; gl
  *  body animates the way the blobs do. */
 export const PETS: ReadonlySet<string> = new Set(['mouse', 'robot', 'tiger', 'dino']);
 
+/** 🧍 Avatars: what YOU are. The blob is free and forever; model avatars
+ *  are bought once and replace the blob body (hats still sit on top).
+ *  To add one: optimize the .glb into public/models/, add a row here. */
+export const AVATAR_STORE: readonly (PricedItem & { url?: string; height?: number })[] = [
+  { id: 'blob', name: 'Blob', price: 0 },
+  { id: 'bag', name: 'The Bag', price: 350, url: 'models/bag.glb', height: 120 },
+];
+
 export type HouseSizeId = 'cozy' | 'grand' | 'manor';
 
 export interface HouseDims {

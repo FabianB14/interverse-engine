@@ -36,6 +36,8 @@ export interface Profile {
   friendCode: string;
   color: number;
   hat: string;
+  /** 'blob' or a bought model avatar id from AVATAR_STORE. */
+  avatar: string;
   houseSize: HouseSizeId;
   houseTheme: string;
   decor: DecorItem[];
@@ -43,6 +45,7 @@ export interface Profile {
   /** Bought-once ownership. Price-0 store rows are owned implicitly. */
   ownedHats: string[];
   ownedColors: number[];
+  ownedAvatars: string[];
   ownedFurniture: string[];
   ownedHouses: HouseSizeId[];
   ownedThemes: string[];
@@ -99,6 +102,7 @@ export function loadProfile(): Profile {
     friendCode: typeof raw.friendCode === 'string' && raw.friendCode ? raw.friendCode : makeFriendCode(),
     color: typeof raw.color === 'number' ? raw.color : BASE_COLORS[Math.floor(Math.random() * BASE_COLORS.length)]!,
     hat: typeof raw.hat === 'string' ? raw.hat : 'none',
+    avatar: typeof raw.avatar === 'string' && raw.avatar ? raw.avatar : 'blob',
     houseSize: raw.houseSize === 'grand' || raw.houseSize === 'manor' ? raw.houseSize : 'cozy',
     houseTheme: typeof raw.houseTheme === 'string' && raw.houseTheme ? raw.houseTheme : 'meadow',
     decor: Array.isArray(raw.decor) ? raw.decor.filter(isDecor).map((d) => ({ ...d, rot: Number(d.rot) || 0 })) : starterDecor(),
@@ -111,6 +115,7 @@ export function loadProfile(): Profile {
     ownedColors: Array.isArray(raw.ownedColors)
       ? raw.ownedColors.filter((c): c is number => typeof c === 'number')
       : [],
+    ownedAvatars: strList(raw.ownedAvatars),
     ownedFurniture: strList(raw.ownedFurniture),
     ownedHouses: strList(raw.ownedHouses).filter(
       (h): h is HouseSizeId => h === 'cozy' || h === 'grand' || h === 'manor',
