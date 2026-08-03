@@ -619,6 +619,16 @@ const buildAquarium = (): Group => {
   return shadowed(g);
 };
 
+const MODEL_LABELS: Record<string, [string, string]> = {
+  gnome: ['Gnome', '🍄'],
+  bear: ['Teddy', '🧸'],
+  dozer: ['Dozer', '🚜'],
+  mouse: ['Mouse', '🐭'],
+  robot: ['Dragon', '🐉'],
+  tiger: ['Tiger', '🐯'],
+  dino: ['Dino', '🦖'],
+};
+
 /** A .glb furnishing: the group mounts instantly (so placement feels
  *  immediate) and the model pops in when the load lands. loadModel caches
  *  by URL, so ten gnomes cost one fetch. */
@@ -660,8 +670,8 @@ export const CATALOGUE: readonly CatalogueItem[] = [
   { id: 'aquarium', label: 'Fish', emoji: '🐠', rooms: ['house', 'loft'], build: () => buildAquarium() },
   ...MODEL_DECOR.map((m) => ({
     id: m.id,
-    label: m.id === 'gnome' ? 'Gnome' : m.id === 'bear' ? 'Teddy' : m.id,
-    emoji: m.id === 'gnome' ? '🍄' : '🧸',
+    label: MODEL_LABELS[m.id]?.[0] ?? m.id,
+    emoji: MODEL_LABELS[m.id]?.[1] ?? '📦',
     rooms: ['yard', 'house', 'loft'] as const,
     build: () => buildModelItem(m.url, m.height),
   })),

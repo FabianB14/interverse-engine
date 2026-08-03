@@ -51,14 +51,29 @@ export const FURNITURE_STORE: readonly PricedItem[] = [
   { id: 'aquarium', name: 'Aquarium', price: 140 },
   { id: 'gnome', name: 'Gnome Statue', price: 90 },
   { id: 'bear', name: 'Teddy Bear', price: 110 },
+  { id: 'dozer', name: 'Bulldozer', price: 200 },
+  { id: 'mouse', name: 'Mouse Friend', price: 180 },
+  { id: 'robot', name: 'Shadow Dragon', price: 260 },
+  { id: 'tiger', name: 'Tiger Friend', price: 250 },
+  { id: 'dino', name: 'Dino Friend', price: 250 },
 ];
 
 /** .glb decor: drop a file in public/models/, list it here, price it in
- *  FURNITURE_STORE, and it is in the game. */
+ *  FURNITURE_STORE, and it is in the game. Heights are world units. */
 export const MODEL_DECOR: readonly { id: string; url: string; height: number }[] = [
   { id: 'gnome', url: 'models/gnome.glb', height: 130 },
   { id: 'bear', url: 'models/bear.glb', height: 110 },
+  { id: 'dozer', url: 'models/dozer.glb', height: 160 },
+  { id: 'mouse', url: 'models/mouse.glb', height: 100 },
+  { id: 'robot', url: 'models/robot.glb', height: 150 },
+  { id: 'tiger', url: 'models/tiger.glb', height: 140 },
+  { id: 'dino', url: 'models/dino.glb', height: 170 },
 ];
+
+/** Model decor that is ALIVE: placed like furniture, but it wanders its
+ *  home patch, hops, and jumps — the files carry no rigs, so the whole
+ *  body animates the way the blobs do. */
+export const PETS: ReadonlySet<string> = new Set(['mouse', 'robot', 'tiger', 'dino']);
 
 export type HouseSizeId = 'cozy' | 'grand' | 'manor';
 
