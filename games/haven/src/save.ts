@@ -52,6 +52,9 @@ export interface Profile {
   /** Earning bookkeeping: the welcome grant and the daily gift day. */
   welcomed: boolean;
   lastDaily: string;
+  /** Wallet sync codes already applied on this device (farm-style: each
+   *  transfer code adds its ⬡ exactly once). */
+  syncApplied: string[];
 }
 
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -123,6 +126,7 @@ export function loadProfile(): Profile {
     ownedThemes: strList(raw.ownedThemes),
     welcomed: raw.welcomed === true,
     lastDaily: typeof raw.lastDaily === 'string' ? raw.lastDaily : '',
+    syncApplied: strList(raw.syncApplied),
   };
   // First run mints the identity; write it back so the code never changes.
   if (raw.friendCode !== p.friendCode || !Array.isArray(raw.decor)) saveProfile(p);

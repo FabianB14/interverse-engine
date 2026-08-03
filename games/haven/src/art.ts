@@ -19,7 +19,12 @@ import {
   SphereGeometry,
   TorusGeometry,
 } from 'three';
-import { jitterVertices, loadModel, lowPolyMaterial, lowPolyTree, paintFacets, seededRand } from '@interverse/three';
+import { AnimationMixer } from 'three';
+import type { AnimationAction } from 'three';
+import {
+  jitterVertices, loadModel, loadModelWithClips, lowPolyMaterial, lowPolyTree, paintFacets,
+  seededRand,
+} from '@interverse/three';
 import { MODEL_DECOR } from './store.js';
 import type { HouseTheme } from './store.js';
 
@@ -978,9 +983,22 @@ export function modelAvatar(
   const body = new Group();
   body.rotation.y = opts.rotY ?? 0;
   view.add(body);
-  void loadModel(url, { height }).then((m) => {
-    body.add(m);
+  // Rigged models (chop-and-rig or authored) carry walk/idle clips — the
+  // mixer plays REAL limb motion and the procedural gait stands down.
+  let mixer: AnimationMixer | null = null;
+  let walkA: AnimationAction | null = null;
+  let idleA: AnimationAction | null = null;
+  void loadModelWithClips(url, { height }).then((m) => {
+    body.add(m.view);
     modelStats.loaded++;
+    const walkClip = m.clips.find((c) => c.name === 'walk');
+    const idleClip = m.clips.find((c) => c.name === 'idle');
+    if (walkClip && idleClip) {
+      mixer = new AnimationMixer(m.view);
+      walkA = mixer.clipAction(walkClip);
+      idleA = mixer.clipAction(idleClip);
+      idleA.play();
+    }
   });
   // Eyes ride OUTSIDE the yaw-corrected body, so "front" is simply +Z.
   if (opts.eyes) {
@@ -1011,14 +1029,33 @@ export function modelAvatar(
   };
   setHat(hat);
   const baseYaw = opts.rotY ?? 0;
+  let lastT = 0;
+  let wasMoving = false;
   return {
     view,
     setColor: () => undefined,
     setHat,
     tick: (t, moving) => {
-      if (moving) {
-        // The run: gallop bounce, nose-down lean into the stride, a beat
-        // of roll — the whole body sells what the missing legs can't.
+      const dt = Math.max(0, Math.min(0.1, t - lastT));
+      lastT = t;
+      if (mixer && walkA && idleA) {
+        // Real clips: crossfade idle↔walk; keep only a light forward
+        // lean on top so the run still has intent.
+        if (moving !== wasMoving) {
+          const from = moving ? idleA : walkA;
+          const to = moving ? walkA : idleA;
+          from.fadeOut(0.18);
+          to.reset().fadeIn(0.18).play();
+          wasMoving = moving;
+        }
+        mixer.update(dt);
+        body.rotation.x = moving ? 0.08 : 0;
+        body.position.y = 0;
+        hatAnchor.position.y = height * 1.02;
+        body.rotation.y = baseYaw;
+      } else if (moving) {
+        // No clips: gallop bounce, nose-down lean, a beat of roll — the
+        // whole body sells what the missing legs can't.
         const stride = t * 9;
         const bounce = Math.abs(Math.sin(stride)) * 16;
         body.position.y = bounce;

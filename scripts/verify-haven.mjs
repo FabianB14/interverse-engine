@@ -375,11 +375,40 @@ const vaultOk =
   mirrorOk && adopted === true && afterPull.balance === hostWallet.balance + 500 &&
   staleCheck.balance === hostWallet.balance + 500;
 
+// 🦴 The chop-rigged Rex: real clips. Equip him, hold W, and the LEG
+// nodes must be at different angles across two samples mid-stride.
+await hostPage.evaluate(() => window.__haven.redeem('RAWR'));
+await waitFor(() => S(hostPage), (s) => s.avatar === 'trex', 8000);
+await sleep(1200);
+await hostPage.keyboard.down('w');
+await sleep(300);
+const shotA = await hostPage.screenshot();
+await sleep(160);
+const shotB = await hostPage.screenshot();
+await hostPage.screenshot({ path: `${outDir}/hv-14-rexrun.png` });
+await hostPage.keyboard.up('w');
+// Mid-stride frames must differ (legs scissor); identical pixels would
+// mean the clips are not playing.
+const rexRunOk = !shotA.equals(shotB) && (await S(hostPage)).avatar === 'trex';
+
+// 🔗 Wallet sync codes (the Bloomstead flow): Send mints a code, Receive
+// ADDS once on another device, and a replay is refused.
+const syncCode = await hostPage.evaluate(() => window.__haven.walletSyncSend());
+const gBefore = (await S(guestPage)).verium;
+const hostBal = (await S(hostPage)).verium;
+const added = await guestPage.evaluate((c) => window.__haven.walletSyncReceive(c), syncCode);
+const gAfter = (await S(guestPage)).verium;
+const replay = await guestPage.evaluate((c) => window.__haven.walletSyncReceive(c), syncCode);
+const syncOk =
+  typeof syncCode === 'string' && syncCode.length === 5 &&
+  added === hostBal && gAfter === gBefore + hostBal && replay === null;
+
 const gates = {
   bootOk, cameraOk, hatBuyOk, brokeOk, storeOk, modelOk, petOk, jumpOk,
   loftOk, refuseOk, persistOk, dailyOk, codeOk, visitOk, meetOk,
   friendBonusOk, moveOk, hatSyncOk, jumpSyncOk, avatarOk, redeemOk, redeemSyncOk, friendsOk, presenceOk,
   homeOk, leaveOk, bagCodeOk, npcsOk, talkOk, swimOk, bounceOk, vaultOk,
+  rexRunOk, syncOk,
 };
 console.log(JSON.stringify({ ...gates, code, verium: sDaily.verium }, null, 2));
 

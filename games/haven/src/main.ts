@@ -24,7 +24,7 @@ import {
 } from '@interverse/three';
 import type { Game3 } from '@interverse/three';
 import { audio, verium } from '@interverse/core';
-import { host, join } from '@interverse/net';
+import { host, join, syncPull, syncPush } from '@interverse/net';
 import type { Session } from '@interverse/net';
 import {
   CATALOGUE, blobAvatar, buildItem, houseExterior, houseInterior, islandView, loftInterior,
@@ -1010,6 +1010,38 @@ function walletPush(): void {
 }
 setInterval(walletPush, 5000);
 
+// 🔗 Wallet sync codes — the SAME flow Bloomstead and Blobvale ship:
+// Send uploads the balance under a short code (relay /sync, ~a day),
+// Receive ADDS it exactly once per code per device. This is how ⬡ earned
+// in the other games' installs walks into Blobhaven.
+async function walletSyncSend(): Promise<string> {
+  const code = await syncPush(relayUrl, { verium: verium.balance() });
+  toast(`📤 Sync code: ${code} — enter it in the other game`);
+  return code;
+}
+async function walletSyncReceive(codeRaw: string): Promise<number | null> {
+  const code = codeRaw.trim().toUpperCase();
+  if (code.length < 4) return null;
+  const data = (await syncPull(relayUrl, code)) as { verium?: number } | null;
+  if (data === null) {
+    toast('No wallet under that code (typo, or it expired)');
+    return null;
+  }
+  if (profile.syncApplied.includes(code)) {
+    toast('That code was already used on this device');
+    return null;
+  }
+  const amount = Math.max(0, Math.floor(Number(data.verium ?? 0)));
+  verium.add(amount);
+  profile.syncApplied = [...profile.syncApplied, code].slice(-20);
+  saveProfile(profile);
+  walletPush();
+  audio.chime();
+  toast(`+⬡${amount} added — wallet is now ⬡${verium.balance()} 🎉`);
+  updateHud();
+  return amount;
+}
+
 // ------------------------------------------------------------- presence
 
 let onlineMap: Record<string, string> = {};
@@ -1183,6 +1215,23 @@ function renderStore(tab = 'hats'): void {
       // Land on the shelf that just changed, so the unlock is VISIBLE.
       renderStore(grant.kind === 'avatar' ? 'avatars' : 'furniture');
     }
+  };
+  // Wallet sync: ⬡ from Bloomstead/Blobvale installs walks in here.
+  ($('s-sync-send') as HTMLButtonElement).onclick = () => {
+    void walletSyncSend()
+      .then((code) => ($('s-sync-out').textContent = code))
+      .catch(() => toast("couldn't reach the relay"));
+  };
+  ($('s-sync-recv') as HTMLButtonElement).onclick = () => {
+    const input = $('s-sync-in') as HTMLInputElement;
+    void walletSyncReceive(input.value)
+      .then((added) => {
+        if (added !== null) {
+          input.value = '';
+          renderStore(tab);
+        }
+      })
+      .catch(() => toast("couldn't reach the relay"));
   };
   const list = $('s-list');
   list.innerHTML = '';
@@ -1659,6 +1708,8 @@ declare global {
       walletPull: () => Promise<boolean>;
       walletPush: () => void;
       walletState: () => { balance: number; seq: number };
+      walletSyncSend: () => Promise<string>;
+      walletSyncReceive: (code: string) => Promise<number | null>;
       npcTalk: (name: string) => string;
       owned: () => Record<string, unknown>;
     };
@@ -1766,6 +1817,8 @@ window.__haven = {
   walletPull,
   walletPush,
   walletState: () => verium.state(),
+  walletSyncSend,
+  walletSyncReceive,
   npcTalk: (name) => {
     const n = npcs.find((x) => x.def.name === name);
     return n ? npcTalk(n) : '';

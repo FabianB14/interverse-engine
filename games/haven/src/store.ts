@@ -104,9 +104,11 @@ export const AVATAR_STORE: readonly AvatarRow[] = [
   { id: 'blob', name: 'Blob', price: 0 },
   { id: 'bag', name: 'The Bag', price: 350, url: 'models/bag.glb', height: 120 },
   { id: 'gothic', name: 'Gothic Girl', price: 400, url: 'models/gothic.glb', height: 170 },
+  // Rex is chop-rigged (scripts/rig-model.mjs): facing is baked into the
+  // file and his walk/idle clips move real legs — no rotY needed.
   {
     id: 'trex', name: 'Rex', price: 400, url: 'models/trex.glb', height: 150,
-    rotY: Math.PI / 2, eyes: { dx: 17, y: 112, fz: 34, r: 7 },
+    eyes: { dx: 17, y: 112, fz: 34, r: 7 },
   },
 ];
 
