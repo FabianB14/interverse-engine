@@ -56,6 +56,10 @@ const FRIEND_VRM = 25;
 
 type Room = 'yard' | 'house' | 'loft';
 
+/** Shown in the store header + debug hook — "which build am I on?" has
+ *  burned us twice with cached PWAs; now the answer is on screen. */
+const HAVEN_VERSION = 'v3.1';
+
 const params = new URLSearchParams(location.search);
 if (params.get('fresh')) localStorage.removeItem('interverse:haven');
 
@@ -791,26 +795,32 @@ function sendHouse(): void {
 }
 
 // 🎟 Redeem: a typed code unlocks a cosmetic outright — no ⬡ spent.
-function redeem(codeRaw: string): boolean {
+// Returns the grant so the store can jump to the right shelf — a vague
+// "Unlocked!" with no pointer is how a FURNITURE code reads as a broken
+// avatar code.
+function redeem(codeRaw: string): { kind: 'avatar' | 'furniture'; id: string } | null {
   const code = codeRaw.trim().toUpperCase();
   const grant = REDEEM_CODES[code];
   if (!grant) {
     toast('Hmm, that code does nothing 🤔');
-    return false;
+    return null;
   }
   if (grant.kind === 'avatar') {
+    const name = AVATAR_STORE.find((a) => a.id === grant.id)?.name ?? grant.id;
     if (!profile.ownedAvatars.includes(grant.id)) profile.ownedAvatars.push(grant.id);
     profile.avatar = grant.id;
     setMyAvatar(grant.id);
     sendLook();
-  } else if (!profile.ownedFurniture.includes(grant.id)) {
-    profile.ownedFurniture.push(grant.id);
+    toast(`🎁 You are now ${name}!`);
+  } else {
+    const name = FURNITURE_STORE.find((f) => f.id === grant.id)?.name ?? grant.id;
+    if (!profile.ownedFurniture.includes(grant.id)) profile.ownedFurniture.push(grant.id);
+    toast(`🎁 ${name} unlocked — it's in 🛋 Decorate!`);
   }
   saveProfile(profile);
   audio.chime();
-  toast('Unlocked! 🎁');
   updateHud();
-  return true;
+  return grant;
 }
 
 // 💰 The Verium vault: the relay mirrors this device's wallet under the
@@ -994,6 +1004,7 @@ function renderStore(tab = 'hats'): void {
     tabs.appendChild(b);
   }
   $('s-balance').textContent = `⬡ ${verium.balance()}`;
+  $('s-version').textContent = HAVEN_VERSION;
   // The daily gift lives in the store's header — one tap a day.
   const today = new Date().toISOString().slice(0, 10);
   const daily = $('s-daily') as HTMLButtonElement;
@@ -1012,9 +1023,11 @@ function renderStore(tab = 'hats'): void {
   const redeemBtn = $('s-redeem') as HTMLButtonElement;
   redeemBtn.onclick = () => {
     const input = $('s-code') as HTMLInputElement;
-    if (redeem(input.value)) {
+    const grant = redeem(input.value);
+    if (grant) {
       input.value = '';
-      renderStore(tab);
+      // Land on the shelf that just changed, so the unlock is VISIBLE.
+      renderStore(grant.kind === 'avatar' ? 'avatars' : 'furniture');
     }
   };
   const list = $('s-list');
@@ -1486,7 +1499,8 @@ declare global {
       verium: () => number;
       grant: (n: number) => void;
       buy: (kind: BuyKind, id: string | number) => boolean;
-      redeem: (code: string) => boolean;
+      redeem: (code: string) => { kind: string; id: string } | null;
+      version: string;
       walletPull: () => Promise<boolean>;
       walletPush: () => void;
       walletState: () => { balance: number; seq: number };
@@ -1586,6 +1600,7 @@ window.__haven = {
   },
   buy: (kind, id) => buy(kind, id),
   redeem,
+  version: HAVEN_VERSION,
   walletPull,
   walletPush,
   walletState: () => verium.state(),

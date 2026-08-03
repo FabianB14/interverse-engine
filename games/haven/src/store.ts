@@ -100,6 +100,7 @@ export const AVATAR_STORE: readonly (PricedItem & { url?: string; height?: numbe
  *  Client-side and kid-safe: codes unlock cosmetics only, never currency.
  *  (They live in the bundle, so treat them as fun giveaways, not locks.) */
 export const REDEEM_CODES: Readonly<Record<string, { kind: 'avatar' | 'furniture'; id: string }>> = {
+  GIFTBAG: { kind: 'avatar', id: 'bag' },
   NIGHTBLOOM: { kind: 'avatar', id: 'gothic' },
   RAWR: { kind: 'avatar', id: 'trex' },
   GOODNIGHT: { kind: 'furniture', id: 'sleepy' },

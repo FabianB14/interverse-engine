@@ -286,6 +286,23 @@ const hostAfterLeave = await waitFor(() => S(hostPage), (s) => s.guests === 0);
 const leaveOk = hostAfterLeave.guests === 0;
 
 // --- Haven 3.0 gates --------------------------------------------------
+// 🎟 Every avatar has a code, including The Bag; a redeem in the store
+// UI lands you on the AVATARS shelf with the new body equipped.
+await hostPage.evaluate(() => document.getElementById('b-store').click());
+await sleep(200);
+await hostPage.evaluate(() => {
+  document.getElementById('s-code').value = 'GIFTBAG';
+  document.getElementById('s-redeem').click();
+});
+await sleep(400);
+const bagRows = await hostPage.evaluate(() =>
+  [...document.querySelectorAll('#s-list .friend')].map((d) => d.textContent.trim()),
+);
+const sBagCode = await S(hostPage);
+const bagCodeOk =
+  sBagCode.avatar === 'bag' && bagRows.some((r) => r.includes('The Bag') && r.includes('Using'));
+await hostPage.evaluate(() => document.querySelector('#store .close').click());
+
 // 🏊 The pond: swim in (low + slow), wade out (back to ground level).
 await hostPage.evaluate(() => window.__haven.warp(1500, 1100));
 const sSwim = await waitFor(() => S(hostPage), (s) => s.swimming === true && s.playerY < -15);
@@ -338,7 +355,7 @@ const gates = {
   bootOk, cameraOk, hatBuyOk, brokeOk, storeOk, modelOk, petOk, jumpOk,
   loftOk, refuseOk, persistOk, dailyOk, codeOk, visitOk, meetOk,
   friendBonusOk, moveOk, hatSyncOk, jumpSyncOk, avatarOk, redeemOk, redeemSyncOk, friendsOk, presenceOk,
-  homeOk, leaveOk, swimOk, bounceOk, vaultOk,
+  homeOk, leaveOk, bagCodeOk, swimOk, bounceOk, vaultOk,
 };
 console.log(JSON.stringify({ ...gates, code, verium: sDaily.verium }, null, 2));
 
