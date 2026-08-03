@@ -631,6 +631,121 @@ const MODEL_LABELS: Record<string, [string, string]> = {
   sleepy: ['Snoozer', '😴'],
 };
 
+const buildTrampoline = (): Group => {
+  const g = new Group();
+  const frame = new Mesh(paint(new CylinderGeometry(90, 90, 12, 10, 1, true), 0x4d7ea8), mat());
+  frame.position.y = 56;
+  g.add(frame);
+  const bed = new Mesh(paint(new CylinderGeometry(80, 80, 6, 10), 0x2a2a34), mat());
+  bed.position.y = 56;
+  bed.name = 'bob';
+  g.add(bed);
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + 0.4;
+    const leg = new Mesh(paint(new CylinderGeometry(4, 5, 56, 5), 0x3a628a), mat());
+    leg.position.set(Math.cos(a) * 78, 28, Math.sin(a) * 78);
+    g.add(leg);
+  }
+  return shadowed(g);
+};
+
+const buildSlide = (): Group => {
+  const g = new Group();
+  const ladder = new Mesh(paint(new BoxGeometry(50, 150, 10), 0xe07a5f), mat());
+  ladder.position.set(0, 75, -80);
+  ladder.rotation.x = 0.25;
+  g.add(ladder);
+  const top = new Mesh(paint(new BoxGeometry(60, 12, 50), 0xc85a42), mat());
+  top.position.set(0, 150, -30);
+  g.add(top);
+  const chute = new Mesh(paint(new BoxGeometry(56, 8, 190), 0xf2cc8f), mat());
+  chute.position.set(0, 82, 70);
+  chute.rotation.x = -0.65;
+  g.add(chute);
+  for (const side of [-1, 1]) {
+    const rail = new Mesh(paint(new BoxGeometry(6, 16, 190), 0xe0b878), mat());
+    rail.position.set(side * 28, 92, 70);
+    rail.rotation.x = -0.65;
+    g.add(rail);
+  }
+  return shadowed(g);
+};
+
+const buildHammock = (): Group => {
+  const g = new Group();
+  for (const sx of [-110, 110]) {
+    const post = new Mesh(paint(new CylinderGeometry(7, 9, 130, 6), 0x6a4a32), mat());
+    post.position.set(sx, 65, 0);
+    post.rotation.z = sx > 0 ? -0.16 : 0.16;
+    g.add(post);
+  }
+  const cloth = new Mesh(paint(new BoxGeometry(170, 8, 60), 0x81b29a), mat());
+  cloth.position.y = 78;
+  cloth.rotation.z = 0.04;
+  g.add(cloth);
+  const sag = new Mesh(paint(new BoxGeometry(110, 8, 56), 0x74a08a), mat());
+  sag.position.y = 70;
+  g.add(sag);
+  return shadowed(g);
+};
+
+const buildGrill = (): Group => {
+  const g = new Group();
+  const bowl = new Mesh(paint(new SphereGeometry(46, 9, 6, 0, Math.PI * 2, 0, Math.PI / 2), 0x2a2a34), mat());
+  bowl.scale.y = 0.8;
+  bowl.rotation.x = Math.PI;
+  bowl.position.y = 78;
+  g.add(bowl);
+  const grate = new Mesh(paint(new CylinderGeometry(42, 42, 4, 10), 0x8a8a94), mat());
+  grate.position.y = 80;
+  g.add(grate);
+  const patty = new Mesh(paint(new CylinderGeometry(14, 14, 6, 8), 0x8a5a3a), mat());
+  patty.position.set(12, 85, 6);
+  g.add(patty);
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2;
+    const leg = new Mesh(paint(new CylinderGeometry(3.5, 4, 76, 5), 0x2a2a34), mat());
+    leg.position.set(Math.cos(a) * 30, 38, Math.sin(a) * 30);
+    g.add(leg);
+  }
+  return shadowed(g);
+};
+
+const buildBirdbath = (): Group => {
+  const g = new Group();
+  const stem = new Mesh(paint(new CylinderGeometry(10, 16, 80, 7), 0x9a8a68), mat());
+  stem.position.y = 40;
+  g.add(stem);
+  const basin = new Mesh(paint(new CylinderGeometry(44, 34, 18, 10), 0x9a8a68), mat());
+  basin.position.y = 88;
+  g.add(basin);
+  const water = new Mesh(paint(new CylinderGeometry(38, 38, 6, 10), 0x6fc3ff), waterMat());
+  water.position.y = 94;
+  g.add(water);
+  const bird = new Mesh(paint(new SphereGeometry(9, 6, 5), 0xffc75f), mat());
+  bird.position.set(28, 102, 0);
+  bird.name = 'bob';
+  g.add(bird);
+  return shadowed(g);
+};
+
+const buildBrolly = (): Group => {
+  const g = new Group();
+  const table = new Mesh(paint(new CylinderGeometry(66, 66, 10, 9), 0xe8dcc0), mat());
+  table.position.y = 66;
+  g.add(table);
+  const leg = new Mesh(paint(new CylinderGeometry(6, 8, 66, 6), 0x8a6a48), mat());
+  leg.position.y = 33;
+  g.add(leg);
+  const pole = new Mesh(paint(new CylinderGeometry(4, 4, 130, 6), 0x8a6a48), mat());
+  pole.position.y = 130;
+  g.add(pole);
+  const canopy = new Mesh(paint(new ConeGeometry(95, 45, 8), 0xff6f91), mat());
+  canopy.position.y = 200;
+  g.add(canopy);
+  return shadowed(g);
+};
+
 /** A .glb furnishing: the group mounts instantly (so placement feels
  *  immediate) and the model pops in when the load lands. loadModel caches
  *  by URL, so ten gnomes cost one fetch. */
@@ -677,6 +792,12 @@ export const CATALOGUE: readonly CatalogueItem[] = [
   // Store pieces (owned before they can be placed):
   { id: 'campfire', label: 'Campfire', emoji: '🔥', rooms: ['yard'], build: () => buildCampfire() },
   { id: 'swing', label: 'Swing', emoji: '🎠', rooms: ['yard'], build: () => buildSwing() },
+  { id: 'tramp', label: 'Bouncer', emoji: '🤸', rooms: ['yard'], build: () => buildTrampoline() },
+  { id: 'slide', label: 'Slide', emoji: '🛝', rooms: ['yard'], build: () => buildSlide() },
+  { id: 'hammock', label: 'Hammock', emoji: '🌴', rooms: ['yard'], build: () => buildHammock() },
+  { id: 'grill', label: 'Grill', emoji: '🍔', rooms: ['yard'], build: () => buildGrill() },
+  { id: 'birdbath', label: 'Birdbath', emoji: '🐦', rooms: ['yard'], build: () => buildBirdbath() },
+  { id: 'brolly', label: 'Umbrella', emoji: '⛱', rooms: ['yard'], build: () => buildBrolly() },
   { id: 'telescope', label: 'Scope', emoji: '🔭', rooms: ['yard', 'loft'], build: () => buildTelescope() },
   { id: 'piano', label: 'Piano', emoji: '🎹', rooms: ['house', 'loft'], build: () => buildPiano() },
   { id: 'aquarium', label: 'Fish', emoji: '🐠', rooms: ['house', 'loft'], build: () => buildAquarium() },

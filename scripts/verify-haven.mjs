@@ -285,11 +285,60 @@ const homeOk = gHome.visiting === false && gHome.decor === 4 && gHome.houseSize 
 const hostAfterLeave = await waitFor(() => S(hostPage), (s) => s.guests === 0);
 const leaveOk = hostAfterLeave.guests === 0;
 
+// --- Haven 3.0 gates --------------------------------------------------
+// 🏊 The pond: swim in (low + slow), wade out (back to ground level).
+await hostPage.evaluate(() => window.__haven.warp(1500, 1100));
+const sSwim = await waitFor(() => S(hostPage), (s) => s.swimming === true && s.playerY < -15);
+await hostPage.screenshot({ path: `${outDir}/hv-12-swim.png` });
+await hostPage.evaluate(() => window.__haven.warp(600, 300));
+const sDry = await waitFor(() => S(hostPage), (s) => s.swimming === false && s.playerY === 0);
+const swimOk = sSwim.swimming && sSwim.playerY < -15 && !sDry.swimming && sDry.playerY === 0;
+
+// 🤸 The trampoline: land on it, leave the ground without pressing jump.
+await hostPage.evaluate(() => {
+  window.__haven.grant(400);
+  window.__haven.buy('furniture', 'tramp');
+  window.__haven.setDecorMode(true, 'tramp');
+  window.__haven.placeAt('tramp', 900, -200);
+  window.__haven.setDecorMode(false);
+  window.__haven.warp(900, -200);
+});
+const sBounce = await waitFor(() => S(hostPage), (s) => s.playerY > 60, 5000);
+const bounceOk = sBounce.playerY > 60;
+
+// 💰 The Verium vault: the relay mirrors the wallet under the friend
+// code; a NEWER mirror (another device) is adopted on pull; a stale one
+// is not.
+await hostPage.evaluate(() => window.__haven.walletPush());
+await sleep(600);
+const hostCode2 = (await hostPage.evaluate(() => window.__haven.profile())).friendCode;
+const hostWallet = await hostPage.evaluate(() => window.__haven.walletState());
+const mirrored = await (await fetch(`http://localhost:8787/wallet/${hostCode2}`)).json();
+const mirrorOk = mirrored.balance === hostWallet.balance && mirrored.seq === hostWallet.seq;
+// "Another device" pushes a newer state…
+await fetch(`http://localhost:8787/wallet/${hostCode2}`, {
+  method: 'PUT',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ balance: hostWallet.balance + 500, seq: hostWallet.seq + 10 }),
+});
+const adopted = await hostPage.evaluate(() => window.__haven.walletPull());
+const afterPull = await hostPage.evaluate(() => window.__haven.walletState());
+// …and a STALE push must be ignored by the vault.
+await fetch(`http://localhost:8787/wallet/${hostCode2}`, {
+  method: 'PUT',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ balance: 1, seq: 1 }),
+});
+const staleCheck = await (await fetch(`http://localhost:8787/wallet/${hostCode2}`)).json();
+const vaultOk =
+  mirrorOk && adopted === true && afterPull.balance === hostWallet.balance + 500 &&
+  staleCheck.balance === hostWallet.balance + 500;
+
 const gates = {
   bootOk, cameraOk, hatBuyOk, brokeOk, storeOk, modelOk, petOk, jumpOk,
   loftOk, refuseOk, persistOk, dailyOk, codeOk, visitOk, meetOk,
   friendBonusOk, moveOk, hatSyncOk, jumpSyncOk, avatarOk, redeemOk, redeemSyncOk, friendsOk, presenceOk,
-  homeOk, leaveOk,
+  homeOk, leaveOk, swimOk, bounceOk, vaultOk,
 };
 console.log(JSON.stringify({ ...gates, code, verium: sDaily.verium }, null, 2));
 

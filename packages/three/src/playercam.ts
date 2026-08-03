@@ -59,6 +59,16 @@ export class PlayerCam {
       this.last = { x: e.clientX, y: e.clientY };
     };
     this.onMove = (e) => {
+      // Pointer lock (desktop mouse-look): the cursor is captured, clientX
+      // freezes, and movementX/Y carry the deltas — no drag required.
+      if (typeof document !== 'undefined' && document.pointerLockElement) {
+        this.yaw -= e.movementX * 0.0024;
+        this.pitch = Math.max(
+          this.minPitch,
+          Math.min(this.maxPitch, this.pitch + e.movementY * 0.002),
+        );
+        return;
+      }
       if (!this.last) return;
       this.yaw -= (e.clientX - this.last.x) * 0.005;
       this.pitch = Math.max(

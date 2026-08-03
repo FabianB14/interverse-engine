@@ -39,13 +39,15 @@ import {
 } from './store.js';
 import { modelThumb } from './thumbs.js';
 import type { HouseSizeId } from './store.js';
-import { GAME_TAG, presenceUrl, resolveRelayUrl } from './config.js';
+import { GAME_TAG, presenceUrl, resolveRelayUrl, walletUrl } from './config.js';
 
 // ------------------------------------------------------------ constants
 
 /** 10× the original island's AREA: r 1150 → 3650. */
 const YARD_R = 3650;
 const HOUSE_Z = -620;
+/** The pond — the same circle the art draws is the circle you swim in. */
+const POND = { x: 1500, z: 1100, r: 340 };
 const SPEED = 430;
 const POS_HZ_MS = 100;
 const WELCOME_VRM = 200;
@@ -219,10 +221,10 @@ function rebuildWorld(): void {
     yardTrees(YARD_R, [
       { x: 0, z: HOUSE_Z, r: dims.w + 400 },
       { x: 0, z: 200, r: 700 },
-      { x: 1500, z: 1100, r: 520 },
+      { x: POND.x, z: POND.z, r: POND.r + 180 },
     ]),
   );
-  yardGroup.add(pondView(1500, 1100, 340));
+  yardGroup.add(pondView(POND.x, POND.z, POND.r));
   yardGroup.add(rockCluster(-1700, -400, 71));
   yardGroup.add(rockCluster(900, -1900, 83));
   yardGroup.add(rockCluster(-800, 2100, 97));
@@ -305,6 +307,13 @@ function tickPets(dt: number): void {
         if (rr > YARD_R - 140) {
           nx *= (YARD_R - 140) / rr;
           nz *= (YARD_R - 140) / rr;
+        }
+        // Pets don't do water: a target in the pond nudges to the bank.
+        const pd = Math.hypot(nx - POND.x, nz - POND.z);
+        if (pd < POND.r + 60) {
+          const k = (POND.r + 80) / Math.max(1, pd);
+          nx = POND.x + (nx - POND.x) * k;
+          nz = POND.z + (nz - POND.z) * k;
         }
       } else {
         const bw = (pet.room === 'loft' ? dims.halfW - 80 : dims.halfW) - 100;
@@ -441,6 +450,7 @@ const applyKeys = (): void => {
     }
   }
 };
+let sprint = false;
 window.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   if ((e.target as HTMLElement | null)?.tagName === 'INPUT') return;
@@ -450,11 +460,27 @@ window.addEventListener('keydown', (e) => {
   }
   if (k === 'c') toggleCam();
   if (k === ' ') doJump();
+  if (k === 'shift') sprint = true;
 });
 window.addEventListener('keyup', (e) => {
   down.delete(e.key.toLowerCase());
   applyKeys();
+  if (e.key.toLowerCase() === 'shift') sprint = false;
 });
+
+// 🖱 Desktop mouse-look: click the world to capture the mouse (PlayerCam
+// reads movementX under pointer lock), Esc lets go. Decorate mode keeps
+// the cursor — you need it to aim taps.
+const isDesktop = matchMedia('(pointer: fine)').matches;
+const lookElem = document.getElementById('look')!;
+if (isDesktop) {
+  lookElem.addEventListener('click', () => {
+    if (!decorMode && !document.pointerLockElement) {
+      lookElem.requestPointerLock();
+    }
+  });
+  document.addEventListener('pointerlockchange', () => updateHud());
+}
 
 // Virtual stick on the left half; PlayerCam already owns the right half.
 const joyEl = document.getElementById('joy')!;
@@ -537,6 +563,7 @@ function decorAllowedAt(item: string, x: number, z: number): boolean {
     return Math.abs(x) < dims.halfW - 140 && Math.abs(z) < dims.halfD - 140;
   }
   if (Math.hypot(x, z) > YARD_R - 110) return false;
+  if (Math.hypot(x - POND.x, z - POND.z) < POND.r + 40) return false; // no couches in the pond
   const spec = houseSpec();
   const inHouse =
     Math.abs(x) < spec.w / 2 + 40 && Math.abs(z - HOUSE_Z) < spec.d / 2 + 40;
@@ -786,6 +813,39 @@ function redeem(codeRaw: string): boolean {
   return true;
 }
 
+// 💰 The Verium vault: the relay mirrors this device's wallet under the
+// friend code, so ⬡ follows you across devices. The DEVICE is the source
+// of truth — we only adopt a mirror that is strictly newer (higher seq),
+// so a wiped relay can never zero anyone, and the next push restores it.
+let lastPushedSeq = -1;
+async function walletPull(): Promise<boolean> {
+  try {
+    const res = await fetch(walletUrl(profile.friendCode));
+    const w = (await res.json()) as { balance?: number; seq?: number };
+    if (verium.adopt(Number(w.balance), Number(w.seq))) {
+      toast(`⬡ synced from your other device`);
+      updateHud();
+      return true;
+    }
+  } catch {
+    /* offline — the local wallet is always fine */
+  }
+  return false;
+}
+function walletPush(): void {
+  const s = verium.state();
+  if (s.seq === lastPushedSeq) return;
+  lastPushedSeq = s.seq;
+  void fetch(walletUrl(profile.friendCode), {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(s),
+  }).catch(() => {
+    lastPushedSeq = -1; // retry on the next tick
+  });
+}
+setInterval(walletPush, 5000);
+
 // ------------------------------------------------------------- presence
 
 let onlineMap: Record<string, string> = {};
@@ -836,10 +896,15 @@ function updateHud(): void {
   $('verium').textContent = `⬡ ${verium.balance()}`;
   $('b-decor').classList.toggle('hidden', !!visiting);
   $('b-home').classList.toggle('hidden', !visiting);
-  hintEl.textContent = decorMode ? 'tap the ground to place · tap a furnishing to pick it up' : '';
+  hintEl.textContent = decorMode
+    ? 'tap the ground to place · tap a furnishing to pick it up'
+    : isDesktop && !document.pointerLockElement && t < 25
+      ? 'click to mouse-look (Esc frees the cursor) · WASD move · Shift run · Space jump'
+      : '';
 }
 
 function togglePanel(id: string, open?: boolean): void {
+  document.exitPointerLock?.(); // panels need the cursor back
   const el = $(id);
   const want = open ?? el.classList.contains('hidden');
   for (const p of ['wardrobe', 'friends', 'invite', 'store']) $(p).classList.add('hidden');
@@ -863,6 +928,7 @@ $('b-jump').addEventListener('pointerdown', (e) => {
 
 $('b-decor').onclick = () => {
   decorMode = !decorMode;
+  if (decorMode) document.exitPointerLock?.(); // aiming taps needs the cursor
   $('b-decor').classList.toggle('on', decorMode);
   $('decorbar').style.display = decorMode ? 'flex' : 'none';
   if (decorMode) renderDecorBar();
@@ -1200,6 +1266,7 @@ function doJump(): void {
 }
 
 let t = 0;
+let swimming = false;
 function update(dt: number): void {
   t += dt;
   if (vy !== 0 || me.view.position.y > 0) {
@@ -1210,15 +1277,39 @@ function update(dt: number): void {
       vy = 0;
     }
   }
+  // 🏊 The pond: inside its circle you float low, move slow, and bob.
+  swimming =
+    room === 'yard' &&
+    Math.hypot(me.view.position.x - POND.x, me.view.position.z - POND.z) < POND.r - 24;
+  if (swimming && me.view.position.y <= 0 && vy === 0) {
+    me.view.position.y = -26 + Math.sin(t * 3) * 3;
+  } else if (!swimming && me.view.position.y < 0) {
+    // Wading out: feet find the bank again.
+    me.view.position.y = Math.min(0, me.view.position.y + 220 * dt);
+  }
+  // Trampolines are the exception to gravity: land on one, leave faster.
+  if (room === 'yard' && vy <= 0 && me.view.position.y <= 4 && me.view.position.y >= 0) {
+    for (const d of worldDecor) {
+      if (d.item !== 'tramp' || d.room !== 'yard') continue;
+      if (Math.hypot(me.view.position.x - d.x, me.view.position.z - d.z) < 85) {
+        vy = 780;
+        me.view.position.y = 60;
+        audio.pop();
+        break;
+      }
+    }
+  }
   const ix = Math.max(-1, Math.min(1, held.x + stick.x));
   const iz = Math.max(-1, Math.min(1, held.z + stick.z));
   const mv = playerCam.moveVector(ix, iz);
   const moving = mv.x !== 0 || mv.z !== 0;
   const dims = HOUSE_SIZES[worldHouse.size];
   const spec = houseSpec();
+  // Shift sprints on land; water is for paddling.
+  const speedNow = SPEED * (swimming ? 0.55 : sprint ? 1.55 : 1);
   if (moving) {
-    let nx = me.view.position.x + mv.x * SPEED * dt;
-    let nz = me.view.position.z + mv.z * SPEED * dt;
+    let nx = me.view.position.x + mv.x * speedNow * dt;
+    let nz = me.view.position.z + mv.z * speedNow * dt;
     if (room === 'yard') {
       // Stay on the island…
       const r = Math.hypot(nx, nz);
@@ -1357,6 +1448,7 @@ function goDownstairs(): void {
 rebuildWorld();
 updateHud();
 void pollPresence();
+void walletPull().finally(walletPush);
 
 const joinParam = params.get('join');
 if (joinParam) {
@@ -1395,6 +1487,9 @@ declare global {
       grant: (n: number) => void;
       buy: (kind: BuyKind, id: string | number) => boolean;
       redeem: (code: string) => boolean;
+      walletPull: () => Promise<boolean>;
+      walletPush: () => void;
+      walletState: () => { balance: number; seq: number };
       owned: () => Record<string, unknown>;
     };
   }
@@ -1423,6 +1518,7 @@ window.__haven = {
     avatar: profile.avatar,
     modelsLoaded: modelStats.loaded,
     playerY: Math.round(me.view.position.y),
+    swimming,
     pets: [...petStates.entries()].map(([id, p]) => {
       const v = decorViews.get(id)?.group;
       return {
@@ -1490,6 +1586,9 @@ window.__haven = {
   },
   buy: (kind, id) => buy(kind, id),
   redeem,
+  walletPull,
+  walletPush,
+  walletState: () => verium.state(),
   owned: () => ({
     hats: [...profile.ownedHats],
     colors: [...profile.ownedColors],

@@ -25,6 +25,7 @@
  */
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { WebSocketServer, WebSocket } from 'ws';
 
 const PORT = Number(process.env.PORT ?? 8787);
@@ -107,6 +108,34 @@ function closeRoom(room: Room, reason: string): void {
   }
 }
 
+// 💰 The Verium vault: a persistent balance MIRROR keyed by friend code,
+// so ⬡ follows a player across devices. The device stays the source of
+// truth — each entry carries the wallet's mutation counter (seq), clients
+// only adopt a mirror that is NEWER than what they hold, and a wiped
+// vault (fresh disk) can never zero anyone: the next client push simply
+// restores it. Kid-safe: opaque codes, balances only, no PII.
+const WALLET_FILE = process.env.WALLET_FILE ?? 'data/wallets.json';
+const WALLET_MAX = 100_000_000;
+let wallets: Record<string, { balance: number; seq: number; at: number }> = {};
+try {
+  wallets = JSON.parse(readFileSync(WALLET_FILE, 'utf8')) as typeof wallets;
+} catch {
+  wallets = {};
+}
+let walletFlush: ReturnType<typeof setTimeout> | null = null;
+function saveWallets(): void {
+  if (walletFlush) return;
+  walletFlush = setTimeout(() => {
+    walletFlush = null;
+    try {
+      mkdirSync(WALLET_FILE.replace(/\/[^/]+$/, ''), { recursive: true });
+      writeFileSync(WALLET_FILE, JSON.stringify(wallets));
+    } catch (err) {
+      console.error('[relay] wallet flush failed:', err);
+    }
+  }, 2000);
+}
+
 // Family sync: tiny short-lived blobs (wallet transfers between devices and
 // between installed apps, which get isolated storage on iOS). Codes expire
 // after a day; payloads are capped small. Best-effort — the free-tier host
@@ -144,6 +173,45 @@ const httpServer = createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'application/json', ...cors });
     res.end(JSON.stringify({ online }));
     return;
+  }
+  // Verium vault: GET pulls a mirror, PUT pushes one (seq must move
+  // forward — a replayed or stale push is ignored, not an error).
+  const vault = /^\/wallet\/([A-Z2-9-]{4,20})$/.exec(req.url?.split('?')[0] ?? '');
+  if (vault) {
+    const code = vault[1]!;
+    if (req.method === 'GET') {
+      const w = wallets[code];
+      res.writeHead(200, { 'content-type': 'application/json', ...cors });
+      res.end(JSON.stringify(w ? { balance: w.balance, seq: w.seq } : { balance: 0, seq: 0 }));
+      return;
+    }
+    if (req.method === 'PUT') {
+      let body = '';
+      req.on('data', (chunk: Buffer) => {
+        body += chunk.toString();
+        if (body.length > 1024) req.destroy();
+      });
+      req.on('end', () => {
+        let parsed: { balance?: unknown; seq?: unknown };
+        try {
+          parsed = JSON.parse(body) as typeof parsed;
+        } catch {
+          res.writeHead(400, cors);
+          res.end();
+          return;
+        }
+        const balance = Math.max(0, Math.min(WALLET_MAX, Math.floor(Number(parsed.balance) || 0)));
+        const seq = Math.max(0, Math.floor(Number(parsed.seq) || 0));
+        const prev = wallets[code];
+        if (!prev || seq > prev.seq) {
+          wallets[code] = { balance, seq, at: Date.now() };
+          saveWallets();
+        }
+        res.writeHead(200, { 'content-type': 'application/json', ...cors });
+        res.end(JSON.stringify({ ok: true, ...wallets[code] }));
+      });
+      return;
+    }
   }
   const sync = /^\/sync\/([A-Z2-9]{4,8})$/.exec(req.url ?? '');
   if (sync) {

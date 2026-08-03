@@ -45,7 +45,13 @@ export const PREMIUM_COLORS: readonly { color: number; name: string; price: numb
  *  MODEL_DECOR but are SOLD through this list too. */
 export const FURNITURE_STORE: readonly PricedItem[] = [
   { id: 'campfire', name: 'Campfire', price: 60 },
+  { id: 'birdbath', name: 'Birdbath', price: 70 },
   { id: 'swing', name: 'Swing', price: 80 },
+  { id: 'grill', name: 'Grill', price: 90 },
+  { id: 'brolly', name: 'Umbrella Table', price: 110 },
+  { id: 'hammock', name: 'Hammock', price: 120 },
+  { id: 'slide', name: 'Slide', price: 160 },
+  { id: 'tramp', name: 'Bouncer', price: 180 },
   { id: 'telescope', name: 'Telescope', price: 100 },
   { id: 'piano', name: 'Piano', price: 120 },
   { id: 'aquarium', name: 'Aquarium', price: 140 },

@@ -403,6 +403,42 @@
     <script>
       if ('serviceWorker' in navigator && location.hostname !== 'localhost') {
         navigator.serviceWorker.register('./sw.js');
+        // ⟳ two-tap update escape hatch (same as rush3d): clears the SW +
+        // caches and reloads, for anyone stuck on an old installed build.
+        const upd = document.createElement('button');
+        upd.textContent = '⟳';
+        upd.title = 'Update the app';
+        upd.style.cssText =
+          'position:fixed;left:10px;bottom:14px;z-index:21;width:42px;height:42px;' +
+          'padding:0;border-radius:999px;border:0;background:#81b29a;color:#1c1c28;' +
+          'font:700 22px system-ui;box-shadow:0 2px 8px rgba(0,0,0,.4)';
+        let armed = false;
+        let timer = 0;
+        upd.onclick = async () => {
+          if (!armed) {
+            armed = true;
+            upd.textContent = '?';
+            clearTimeout(timer);
+            timer = setTimeout(() => {
+              armed = false;
+              upd.textContent = '⟳';
+            }, 3000);
+            return;
+          }
+          upd.textContent = '…';
+          try {
+            const regs = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(regs.map((r) => r.unregister()));
+            if (window.caches) {
+              const keys = await caches.keys();
+              await Promise.all(keys.map((k) => caches.delete(k)));
+            }
+          } catch (err) {
+            void err;
+          }
+          location.reload();
+        };
+        document.body.appendChild(upd);
       }
       let deferredInstall = null;
       window.addEventListener('beforeinstallprompt', (e) => {

@@ -24,9 +24,17 @@ export function resolveRelayUrl(): string {
   return normalize(DEFAULT_RELAY_URL);
 }
 
+function relayHttp(): string {
+  const ws = resolveRelayUrl();
+  return ws.startsWith('wss://') ? `https://${ws.slice(6)}` : `http://${ws.slice(5)}`;
+}
+
 /** The presence lookup rides the same relay over plain HTTPS. */
 export function presenceUrl(codes: string[]): string {
-  const ws = resolveRelayUrl();
-  const http = ws.startsWith('wss://') ? `https://${ws.slice(6)}` : `http://${ws.slice(5)}`;
-  return `${http}/presence?codes=${encodeURIComponent(codes.join(','))}`;
+  return `${relayHttp()}/presence?codes=${encodeURIComponent(codes.join(','))}`;
+}
+
+/** The Verium vault: the relay mirrors a balance per friend code. */
+export function walletUrl(code: string): string {
+  return `${relayHttp()}/wallet/${encodeURIComponent(code)}`;
 }
