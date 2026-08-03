@@ -9,6 +9,10 @@
  *     natively, no decoder needed)
  *
  *   node scripts/optimize-model.mjs input.glb games/haven/public/models/name.glb
+ *
+ * Feed it the RAW export (png/jpeg textures). Its own webp output can't
+ * be fed back through — the resizer reads png/jpeg only, and there is
+ * nothing left to shrink anyway.
  */
 import { NodeIO } from '@gltf-transform/core';
 import { prune, quantize, simplify, textureCompress, weld } from '@gltf-transform/functions';
