@@ -1,9 +1,9 @@
 // Headless playtest for Blobhaven: starts the relay locally, opens TWO
-// headless "phones" — one owns a world, decorates it, and opens it; the
-// other joins by room code, sees the host's decor, and both see each
-// other move and change cosmetics. Also exercises the friends list +
-// presence directory end to end. Run the haven dev server first
-// (pnpm dev:haven), then:
+// headless "phones" — one owns a world, shops with ⬡ Verium (hat, manor
+// upgrade, theme, model statue), decorates its loft, and opens the world;
+// the other joins by room code, sees the host's manor + decor, and both
+// see each other move and change cosmetics. Friends + presence ride the
+// same run. Run the haven dev server first (pnpm dev:haven), then:
 //
 //   node scripts/verify-haven.mjs [url]
 //
@@ -89,8 +89,10 @@ await boot(hostPage, 'Hosty');
 const s0 = await S(hostPage);
 
 // --- Solo world gates -------------------------------------------------
-// Starter world: a lived-in corner, third person, standing in the yard.
-const bootOk = s0.room === 'yard' && s0.decor === 4 && s0.cam === 'third' && !s0.visiting;
+// 10× island, starter decor, third person, and the ⬡200 welcome gift.
+const bootOk =
+  s0.room === 'yard' && s0.decor === 4 && s0.cam === 'third' && !s0.visiting &&
+  s0.worldR === 3650 && s0.houseSize === 'cozy' && s0.verium >= 200;
 
 // Camera modes: first person hides the body and drops the lens to the
 // eyes; third person shows it from up behind.
@@ -106,34 +108,72 @@ const cameraOk =
   sFirst.cam === 'first' && sFirst.playerVisible === false && sFirst.camY < 130 &&
   sThird.cam === 'third' && sThird.playerVisible === true && sThird.camY > 150;
 
-// The house: walk in through the door trigger (warp to the doorstep and
-// push forward via the debug hook's enterHouse — the trigger itself is
-// the same rectangle the door art draws).
+// --- Store gates ------------------------------------------------------
+// A hat the welcome gift can afford: ⬡40 cap, worn on purchase.
+const vBefore = s0.verium;
+const capBought = await hostPage.evaluate(() => window.__haven.buy('hat', 'cap'));
+const sCap = await S(hostPage);
+const hatBuyOk = capBought && sCap.verium === vBefore - 40 && (await hostPage.evaluate(() => window.__haven.profile())).hat === 'cap';
+// Broke blobs can't buy manors: 800 > balance right now.
+const brokeOk = !(await hostPage.evaluate(() => window.__haven.buy('house', 'manor')));
+// Fund the rest of the spree: manor + dusk theme + gnome statue.
+await hostPage.evaluate(() => window.__haven.grant(2000));
+const manorOk = await hostPage.evaluate(() => window.__haven.buy('house', 'manor'));
+const themeOk = await hostPage.evaluate(() => window.__haven.buy('theme', 'dusk'));
+const gnomeOk = await hostPage.evaluate(() => window.__haven.buy('furniture', 'gnome'));
+await sleep(600);
+const sManor = await S(hostPage);
+const storeOk = manorOk && themeOk && gnomeOk && sManor.houseSize === 'manor' && sManor.houseTheme === 'dusk';
+await hostPage.screenshot({ path: `${outDir}/hv-3-manor.png` });
+
+// Model decor: place the bought gnome statue in the yard; the .glb load
+// must land (modelStats counts finished loads).
+await hostPage.evaluate(() => {
+  window.__haven.setDecorMode(true, 'gnome');
+  window.__haven.placeAt('gnome', 300, 500);
+});
+const sModel = await waitFor(() => S(hostPage), (s) => s.modelsLoaded >= 1, 15000);
+const modelOk = sModel.modelsLoaded >= 1 && sModel.decor === 5;
+
+// The manor's loft: upstairs is a real room you can furnish.
 await hostPage.evaluate(() => window.__haven.enterHouse());
 await sleep(300);
 const sHouse = await S(hostPage);
-// Decorate inside: place a table and a bed.
-await hostPage.evaluate(() => {
-  window.__haven.setDecorMode(true, 'table');
-  window.__haven.placeAt('table', 120, -80);
-  window.__haven.placeAt('bed', -260, -180);
-});
+await hostPage.evaluate(() => window.__haven.goUpstairs());
+await sleep(300);
+const sLoft = await S(hostPage);
+await hostPage.evaluate(() => window.__haven.placeAt('bed', 100, 0));
 await sleep(400);
-await hostPage.screenshot({ path: `${outDir}/hv-3-house.png` });
-const sDecor = await S(hostPage);
-const houseOk = sHouse.room === 'house' && sDecor.decor === 6;
-// A yard-only item must refuse to land in the house.
+const sLoftBed = await S(hostPage);
+await hostPage.screenshot({ path: `${outDir}/hv-4-loft.png` });
+const loftOk = sHouse.room === 'house' && sLoft.room === 'loft' && sLoftBed.decor === 6;
+// A yard-only item must refuse to land indoors.
 const refuseOk = !(await hostPage.evaluate(() => window.__haven.placeAt('fountain', 0, 0)));
+await hostPage.evaluate(() => window.__haven.goDownstairs());
+await hostPage.evaluate(() => window.__haven.exitHouse());
 
-// Persistence: reload WITHOUT ?fresh — the table and bed are still there.
+// Persistence: reload WITHOUT ?fresh — manor, theme, gnome, loft bed and
+// the wallet all survive (and the welcome gift does NOT pay twice).
+const vPreReload = (await S(hostPage)).verium;
 await hostPage.goto(`${url}?name=Hosty`, { waitUntil: 'load' });
 await hostPage.waitForFunction(() => !!window.__haven, null, { timeout: 30000 });
 await sleep(800);
 const sReload = await S(hostPage);
-const persistOk = sReload.decor === 6;
+const persistOk =
+  sReload.decor === 6 && sReload.houseSize === 'manor' && sReload.houseTheme === 'dusk' &&
+  sReload.verium === vPreReload;
+
+// The daily gift: one tap pays ⬡60, the second tap is told "tomorrow".
+await hostPage.evaluate(() => document.getElementById('b-store').click());
+await sleep(200);
+await hostPage.evaluate(() => document.getElementById('s-daily').click());
+await sleep(200);
+const sDaily = await S(hostPage);
+const dailyDisabled = await hostPage.evaluate(() => document.getElementById('s-daily').disabled);
+const dailyOk = sDaily.verium === sReload.verium + 60 && dailyDisabled === true;
+await hostPage.evaluate(() => document.querySelector('#store .close').click());
 
 // --- Social gates -----------------------------------------------------
-// Open the world; the code comes back and presence goes up.
 const code = await hostPage.evaluate(() => window.__haven.openWorld());
 const codeOk = typeof code === 'string' && code.length === 4;
 const hostProfile = await hostPage.evaluate(() => window.__haven.profile());
@@ -142,13 +182,16 @@ const hostProfile = await hostPage.evaluate(() => window.__haven.profile());
 await boot(guestPage, 'Visita');
 await guestPage.evaluate((c) => window.__haven.visit(c), code);
 const gVisit = await waitFor(() => S(guestPage), (s) => s.visiting === true);
-// The guest stands in the HOST's world: 6 furnishings, host's name up top.
-const visitOk = gVisit.visiting === true && gVisit.hostName === 'Hosty' && gVisit.decor === 6;
+// The guest stands in the HOST's world: the manor, the theme, 6 pieces.
+const visitOk =
+  gVisit.visiting === true && gVisit.hostName === 'Hosty' && gVisit.decor === 6 &&
+  gVisit.houseSize === 'manor' && gVisit.houseTheme === 'dusk';
 
-// Both sides see a friend arrive.
+// Both sides see a friend arrive — and both got the new-friend ⬡ bonus.
 const hAfterJoin = await waitFor(() => S(hostPage), (s) => s.guests >= 1);
 const gAfterJoin = await waitFor(() => S(guestPage), (s) => s.guests >= 1);
 const meetOk = hAfterJoin.guests === 1 && gAfterJoin.guests === 1;
+const friendBonusOk = gAfterJoin.verium >= 200 + 25;
 
 // Movement streams: the guest walks; the host watches the blob drift there.
 await guestPage.evaluate(() => window.__haven.warp(420, 260));
@@ -160,12 +203,15 @@ const moveOk =
   hSeesMove.othersHere.length === 1 &&
   Math.hypot(hSeesMove.othersHere[0].x - 420, hSeesMove.othersHere[0].z - 260) < 60;
 
-// Cosmetics stream: the guest crowns itself; the host sees the crown.
-await guestPage.evaluate(() => window.__haven.setHat('crown'));
+// Cosmetics stream: the guest buys + wears a crown; the host sees it.
+await guestPage.evaluate(() => {
+  window.__haven.grant(500);
+  window.__haven.buy('hat', 'crown');
+});
 const hSeesHat = await waitFor(() => S(hostPage), (s) => s.othersHere[0]?.hat === 'crown');
-const hatOk = hSeesHat.othersHere[0]?.hat === 'crown';
-await hostPage.screenshot({ path: `${outDir}/hv-4-guests.png` });
-await guestPage.screenshot({ path: `${outDir}/hv-5-visiting.png` });
+const hatSyncOk = hSeesHat.othersHere[0]?.hat === 'crown';
+await hostPage.screenshot({ path: `${outDir}/hv-5-guests.png` });
+await guestPage.screenshot({ path: `${outDir}/hv-6-visiting.png` });
 
 // Friendships form by visiting — both sides now remember each other.
 const hFriends = await hostPage.evaluate(() => window.__haven.friends());
@@ -175,25 +221,26 @@ const friendsOk =
   hFriends.some((f) => f.code === guestProfile.friendCode) &&
   gFriends.some((f) => f.code === hostProfile.friendCode);
 
-// Presence: the guest's friends list shows the host ONLINE (their world
-// is open) with a knockable room code behind it.
+// Presence: the guest's friends list shows the host ONLINE with a
+// knockable room code behind it.
 await guestPage.evaluate(() => window.__haven.poll());
 await sleep(400);
 const gFriends2 = await guestPage.evaluate(() => window.__haven.friends());
 const presenceOk = gFriends2.some((f) => f.code === hostProfile.friendCode && f.online);
 
-// Going home: the guest returns to its OWN world (4 starter pieces).
+// Going home: the guest returns to its OWN world (cozy, 4 starters).
 await guestPage.evaluate(() => window.__haven.goHome());
 const gHome = await waitFor(() => S(guestPage), (s) => s.visiting === false);
-const homeOk = gHome.visiting === false && gHome.decor === 4;
+const homeOk = gHome.visiting === false && gHome.decor === 4 && gHome.houseSize === 'cozy';
 const hostAfterLeave = await waitFor(() => S(hostPage), (s) => s.guests === 0);
 const leaveOk = hostAfterLeave.guests === 0;
 
 const gates = {
-  bootOk, cameraOk, houseOk, refuseOk, persistOk, codeOk, visitOk, meetOk,
-  moveOk, hatOk, friendsOk, presenceOk, homeOk, leaveOk,
+  bootOk, cameraOk, hatBuyOk, brokeOk, storeOk, modelOk, loftOk, refuseOk,
+  persistOk, dailyOk, codeOk, visitOk, meetOk, friendBonusOk, moveOk,
+  hatSyncOk, friendsOk, presenceOk, homeOk, leaveOk,
 };
-console.log(JSON.stringify({ ...gates, code, s0, sFirst: sFirst.camY, sThird: sThird.camY }, null, 2));
+console.log(JSON.stringify({ ...gates, code, verium: sDaily.verium }, null, 2));
 
 await browser.close();
 relay.kill();
