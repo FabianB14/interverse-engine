@@ -348,6 +348,136 @@ function applyRoom(): void {
   houseGroup.visible = room === 'house';
   loftGroup.visible = room === 'loft';
   for (const o of others.values()) o.avatar.view.visible = o.room === room;
+  for (const n of npcs) n.avatar.view.visible = room === 'yard';
+}
+
+/**
+ * 🚶 The residents — every island comes with a few villagers who wander
+ * their patch, stop and face you when you walk up, and have something
+ * to say when tapped. They are ambience, not sync'd state: each client
+ * runs its own little lives (the same tradeoff the pets make).
+ */
+interface NpcDef {
+  name: string;
+  color: number;
+  hat: string;
+  home: { x: number; z: number };
+  range: number;
+  lines: readonly string[];
+}
+const NPC_DEFS: readonly NpcDef[] = [
+  {
+    name: 'Maple', color: 0xe07a5f, hat: 'sun',
+    home: { x: 260, z: 700 }, range: 420,
+    lines: [
+      'Lovely day on the island! ☀️',
+      'Your garden is coming along nicely.',
+      'I hear the store got new furniture in…',
+      'Plant a flower for me, would you?',
+    ],
+  },
+  {
+    name: 'Pip', color: 0x8affc1, hat: 'sprout',
+    home: { x: POND.x - 500, z: POND.z - 200 }, range: 380,
+    lines: [
+      'The pond is GREAT for swimming! 🏊',
+      'I once jumped off the trampoline into the pond. Almost.',
+      'Race you to the rocks!',
+      'Did you know you can sprint? Zoom zoom!',
+    ],
+  },
+  {
+    name: 'Bruno', color: 0xc98a4b, hat: 'viking',
+    home: { x: -900, z: -300 }, range: 500,
+    lines: [
+      'A two-story manor, eh? Fancy. 🏠',
+      'These boulders? Moved them myself. Probably.',
+      'A viking never skips the daily gift.',
+      'Friends make the island warmer.',
+    ],
+  },
+  {
+    name: 'Luna', color: 0x9a8cff, hat: 'wizard',
+    home: { x: -400, z: 1400 }, range: 600,
+    lines: [
+      'I sense… secret codes on the wind. 🔮',
+      'The Ember Orb glows brightest at dusk.',
+      'Magic word? Try being kind. Works every time.',
+      'The stars say you should visit a friend today.',
+    ],
+  },
+];
+
+interface Npc {
+  def: NpcDef;
+  avatar: Avatar;
+  tx: number;
+  tz: number;
+  pause: number;
+  phase: number;
+  nextLine: number;
+}
+const npcs: Npc[] = NPC_DEFS.map((def, i) => {
+  const avatar = blobAvatar(def.color, def.hat);
+  avatar.view.position.set(def.home.x, 0, def.home.z);
+  game.scene.add(avatar.view);
+  return { def, avatar, tx: def.home.x, tz: def.home.z, pause: i * 0.7, phase: i * 2.1, nextLine: 0 };
+});
+let lastNpcLine = '';
+
+function npcTalk(n: Npc): string {
+  const line = n.def.lines[n.nextLine % n.def.lines.length]!;
+  n.nextLine++;
+  lastNpcLine = `${n.def.name}: ${line}`;
+  toast(`💬 ${lastNpcLine}`);
+  audio.blip();
+  return lastNpcLine;
+}
+
+function tickNpcs(dt: number): void {
+  if (room !== 'yard') return;
+  for (const n of npcs) {
+    const v = n.avatar.view;
+    const toPlayer = Math.hypot(me.view.position.x - v.position.x, me.view.position.z - v.position.z);
+    // Company beats errands: stop and face whoever walked up.
+    if (toPlayer < 160) {
+      v.rotation.y = Math.atan2(me.view.position.x - v.position.x, me.view.position.z - v.position.z);
+      n.avatar.tick(t + n.phase, false);
+      continue;
+    }
+    const dx = n.tx - v.position.x;
+    const dz = n.tz - v.position.z;
+    const dist = Math.hypot(dx, dz);
+    let walking = false;
+    if (n.pause > 0) {
+      n.pause -= dt;
+    } else if (dist > 14) {
+      walking = true;
+      v.position.x += (dx / dist) * 85 * dt;
+      v.position.z += (dz / dist) * 85 * dt;
+      v.rotation.y = Math.atan2(dx, dz);
+    } else {
+      n.pause = 1.5 + Math.random() * 3.5;
+      const a = Math.random() * Math.PI * 2;
+      const r = Math.random() * n.def.range;
+      let nx = n.def.home.x + Math.cos(a) * r;
+      let nz = n.def.home.z + Math.sin(a) * r;
+      // Same manners as the pets: stay off the water and out of the house.
+      const pd = Math.hypot(nx - POND.x, nz - POND.z);
+      if (pd < POND.r + 80) {
+        const k = (POND.r + 100) / Math.max(1, pd);
+        nx = POND.x + (nx - POND.x) * k;
+        nz = POND.z + (nz - POND.z) * k;
+      }
+      const spec0 = houseSpec();
+      if (Math.abs(nx) < spec0.w / 2 + 60 && Math.abs(nz - HOUSE_Z) < spec0.d / 2 + 60) {
+        nz = HOUSE_Z + spec0.d / 2 + 140;
+      }
+      n.tx = nx;
+      n.tz = nz;
+    }
+    n.avatar.tick(t + n.phase, walking);
+  }
 }
 
 // --------------------------------------------------------- the avatars
@@ -355,7 +485,12 @@ function applyRoom(): void {
 /** Build a body for an avatar id: the blob, or a bought model. */
 function makeAvatar(avatarId: string, color: number, hat: string): Avatar {
   const row = AVATAR_STORE.find((a) => a.id === avatarId);
-  if (row?.url) return modelAvatar(row.url, row.height ?? 120, hat);
+  if (row?.url) {
+    return modelAvatar(row.url, row.height ?? 120, hat, {
+      ...(row.rotY !== undefined ? { rotY: row.rotY } : {}),
+      ...(row.eyes ? { eyes: row.eyes } : {}),
+    });
+  }
   return blobAvatar(color, hat);
 }
 
@@ -536,11 +671,30 @@ for (const el of [moveEl, document.getElementById('look')!]) {
 }
 
 function onTap(cx: number, cy: number): void {
-  if (!decorMode || visiting) return;
+  // Under pointer lock the cursor is captured — aim from the crosshair.
+  const locked = !!document.pointerLockElement;
   ray.setFromCamera(
-    new Vector2((cx / innerWidth) * 2 - 1, -(cy / innerHeight) * 2 + 1),
+    locked
+      ? new Vector2(0, 0)
+      : new Vector2((cx / innerWidth) * 2 - 1, -(cy / innerHeight) * 2 + 1),
     game.camera,
   );
+  if (!decorMode) {
+    // A villager under the tap? Say hello.
+    if (room === 'yard') {
+      for (const n of npcs) {
+        if (!ray.intersectObject(n.avatar.view, true).length) continue;
+        const d = Math.hypot(
+          me.view.position.x - n.avatar.view.position.x,
+          me.view.position.z - n.avatar.view.position.z,
+        );
+        if (d < 420) npcTalk(n);
+        return;
+      }
+    }
+    return;
+  }
+  if (visiting) return;
   // An existing furnishing under the tap? Pick it back up.
   for (const [id, v] of decorViews) {
     if (!v.group.visible || !v.group.parent?.visible) continue;
@@ -1406,6 +1560,7 @@ function update(dt: number): void {
     o.avatar.tick(t, o.moving);
   }
   tickPets(dt);
+  tickNpcs(dt);
   // Anything named bob (fountain drops, flames, fish) bobs.
   worldRoot.traverse((obj) => {
     if (obj.name !== 'bob') return;
@@ -1504,6 +1659,7 @@ declare global {
       walletPull: () => Promise<boolean>;
       walletPush: () => void;
       walletState: () => { balance: number; seq: number };
+      npcTalk: (name: string) => string;
       owned: () => Record<string, unknown>;
     };
   }
@@ -1531,6 +1687,12 @@ window.__haven = {
     verium: verium.balance(),
     avatar: profile.avatar,
     modelsLoaded: modelStats.loaded,
+    lastNpcLine,
+    npcs: npcs.map((n) => ({
+      name: n.def.name,
+      x: Math.round(n.avatar.view.position.x),
+      z: Math.round(n.avatar.view.position.z),
+    })),
     playerY: Math.round(me.view.position.y),
     swimming,
     pets: [...petStates.entries()].map(([id, p]) => {
@@ -1604,6 +1766,10 @@ window.__haven = {
   walletPull,
   walletPush,
   walletState: () => verium.state(),
+  npcTalk: (name) => {
+    const n = npcs.find((x) => x.def.name === name);
+    return n ? npcTalk(n) : '';
+  },
   owned: () => ({
     hats: [...profile.ownedHats],
     colors: [...profile.ownedColors],

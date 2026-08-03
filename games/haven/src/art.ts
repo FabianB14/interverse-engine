@@ -956,18 +956,50 @@ export interface Avatar {
   tick: (t: number, moving: boolean) => void;
 }
 
+export interface ModelAvatarOptions {
+  /** Turn the model's authored forward to +Z (some FBX exports face X). */
+  rotY?: number;
+  /** Geometry eyes for models whose face textures never made it out of
+   *  the exporter: x spread, height, forward offset, radius. */
+  eyes?: { dx: number; y: number; fz: number; r: number };
+}
+
 /** A bought MODEL as your body: the .glb replaces the blob, the hat still
- *  sits on top, and the walk animates whole-body (hop + lean) because
- *  these files carry no rigs. Color taps are ignored — a model keeps its
- *  own skin; that is the point of buying one. */
-export function modelAvatar(url: string, height: number, hat: string): Avatar {
+ *  sits on top, and the run animates whole-body — gallop bounce, forward
+ *  lean, a little roll — because these files carry no rigs. Color taps
+ *  are ignored — a model keeps its own skin; that is the point. */
+export function modelAvatar(
+  url: string,
+  height: number,
+  hat: string,
+  opts: ModelAvatarOptions = {},
+): Avatar {
   const view = new Group();
   const body = new Group();
+  body.rotation.y = opts.rotY ?? 0;
   view.add(body);
   void loadModel(url, { height }).then((m) => {
     body.add(m);
     modelStats.loaded++;
   });
+  // Eyes ride OUTSIDE the yaw-corrected body, so "front" is simply +Z.
+  if (opts.eyes) {
+    const e = opts.eyes;
+    for (const side of [-1, 1]) {
+      const eye = new Mesh(
+        new SphereGeometry(e.r, 7, 6),
+        new MeshStandardMaterial({ color: 0x2b2b3a, roughness: 0.35 }),
+      );
+      eye.position.set(side * e.dx, e.y, e.fz);
+      view.add(eye);
+      const glint = new Mesh(
+        new SphereGeometry(e.r * 0.35, 5, 4),
+        new MeshStandardMaterial({ color: 0xffffff, roughness: 0.2 }),
+      );
+      glint.position.set(side * e.dx + e.r * 0.25, e.y + e.r * 0.3, e.fz + e.r * 0.7);
+      view.add(glint);
+    }
+  }
   const hatAnchor = new Group();
   hatAnchor.position.y = height * 1.02;
   view.add(hatAnchor);
@@ -978,15 +1010,31 @@ export function modelAvatar(url: string, height: number, hat: string): Avatar {
     if (hatNow) hatAnchor.add(hatNow);
   };
   setHat(hat);
+  const baseYaw = opts.rotY ?? 0;
   return {
     view,
     setColor: () => undefined,
     setHat,
     tick: (t, moving) => {
-      const bounce = moving ? Math.abs(Math.sin(t * 8)) * 12 : Math.sin(t * 2) * 2;
-      body.position.y = bounce;
-      hatAnchor.position.y = height * 1.02 + bounce;
-      body.rotation.z = moving ? Math.sin(t * 8) * 0.05 : 0;
+      if (moving) {
+        // The run: gallop bounce, nose-down lean into the stride, a beat
+        // of roll — the whole body sells what the missing legs can't.
+        const stride = t * 9;
+        const bounce = Math.abs(Math.sin(stride)) * 16;
+        body.position.y = bounce;
+        hatAnchor.position.y = height * 1.02 + bounce;
+        body.rotation.x = 0.14 + Math.sin(stride * 2) * 0.04;
+        body.rotation.z = Math.sin(stride * 0.5) * 0.07;
+        body.rotation.y = baseYaw;
+      } else {
+        // Idle: breathe, and glance around now and then.
+        const breathe = Math.sin(t * 2) * 2.5;
+        body.position.y = breathe;
+        hatAnchor.position.y = height * 1.02 + breathe;
+        body.rotation.x = Math.sin(t * 1.4) * 0.015;
+        body.rotation.z = 0;
+        body.rotation.y = baseYaw + Math.sin(t * 0.6) * 0.12;
+      }
       const rotor = hatAnchor.getObjectByName('spin');
       if (rotor) rotor.rotation.y = t * (moving ? 14 : 5);
     },

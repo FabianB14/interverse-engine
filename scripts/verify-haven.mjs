@@ -303,6 +303,30 @@ const bagCodeOk =
   sBagCode.avatar === 'bag' && bagRows.some((r) => r.includes('The Bag') && r.includes('Using'));
 await hostPage.evaluate(() => document.querySelector('#store .close').click());
 
+// 🚶 The residents: four villagers wander the yard; walking a patch means
+// SOMEONE has left their exact home spot within a few seconds; a tap
+// (here via the debug hook) gets a spoken line.
+const HOMES = { Maple: [260, 700], Pip: [1000, 900], Bruno: [-900, -300], Luna: [-400, 1400] };
+const sNpc = await waitFor(
+  () => S(hostPage),
+  (s) =>
+    s.npcs.length === 4 &&
+    s.npcs.some((n) => Math.hypot(n.x - HOMES[n.name][0], n.z - HOMES[n.name][1]) > 40),
+  20000,
+);
+const npcsOk =
+  sNpc.npcs.length === 4 &&
+  sNpc.npcs.some((n) => Math.hypot(n.x - HOMES[n.name][0], n.z - HOMES[n.name][1]) > 40);
+const line1 = await hostPage.evaluate(() => window.__haven.npcTalk('Maple'));
+const line2 = await hostPage.evaluate(() => window.__haven.npcTalk('Maple'));
+const sTalk = await S(hostPage);
+const talkOk =
+  line1.startsWith('Maple:') && line2.startsWith('Maple:') && line1 !== line2 &&
+  sTalk.lastNpcLine === line2;
+await hostPage.evaluate((h) => window.__haven.warp(h[0], h[1] + 200), HOMES.Maple);
+await sleep(600);
+await hostPage.screenshot({ path: `${outDir}/hv-13-npc.png` });
+
 // 🏊 The pond: swim in (low + slow), wade out (back to ground level).
 await hostPage.evaluate(() => window.__haven.warp(1500, 1100));
 const sSwim = await waitFor(() => S(hostPage), (s) => s.swimming === true && s.playerY < -15);
@@ -355,7 +379,7 @@ const gates = {
   bootOk, cameraOk, hatBuyOk, brokeOk, storeOk, modelOk, petOk, jumpOk,
   loftOk, refuseOk, persistOk, dailyOk, codeOk, visitOk, meetOk,
   friendBonusOk, moveOk, hatSyncOk, jumpSyncOk, avatarOk, redeemOk, redeemSyncOk, friendsOk, presenceOk,
-  homeOk, leaveOk, bagCodeOk, swimOk, bounceOk, vaultOk,
+  homeOk, leaveOk, bagCodeOk, npcsOk, talkOk, swimOk, bounceOk, vaultOk,
 };
 console.log(JSON.stringify({ ...gates, code, verium: sDaily.verium }, null, 2));
 

@@ -89,11 +89,25 @@ export const PETS: ReadonlySet<string> = new Set(['mouse', 'robot', 'tiger', 'di
 /** 🧍 Avatars: what YOU are. The blob is free and forever; model avatars
  *  are bought once and replace the blob body (hats still sit on top).
  *  To add one: optimize the .glb into public/models/, add a row here. */
-export const AVATAR_STORE: readonly (PricedItem & { url?: string; height?: number })[] = [
+export interface AvatarRow extends PricedItem {
+  url?: string;
+  height?: number;
+  /** Yaw correction: some models are authored facing sideways; this turns
+   *  their nose to +Z so they RUN the way they move. */
+  rotY?: number;
+  /** Simple geometry eyes for models that arrived without face textures:
+   *  x spread, height, forward offset, radius — in world units. */
+  eyes?: { dx: number; y: number; fz: number; r: number };
+}
+
+export const AVATAR_STORE: readonly AvatarRow[] = [
   { id: 'blob', name: 'Blob', price: 0 },
   { id: 'bag', name: 'The Bag', price: 350, url: 'models/bag.glb', height: 120 },
   { id: 'gothic', name: 'Gothic Girl', price: 400, url: 'models/gothic.glb', height: 170 },
-  { id: 'trex', name: 'Rex', price: 400, url: 'models/trex.glb', height: 150 },
+  {
+    id: 'trex', name: 'Rex', price: 400, url: 'models/trex.glb', height: 150,
+    rotY: Math.PI / 2, eyes: { dx: 17, y: 112, fz: 34, r: 7 },
+  },
 ];
 
 /** 🎟 Redeem codes: type one in the store, own the thing — no ⬡ spent.
