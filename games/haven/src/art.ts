@@ -627,15 +627,26 @@ const MODEL_LABELS: Record<string, [string, string]> = {
   robot: ['Dragon', '🐉'],
   tiger: ['Tiger', '🐯'],
   dino: ['Dino', '🦖'],
+  ember: ['Ember', '🔥'],
 };
 
 /** A .glb furnishing: the group mounts instantly (so placement feels
  *  immediate) and the model pops in when the load lands. loadModel caches
  *  by URL, so ten gnomes cost one fetch. */
-const buildModelItem = (url: string, height: number): Group => {
+const buildModelItem = (url: string, height: number, glow?: number): Group => {
   const g = new Group();
   void loadModel(url, { height })
     .then((m) => {
+      if (glow !== undefined) {
+        m.traverse((o) => {
+          const mesh = o as Mesh;
+          if (!mesh.isMesh) return;
+          const mm = (mesh.material as MeshStandardMaterial).clone();
+          mm.emissive = new Color(glow);
+          mm.emissiveIntensity = 0.55;
+          mesh.material = mm;
+        });
+      }
       g.add(m);
       modelStats.loaded++;
     })
@@ -673,7 +684,7 @@ export const CATALOGUE: readonly CatalogueItem[] = [
     label: MODEL_LABELS[m.id]?.[0] ?? m.id,
     emoji: MODEL_LABELS[m.id]?.[1] ?? '📦',
     rooms: ['yard', 'house', 'loft'] as const,
-    build: () => buildModelItem(m.url, m.height),
+    build: () => buildModelItem(m.url, m.height, m.glow),
   })),
 ];
 

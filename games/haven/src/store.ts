@@ -56,11 +56,13 @@ export const FURNITURE_STORE: readonly PricedItem[] = [
   { id: 'robot', name: 'Shadow Dragon', price: 260 },
   { id: 'tiger', name: 'Tiger Friend', price: 250 },
   { id: 'dino', name: 'Dino Friend', price: 250 },
+  { id: 'ember', name: 'Ember Orb', price: 280 },
 ];
 
 /** .glb decor: drop a file in public/models/, list it here, price it in
- *  FURNITURE_STORE, and it is in the game. Heights are world units. */
-export const MODEL_DECOR: readonly { id: string; url: string; height: number }[] = [
+ *  FURNITURE_STORE, and it is in the game. Heights are world units;
+ *  `glow` adds an emissive tint for things that should light up. */
+export const MODEL_DECOR: readonly { id: string; url: string; height: number; glow?: number }[] = [
   { id: 'gnome', url: 'models/gnome.glb', height: 130 },
   { id: 'bear', url: 'models/bear.glb', height: 110 },
   { id: 'dozer', url: 'models/dozer.glb', height: 160 },
@@ -68,6 +70,7 @@ export const MODEL_DECOR: readonly { id: string; url: string; height: number }[]
   { id: 'robot', url: 'models/robot.glb', height: 150 },
   { id: 'tiger', url: 'models/tiger.glb', height: 140 },
   { id: 'dino', url: 'models/dino.glb', height: 170 },
+  { id: 'ember', url: 'models/ember.glb', height: 150, glow: 0xff3a1a },
 ];
 
 /** Model decor that is ALIVE: placed like furniture, but it wanders its
