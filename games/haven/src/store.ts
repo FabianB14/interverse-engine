@@ -107,7 +107,7 @@ export const AVATAR_STORE: readonly AvatarRow[] = [
   // the file and their walk/idle clips move real limbs — no rotY needed.
   {
     id: 'gothic', name: 'Gothic Girl', price: 400, url: 'models/gothic2.glb', height: 170,
-    eyes: { dx: 5.8, y: 144.5, fz: 12, r: 2, sclera: true },
+    eyes: { dx: 4.6, y: 149.5, fz: 10.6, r: 2.2, sclera: true },
   },
   {
     id: 'trex', name: 'Rex', price: 400, url: 'models/trex3.glb', height: 150,

@@ -1011,17 +1011,17 @@ export function modelAvatar(
         // Anime style for dark faces: a white almond behind a dark pupil —
         // dark-on-dark bead eyes vanish on characters like the Gothic Girl.
         const white = new Mesh(
-          new SphereGeometry(e.r * 1.3, 8, 6),
+          new SphereGeometry(e.r * 1.15, 8, 6),
           new MeshStandardMaterial({ color: 0xf2eee8, roughness: 0.5 }),
         );
-        white.scale.set(1, 0.75, 0.35);
+        white.scale.set(1, 0.7, 0.3);
         white.position.set(side * e.dx, e.y, e.fz);
         view.add(white);
         const pupil = new Mesh(
-          new SphereGeometry(e.r * 0.78, 7, 6),
+          new SphereGeometry(e.r * 0.85, 7, 6),
           new MeshStandardMaterial({ color: 0x2b2b3a, roughness: 0.35 }),
         );
-        pupil.position.set(side * e.dx, e.y, e.fz + e.r * 0.3);
+        pupil.position.set(side * e.dx, e.y, e.fz + e.r * 0.25);
         view.add(pupil);
         continue;
       }

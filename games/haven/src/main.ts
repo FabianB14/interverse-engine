@@ -58,7 +58,7 @@ type Room = 'yard' | 'house' | 'loft';
 
 /** Shown in the store header + debug hook — "which build am I on?" has
  *  burned us twice with cached PWAs; now the answer is on screen. */
-const HAVEN_VERSION = 'v3.3';
+const HAVEN_VERSION = 'v3.4';
 
 const params = new URLSearchParams(location.search);
 if (params.get('fresh')) localStorage.removeItem('interverse:haven');
