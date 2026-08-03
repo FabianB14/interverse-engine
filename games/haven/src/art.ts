@@ -959,6 +959,9 @@ export interface Avatar {
   setHat: (id: string) => void;
   /** Bob + squash while moving; settle while idle. */
   tick: (t: number, moving: boolean) => void;
+  /** Which baked clip is driving the body right now ('walk' | 'idle'),
+   *  or null for procedural avatars — the playtests assert on this. */
+  clip?: () => string | null;
 }
 
 export interface ModelAvatarOptions {
@@ -1075,6 +1078,7 @@ export function modelAvatar(
       const rotor = hatAnchor.getObjectByName('spin');
       if (rotor) rotor.rotation.y = t * (moving ? 14 : 5);
     },
+    clip: () => (mixer ? (wasMoving ? 'walk' : 'idle') : null),
   };
 }
 

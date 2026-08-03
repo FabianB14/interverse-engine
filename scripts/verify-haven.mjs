@@ -375,21 +375,29 @@ const vaultOk =
   mirrorOk && adopted === true && afterPull.balance === hostWallet.balance + 500 &&
   staleCheck.balance === hostWallet.balance + 500;
 
-// 🦴 The chop-rigged Rex: real clips. Equip him, hold W, and the LEG
-// nodes must be at different angles across two samples mid-stride.
+// 🦴 The chop-rigged Rex: real clips. avatarClip is read straight off the
+// AnimationMixer, so 'idle'/'walk' here means the baked clips ARE playing —
+// and frame differencing proves the pixels move too.
 await hostPage.evaluate(() => window.__haven.redeem('RAWR'));
-await waitFor(() => S(hostPage), (s) => s.avatar === 'trex', 8000);
-await sleep(1200);
+await waitFor(() => S(hostPage), (s) => s.avatar === 'trex' && s.avatarClip === 'idle', 8000);
+await sleep(600);
+// Standing still must still be ALIVE: weight-shift + arm sway + tail wag.
+const idleA = await hostPage.screenshot();
+await sleep(450); // a quarter of the 1.8s idle cycle — max pose contrast
+const idleB = await hostPage.screenshot();
+await hostPage.screenshot({ path: `${outDir}/hv-14-rexidle.png` });
+const rexIdleOk = !idleA.equals(idleB) && (await S(hostPage)).avatarClip === 'idle';
 await hostPage.keyboard.down('w');
 await sleep(300);
 const shotA = await hostPage.screenshot();
 await sleep(160);
 const shotB = await hostPage.screenshot();
 await hostPage.screenshot({ path: `${outDir}/hv-14-rexrun.png` });
+const midRunClip = (await S(hostPage)).avatarClip;
 await hostPage.keyboard.up('w');
 // Mid-stride frames must differ (legs scissor); identical pixels would
 // mean the clips are not playing.
-const rexRunOk = !shotA.equals(shotB) && (await S(hostPage)).avatar === 'trex';
+const rexRunOk = !shotA.equals(shotB) && midRunClip === 'walk';
 
 // 🔗 Wallet sync codes (the Bloomstead flow): Send mints a code, Receive
 // ADDS once on another device, and a replay is refused.
@@ -408,7 +416,7 @@ const gates = {
   loftOk, refuseOk, persistOk, dailyOk, codeOk, visitOk, meetOk,
   friendBonusOk, moveOk, hatSyncOk, jumpSyncOk, avatarOk, redeemOk, redeemSyncOk, friendsOk, presenceOk,
   homeOk, leaveOk, bagCodeOk, npcsOk, talkOk, swimOk, bounceOk, vaultOk,
-  rexRunOk, syncOk,
+  rexIdleOk, rexRunOk, syncOk,
 };
 console.log(JSON.stringify({ ...gates, code, verium: sDaily.verium }, null, 2));
 

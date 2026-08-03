@@ -107,7 +107,7 @@ export const AVATAR_STORE: readonly AvatarRow[] = [
   // Rex is chop-rigged (scripts/rig-model.mjs): facing is baked into the
   // file and his walk/idle clips move real legs — no rotY needed.
   {
-    id: 'trex', name: 'Rex', price: 400, url: 'models/trex.glb', height: 150,
+    id: 'trex', name: 'Rex', price: 400, url: 'models/trex2.glb', height: 150,
     eyes: { dx: 17, y: 112, fz: 34, r: 7 },
   },
 ];

@@ -3,7 +3,7 @@
 // launch — stale-while-revalidate on the shell meant players ran LAST
 // visit's build (the "my code didn't work" bug). Hashed assets and models
 // stay cache-first: their names change when their bytes do.
-const CACHE = 'interverse-haven-v4';
+const CACHE = 'interverse-haven-v5';
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) =>
   e.waitUntil(

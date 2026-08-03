@@ -58,7 +58,7 @@ type Room = 'yard' | 'house' | 'loft';
 
 /** Shown in the store header + debug hook — "which build am I on?" has
  *  burned us twice with cached PWAs; now the answer is on screen. */
-const HAVEN_VERSION = 'v3.1';
+const HAVEN_VERSION = 'v3.2';
 
 const params = new URLSearchParams(location.search);
 if (params.get('fresh')) localStorage.removeItem('interverse:haven');
@@ -1737,6 +1737,7 @@ window.__haven = {
     houseTheme: worldHouse.theme,
     verium: verium.balance(),
     avatar: profile.avatar,
+    avatarClip: me.clip?.() ?? null,
     modelsLoaded: modelStats.loaded,
     lastNpcLine,
     npcs: npcs.map((n) => ({

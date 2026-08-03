@@ -144,8 +144,23 @@ for (const [name, tris] of Object.entries(groups)) {
 }
 
 // ---- the clips -------------------------------------------------------
-const qz = (a) => [0, 0, Math.sin(a / 2), Math.cos(a / 2)]; // limb swing (about side axis Z)
-const qy = (a) => [0, Math.sin(a / 2), 0, Math.cos(a / 2)]; // tail wag
+// Axis picking is everything here. Legs hang DOWN (−Y), so swinging about
+// the side axis Z moves feet forward/back — visible. But the T-pose arms
+// point ALONG ±Z: rotating them about Z only rolls them on their own long
+// axis, which moves nothing on screen. Arms get a baked droop about X
+// (goodbye T-pose) plus a forward/back sweep about Y.
+const qz = (a) => [0, 0, Math.sin(a / 2), Math.cos(a / 2)]; // leg swing (about side axis Z)
+const qy = (a) => [0, Math.sin(a / 2), 0, Math.cos(a / 2)]; // tail wag / arm sweep
+const qx = (a) => [Math.sin(a / 2), 0, 0, Math.cos(a / 2)]; // arm droop/flap
+const qmul = (q, r) => [
+  q[3] * r[0] + q[0] * r[3] + q[1] * r[2] - q[2] * r[1],
+  q[3] * r[1] - q[0] * r[2] + q[1] * r[3] + q[2] * r[0],
+  q[3] * r[2] + q[0] * r[1] - q[1] * r[0] + q[2] * r[3],
+  q[3] * r[3] - q[0] * r[0] - q[1] * r[1] - q[2] * r[2],
+];
+const DROOP = 0.7; // rest pose: arms angled down, not a scarecrow
+/** side: +1 = armL (+Z), -1 = armR (−Z). sweep>0 pushes the paw forward. */
+const armPose = (side, sweep, flap = 0) => qmul(qx(side * (DROOP + flap)), qy(sweep));
 
 function addClip(name, channels) {
   const anim = doc.createAnimation(name);
@@ -160,16 +175,16 @@ function addClip(name, channels) {
   }
 }
 
-const W = 0.6; // one stride
-const swing = 0.55;
-const armSw = 0.4;
+const W = 0.55; // one stride
+const swing = 0.8;
+const armSw = 0.7;
 const bodyBase = nodes.body.getTranslation();
 addClip('walk', [
   { node: nodes.legL, path: 'rotation', size: 4, times: [0, W / 2, W], values: [...qz(swing), ...qz(-swing), ...qz(swing)] },
   { node: nodes.legR, path: 'rotation', size: 4, times: [0, W / 2, W], values: [...qz(-swing), ...qz(swing), ...qz(-swing)] },
-  { node: nodes.armL, path: 'rotation', size: 4, times: [0, W / 2, W], values: [...qz(-armSw), ...qz(armSw), ...qz(-armSw)] },
-  { node: nodes.armR, path: 'rotation', size: 4, times: [0, W / 2, W], values: [...qz(armSw), ...qz(-armSw), ...qz(armSw)] },
-  { node: nodes.tail, path: 'rotation', size: 4, times: [0, W / 2, W], values: [...qy(0.2), ...qy(-0.2), ...qy(0.2)] },
+  { node: nodes.armL, path: 'rotation', size: 4, times: [0, W / 2, W], values: [...armPose(1, -armSw), ...armPose(1, armSw), ...armPose(1, -armSw)] },
+  { node: nodes.armR, path: 'rotation', size: 4, times: [0, W / 2, W], values: [...armPose(-1, armSw), ...armPose(-1, -armSw), ...armPose(-1, armSw)] },
+  { node: nodes.tail, path: 'rotation', size: 4, times: [0, W / 2, W], values: [...qy(0.3), ...qy(-0.3), ...qy(0.3)] },
   {
     node: nodes.body, path: 'translation', size: 3,
     times: [0, W / 4, W / 2, (3 * W) / 4, W],
@@ -182,15 +197,19 @@ addClip('walk', [
     ],
   },
 ]);
-const ID = 2.4; // a slow breath
+// Idle is NOT frozen: a visible weight-shift foot to foot, arms swaying,
+// tail wagging — standing still should still read as a living creature.
+const ID = 1.8;
 addClip('idle', [
-  { node: nodes.tail, path: 'rotation', size: 4, times: [0, ID / 2, ID], values: [...qy(0.1), ...qy(-0.1), ...qy(0.1)] },
-  { node: nodes.armL, path: 'rotation', size: 4, times: [0, ID / 2, ID], values: [...qz(0.05), ...qz(-0.03), ...qz(0.05)] },
-  { node: nodes.armR, path: 'rotation', size: 4, times: [0, ID / 2, ID], values: [...qz(0.05), ...qz(-0.03), ...qz(0.05)] },
+  { node: nodes.tail, path: 'rotation', size: 4, times: [0, ID / 2, ID], values: [...qy(0.22), ...qy(-0.22), ...qy(0.22)] },
+  { node: nodes.legL, path: 'rotation', size: 4, times: [0, ID / 2, ID], values: [...qz(0.12), ...qz(-0.12), ...qz(0.12)] },
+  { node: nodes.legR, path: 'rotation', size: 4, times: [0, ID / 2, ID], values: [...qz(-0.12), ...qz(0.12), ...qz(-0.12)] },
+  { node: nodes.armL, path: 'rotation', size: 4, times: [0, ID / 2, ID], values: [...armPose(1, 0.18, 0.1), ...armPose(1, -0.12, -0.06), ...armPose(1, 0.18, 0.1)] },
+  { node: nodes.armR, path: 'rotation', size: 4, times: [0, ID / 2, ID], values: [...armPose(-1, -0.12, -0.06), ...armPose(-1, 0.18, 0.1), ...armPose(-1, -0.12, -0.06)] },
   {
     node: nodes.body, path: 'translation', size: 3,
     times: [0, ID / 2, ID],
-    values: [...bodyBase, bodyBase[0], bodyBase[1] + h * 0.012, bodyBase[2], ...bodyBase],
+    values: [...bodyBase, bodyBase[0], bodyBase[1] + h * 0.02, bodyBase[2], ...bodyBase],
   },
 ]);
 
