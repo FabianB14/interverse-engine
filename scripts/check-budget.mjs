@@ -17,6 +17,16 @@ import { gzipSync } from 'node:zlib';
 
 const BUDGET = 3 * 1024 * 1024; // spec 8.5: <3MB initial load for joiners
 
+// Per-game overrides, each one a deliberate decision with a reason —
+// never a silent bump because a build went red.
+const OVERRIDES = {
+  // Blobhaven is the model showcase: its .glb catalogue (avatars, pets,
+  // statues) ships with the game but loads LAZILY on placement/equip, so
+  // the app shell a joiner must download stays ~250KB. Owner-approved 5MB
+  // ceiling for the whole dist.
+  haven: 5 * 1024 * 1024,
+};
+
 const only = process.argv[2];
 const gamesDir = 'games';
 
@@ -54,9 +64,10 @@ for (const game of readdirSync(gamesDir)) {
   } catch {
     continue; // not built — nothing to measure
   }
-  const over = info.total > BUDGET;
+  const budget = OVERRIDES[game] ?? BUDGET;
+  const over = info.total > budget;
   if (over) failed = true;
-  rows.push({ game, ...info, over });
+  rows.push({ game, ...info, over, budget });
 }
 
 if (rows.length === 0) {
@@ -66,9 +77,10 @@ if (rows.length === 0) {
 
 rows.sort((a, b) => b.total - a.total);
 for (const r of rows) {
-  const pct = ((r.total / BUDGET) * 100).toFixed(0);
+  const pct = ((r.total / r.budget) * 100).toFixed(0);
+  const tag = r.budget !== BUDGET ? ` of ${kb(r.budget)} budget` : '% of budget';
   console.log(
-    `${r.over ? '✗' : '✓'} ${r.game.padEnd(10)} ${kb(r.total).padStart(7)} gz  (${pct}% of budget)` +
+    `${r.over ? '✗' : '✓'} ${r.game.padEnd(10)} ${kb(r.total).padStart(7)} gz  (${pct}${r.budget !== BUDGET ? `%${tag}` : tag})` +
       (r.over ? `  OVER — heaviest: ${r.heaviest.map((h) => `${h.f} ${kb(h.gz)}`).join(', ')}` : ''),
   );
 }
