@@ -76,6 +76,14 @@ const LIGHT_FULL = 150;
 const LIGHT_FADE = 260;
 const SNARE_RADIUS = 60;
 const SNARE_SECONDS = 2.6;
+// Weaver's Web Bolt: a ranged shot that SLOWS the nearest visible hider.
+const WEB_RANGE = 460;
+const WEB_SECONDS = 2.8;
+const WEB_SLOW = 0.55;
+// A hider downed on their LAST life isn't a camp-able corpse: the dark
+// drags their body to a random far corner, where allies can still save
+// them before they bleed out.
+const DRAG_MIN_DIST = 900;
 // Teleporter pads (hiders only): step on one, ride it to its twin at the
 // far end of the manor. ONE cooldown is shared by the whole pair — after
 // any ride the pads go dark for EVERYONE until they hum again.
@@ -125,7 +133,10 @@ interface Fx {
     | 'freeze'
     | 'dead'
     | 'release'
-    | 'teleport';
+    | 'teleport'
+    | 'web'
+    | 'dragged'
+    | 'hatch';
   x: number;
   y: number;
   id?: string;
@@ -153,6 +164,9 @@ interface Snap {
   hideL: number;
   /** shared teleporter cooldown remaining (0 = pads ready). */
   tp: number;
+  slowed: string[];
+  traps: { x: number; y: number }[];
+  hatch: boolean;
 }
 /** What each player DID this hunt — shown on the end screen and paid out. */
 interface Deeds {
@@ -240,6 +254,7 @@ export class MatchScene extends Scene {
   private hidePts: { x: number; y: number }[] = [];
   private gatePt = { x: 0, y: 0 };
   private teleportPts: { x: number; y: number }[] = [];
+  private hatchPt = { x: 0, y: 0 };
 
   // host sim state
   private lant: number[] = [];
@@ -256,6 +271,8 @@ export class MatchScene extends Scene {
   private out = new Set<string>();
   private vanishUntil: Record<string, number> = {};
   private rootUntil: Record<string, number> = {};
+  private slowUntil: Record<string, number> = {};
+  private hatchOpen = false;
   private traps: { x: number; y: number }[] = [];
   private decoys: { x: number; y: number; until: number }[] = [];
   private phase = 'hiding';
@@ -276,6 +293,8 @@ export class MatchScene extends Scene {
   private snapDawn = DAWN_BASE_SECONDS;
   private snapHideLeft = HIDE_PHASE_SECONDS;
   private snapTpCd = 0;
+  private snapSlowed = new Set<string>();
+  private snapHatch = false;
 
   // bots (host-simulated)
   private botAtkCd = 0;
@@ -367,6 +386,8 @@ export class MatchScene extends Scene {
     this.lanternPts = this.map.objects.filter((o) => o.name === 'lantern').map((o) => ({ x: o.x, y: o.y }));
     this.hidePts = this.map.objects.filter((o) => o.name === 'hide').map((o) => ({ x: o.x, y: o.y }));
     this.teleportPts = this.map.objects.filter((o) => o.name === 'teleport').map((o) => ({ x: o.x, y: o.y }));
+    const hatchObj = this.map.objects.find((o) => o.name === 'hatch');
+    this.hatchPt = hatchObj ? { x: hatchObj.x, y: hatchObj.y } : { ...this.gatePt };
     this.lant = this.lanternPts.map(() => 0);
     this.snapLant = this.lanternPts.map(() => 0);
     this.bustedUntil = this.hidePts.map(() => 0);
@@ -450,6 +471,9 @@ export class MatchScene extends Scene {
   private hideGlow!: Graphics;
   private hideViews: Graphics[] = [];
   private tpViews: Graphics[] = [];
+  private hatchView!: Graphics;
+  private trapLayer!: Container;
+  private trapViews: Graphics[] = [];
 
   private drawObjectives(): void {
     this.objectiveLayer = new Container();
@@ -472,6 +496,14 @@ export class MatchScene extends Scene {
       this.objectiveLayer.addChild(g);
       return g;
     });
+    // The dawn hatch: a bolted cellar grate until dawn breaks it open.
+    this.hatchView = new Graphics();
+    this.hatchView.position.set(this.hatchPt.x, this.hatchPt.y);
+    this.objectiveLayer.addChild(this.hatchView);
+    // Trapper snares render from snap data (seeker sees them plainly;
+    // hiders get only the faintest glint to spot with sharp eyes).
+    this.trapLayer = new Container();
+    this.objectiveLayer.addChild(this.trapLayer);
     // Hiding spots: a mix of furniture you can duck into — wardrobes, desks
     // (crawl under) and big potted plants — so they blend into the rooms
     // instead of reading as identical doors. Tap one to auto-walk in and hide.
@@ -588,6 +620,45 @@ export class MatchScene extends Scene {
         }
       }
     }
+    // The dawn hatch — bolted shut until dawn, then a glowing way out.
+    if (this.hatchView) {
+      const hg = this.hatchView;
+      hg.clear();
+      const open2 = this.snapHatch;
+      hg.roundRect(-44, -32, 88, 64, 10).fill(open2 ? { color: 0x0a1410, alpha: 0.9 } : { color: 0x1c1826, alpha: 0.9 });
+      hg.roundRect(-44, -32, 88, 64, 10).stroke({ color: open2 ? NIGHT.gate : 0x3a3550, width: 4 });
+      if (open2) {
+        hg.ellipse(0, 0, 26, 16).fill({ color: 0x000000, alpha: 0.85 });
+        hg.ellipse(0, 0, 30, 20).stroke({ color: NIGHT.gate, width: 3, alpha: 0.8 });
+        hg.circle(0, 0, GATE_RADIUS).stroke({ color: NIGHT.gate, alpha: 0.3, width: 3 });
+      } else {
+        for (let i = -1; i <= 1; i++) hg.rect(i * 22 - 4, -26, 8, 52).fill(0x3a3550);
+        hg.circle(-32, -22, 3.5).fill(0x555070);
+        hg.circle(32, 22, 3.5).fill(0x555070);
+      }
+    }
+  }
+
+  /** Trapper snares: obvious to the Seeker, a faint glint to hiders. */
+  private syncTraps(list: { x: number; y: number }[]): void {
+    while (this.trapViews.length > list.length) this.trapViews.pop()?.destroy();
+    while (this.trapViews.length < list.length) {
+      const g = new Graphics();
+      const teeth = 8;
+      for (let i = 0; i < teeth; i++) {
+        const a = (i / teeth) * Math.PI * 2;
+        g.poly([
+          Math.cos(a) * 26, Math.sin(a) * 26,
+          Math.cos(a + 0.18) * 26, Math.sin(a + 0.18) * 26,
+          Math.cos(a + 0.09) * 12, Math.sin(a + 0.09) * 12,
+        ]).fill(0xbfc6d0);
+      }
+      g.circle(0, 0, 26).stroke({ color: 0x8a6a3b, width: 3 });
+      g.alpha = this.amSeeker ? 0.9 : 0.14;
+      this.trapLayer.addChild(g);
+      this.trapViews.push(g);
+    }
+    list.forEach((tr, i) => this.trapViews[i]?.position.set(tr.x, tr.y));
   }
 
   private makeBlob(id: string, isMe: boolean): { entity: Entity; body: Container } {
@@ -815,6 +886,9 @@ export class MatchScene extends Scene {
     this.snapDawn = s.dawn ?? this.snapDawn;
     this.snapHideLeft = s.hideL ?? 0;
     this.snapTpCd = s.tp ?? 0;
+    this.snapSlowed = new Set(s.slowed ?? []);
+    this.snapHatch = s.hatch ?? false;
+    this.syncTraps(s.traps ?? []);
     this.escaped = new Set(s.esc);
     this.out = new Set(s.out);
     this.phase = s.phase;
@@ -858,16 +932,21 @@ export class MatchScene extends Scene {
       }
       this.deed(seekerId).down++;
       if (this.hurt.has(target)) {
-        // Second strike — down. Each down spends a life; the last one is final.
+        // Second strike — down. Each down spends a life; on the LAST one the
+        // dark DRAGS the body to a random far corner instead of leaving a
+        // camp-able corpse: allies can still find and save them (the down
+        // arrows point the way), but the bleed-out clock is their only mercy.
         this.hurt.delete(target);
         delete this.healProg[target];
         this.downsTaken[target] = (this.downsTaken[target] ?? 0) + 1;
+        this.down[target] = BLEED_SECONDS;
+        this.reviveProg[target] = 0;
         if (this.downsTaken[target]! >= LIVES) {
-          this.out.add(target);
-          this.broadcastFx({ type: 'fx', kind: 'dead', x: p.x, y: p.y, id: target });
+          const spot = this.randomFarSpot(p.x, p.y);
+          this.hostPositions[target] = { ...spot };
+          this.botPaths.delete(target);
+          this.broadcastFx({ type: 'fx', kind: 'dragged', x: p.x, y: p.y, id: target, tx: spot.x, ty: spot.y });
         } else {
-          this.down[target] = BLEED_SECONDS;
-          this.reviveProg[target] = 0;
           this.broadcastFx({ type: 'fx', kind: 'down', x: p.x, y: p.y, id: target });
         }
       } else {
@@ -886,6 +965,33 @@ export class MatchScene extends Scene {
         const pts = this.visibleHiderPoints();
         this.reveal(pts, NIGHT.blood, 4);
         this.broadcastFx({ type: 'fx', kind: 'screech', x, y });
+        break;
+      }
+      case 'web': {
+        // Weaver: a ranged bolt that SLOWS the nearest visible hider.
+        if (from !== this.seekerId) return;
+        let tid: string | null = null;
+        let bd = WEB_RANGE;
+        for (const hid of this.activeHiders()) {
+          if (this.down[hid] !== undefined) continue;
+          if ((this.vanishUntil[hid] ?? 0) > this.t) continue;
+          const hp = this.hostPositions[hid];
+          if (!hp) continue;
+          const d = Math.hypot(hp.x - x, hp.y - y);
+          if (this.isConcealed(hid) && d > SEARCH_RADIUS) continue;
+          if (d < bd) {
+            bd = d;
+            tid = hid;
+          }
+        }
+        if (tid) {
+          this.slowUntil[tid] = this.t + WEB_SECONDS;
+          const p = this.hostPositions[tid]!;
+          this.broadcastFx({ type: 'fx', kind: 'web', x: p.x, y: p.y, id: tid, tx: x, ty: y });
+        } else {
+          // A whiff still shows the bolt fizzling at the Weaver.
+          this.broadcastFx({ type: 'fx', kind: 'web', x, y });
+        }
         break;
       }
       case 'ping': {
@@ -967,6 +1073,21 @@ export class MatchScene extends Scene {
     return this.roster.order.filter(
       (id) => this.roster.roles[id] !== 'seeker' && !this.escaped.has(id) && !this.out.has(id),
     );
+  }
+
+  /** Host: a random walkable tile far from (fx,fy) — where the dark drops a
+   *  last-life body. Falls back to the hider spawn if the dice run cold. */
+  private randomFarSpot(fx: number, fy: number): { x: number; y: number } {
+    for (let tries = 0; tries < 60; tries++) {
+      const c = 1 + Math.floor(Math.random() * (this.map.width - 2));
+      const r = 1 + Math.floor(Math.random() * (this.map.height - 2));
+      if (solidAt(this.map, c, r)) continue;
+      const x = c * TILE_SIZE + TILE_SIZE / 2;
+      const y = r * TILE_SIZE + TILE_SIZE / 2;
+      if (Math.hypot(x - fx, y - fy) < DRAG_MIN_DIST) continue;
+      return { x, y };
+    }
+    return { ...this.spawn };
   }
 
   private visibleHiderPoints(): { x: number; y: number }[] {
@@ -1082,13 +1203,17 @@ export class MatchScene extends Scene {
         }
       });
     }
-    // Gate: opens at all-but-one lanterns (a camped lantern guards nothing),
-    // or when dawn finally breaks over a dragged-out hunt.
+    // Gate: opens at all-but-one lanterns (a camped lantern guards nothing).
+    // Dawn opens the HATCH instead — a second exit across the manor, so the
+    // endgame never funnels through one campable door.
     const litEnough = this.lant.filter((v) => v >= 1).length >= this.needed;
-    const dawn = this.t >= this.dawnAt;
-    if ((litEnough || dawn) && !this.gateOpen) {
+    if (litEnough && !this.gateOpen) {
       this.gateOpen = true;
       this.broadcastFx({ type: 'fx', kind: 'gate', x: this.gatePt.x, y: this.gatePt.y });
+    }
+    if (this.t >= this.dawnAt && !this.hatchOpen) {
+      this.hatchOpen = true;
+      this.broadcastFx({ type: 'fx', kind: 'hatch', x: this.hatchPt.x, y: this.hatchPt.y });
     }
     // Snares.
     for (const id of active) {
@@ -1152,12 +1277,15 @@ export class MatchScene extends Scene {
         this.healProg[id] = Math.max(0, (this.healProg[id] ?? 0) - dt / HEAL_SECONDS);
       }
     }
-    // Escape.
-    if (this.gateOpen) {
+    // Escape — through the lantern gate, or the dawn hatch once it creaks.
+    const exits: { x: number; y: number }[] = [];
+    if (this.gateOpen) exits.push(this.gatePt);
+    if (this.hatchOpen) exits.push(this.hatchPt);
+    if (exits.length) {
       for (const id of active) {
         if (this.down[id] !== undefined) continue;
         const p = this.hostPositions[id];
-        if (p && Math.hypot(p.x - this.gatePt.x, p.y - this.gatePt.y) < GATE_RADIUS) {
+        if (p && exits.some((e) => Math.hypot(p.x - e.x, p.y - e.y) < GATE_RADIUS)) {
           this.escaped.add(id);
           this.hurt.delete(id);
           delete this.healProg[id];
@@ -1206,6 +1334,7 @@ export class MatchScene extends Scene {
       let gx = p.x;
       let gy = p.y;
       let speed = cls.speed * 0.9;
+      if ((this.slowUntil[id] ?? 0) > this.t) speed *= WEB_SLOW; // webbed
       let stop = 40;
 
       if (isSeeker) {
@@ -1330,9 +1459,16 @@ export class MatchScene extends Scene {
             gy = p.y + Math.sin(a0) * 220;
           }
           speed = cls.speed;
-        } else if (this.gateOpen) {
-          gx = this.gatePt.x;
-          gy = this.gatePt.y;
+        } else if (this.gateOpen || this.hatchOpen) {
+          // Run for the NEAREST open exit — gate or dawn hatch.
+          const exits2: { x: number; y: number }[] = [];
+          if (this.gateOpen) exits2.push(this.gatePt);
+          if (this.hatchOpen) exits2.push(this.hatchPt);
+          const ex = exits2.sort(
+            (a, b) => Math.hypot(a.x - p.x, a.y - p.y) - Math.hypot(b.x - p.x, b.y - p.y),
+          )[0]!;
+          gx = ex.x;
+          gy = ex.y;
         } else {
           // Divide up the objectives: each bot walks its *own* rotation of the
           // lantern list (starting at its index), taking the first still-unlit
@@ -1526,7 +1662,9 @@ export class MatchScene extends Scene {
     } else this.boostFactor = 1;
     const jx = frozen ? 0 : this.joystick.value.x;
     const jy = frozen ? 0 : this.joystick.value.y;
-    const speed = myCls.speed * this.boostFactor;
+    // Webbed? You crawl until the strands snap.
+    const slowMul = this.snapSlowed.has(this.session.id) ? WEB_SLOW : 1;
+    const speed = myCls.speed * this.boostFactor * slowMul;
     let sx = 1;
     let sy = 1;
     if (Math.hypot(jx, jy) > 0.12) {
@@ -1726,8 +1864,13 @@ export class MatchScene extends Scene {
       return;
     let target: { x: number; y: number } | null = null;
     let color: number = NIGHT.lantern;
-    if (this.snapGate) {
-      target = this.gatePt;
+    if (this.snapGate || this.snapHatch) {
+      const exits: { x: number; y: number }[] = [];
+      if (this.snapGate) exits.push(this.gatePt);
+      if (this.snapHatch) exits.push(this.hatchPt);
+      target = exits.sort(
+        (a, b) => Math.hypot(a.x - this.me.x, a.y - this.me.y) - Math.hypot(b.x - this.me.x, b.y - this.me.y),
+      )[0]!;
       color = NIGHT.gate;
     } else {
       let bd = 1e9;
@@ -1791,6 +1934,12 @@ export class MatchScene extends Scene {
       r.mark.arc(0, -34, 12, Math.PI * 0.15, Math.PI * 0.85).stroke({ color: NIGHT.blood, width: 4, alpha: 0.9 });
       r.mark.moveTo(-5, -30).lineTo(5, -38).moveTo(-5, -38).lineTo(5, -30).stroke({ color: NIGHT.blood, width: 3, alpha: 0.85 });
     }
+    if (!isSeeker && this.snapSlowed.has(id)) {
+      // webbed — sticky strands wrap the blob
+      for (let i = 0; i < 3; i++) {
+        r.mark.moveTo(-26, -14 + i * 12).lineTo(26, -18 + i * 12).stroke({ color: 0xd8d4e8, width: 2.5, alpha: 0.8 });
+      }
+    }
   }
 
   private broadcastSnap(): void {
@@ -1823,6 +1972,9 @@ export class MatchScene extends Scene {
       phase: this.phase,
       hideL: this.hideLeft,
       tp: Math.max(0, this.tpReadyAt - this.t),
+      slowed: Object.keys(this.slowUntil).filter((id) => (this.slowUntil[id] ?? 0) > this.t),
+      traps: this.traps.map((tr) => ({ x: tr.x, y: tr.y })),
+      hatch: this.hatchOpen,
     };
     this.session.broadcast(snap);
     // Host mirrors its own snap-derived view.
@@ -1838,6 +1990,9 @@ export class MatchScene extends Scene {
     this.snapDawn = Math.max(0, this.dawnAt - this.t);
     this.snapHideLeft = this.hideLeft;
     this.snapTpCd = Math.max(0, this.tpReadyAt - this.t);
+    this.snapSlowed = new Set(snap.slowed);
+    this.snapHatch = this.hatchOpen;
+    this.syncTraps(snap.traps);
     this.syncDecoys(snap.decoys);
     this.redrawObjectives();
   }
@@ -1851,9 +2006,13 @@ export class MatchScene extends Scene {
     let hudLine =
       this.phase === 'hiding'
         ? `🙈 The Seeker counts… ${Math.max(0, Math.ceil(this.snapHideLeft))}`
-        : this.snapGate
-          ? '🚪 GATE OPEN — escape!'
-          : `🕯️ ${lit}/${needTo} · 🌅 ${mm}:${ss}`;
+        : this.snapGate && this.snapHatch
+          ? '🚪 GATE + HATCH OPEN — escape!'
+          : this.snapGate
+            ? '🚪 GATE OPEN — escape!'
+            : this.snapHatch
+              ? '🌅 DAWN — the hatch is open, run!'
+              : `🕯️ ${lit}/${needTo} · 🌅 ${mm}:${ss}`;
     if (!this.amSeeker && !this.escaped.has(this.session.id)) {
       const left = Math.max(0, LIVES - (this.snapDowns[this.session.id] ?? 0));
       hudLine += `  ${'❤️'.repeat(left)}${'🖤'.repeat(LIVES - left)}`;
@@ -2100,6 +2259,46 @@ export class MatchScene extends Scene {
       case 'poof':
         g.circle(0, 0, 30).fill({ color: NIGHT.ghost, alpha: 0.4 });
         life = 0.4;
+        break;
+      case 'web': {
+        // Web Bolt: strand from the Weaver to the webbed hider.
+        if (fx.tx !== undefined && fx.ty !== undefined) {
+          g.moveTo(fx.tx - fx.x, fx.ty - fx.y).lineTo(0, 0).stroke({ color: 0xd8d4e8, width: 4, alpha: 0.8 });
+        }
+        for (const rr of [12, 22, 32]) g.circle(0, 0, rr).stroke({ color: 0xd8d4e8, width: 2.5, alpha: 0.8 });
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * Math.PI * 2;
+          g.moveTo(0, 0).lineTo(Math.cos(a) * 32, Math.sin(a) * 32).stroke({ color: 0xd8d4e8, width: 2, alpha: 0.7 });
+        }
+        sting('blip');
+        life = 0.7;
+        break;
+      }
+      case 'dragged': {
+        // The dark claims a last-life body… and drops it somewhere far away.
+        if (fx.id === this.session.id && fx.tx !== undefined && fx.ty !== undefined) {
+          this.me.position.set(fx.tx, fx.ty);
+          this.hideTarget = null;
+        }
+        g.circle(0, 0, 44).fill({ color: 0x000000, alpha: 0.6 });
+        g.circle(0, 0, 44).stroke({ color: NIGHT.violet, width: 6, alpha: 0.9 });
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * Math.PI * 2;
+          g.moveTo(Math.cos(a) * 20, Math.sin(a) * 20)
+            .lineTo(Math.cos(a + 0.4) * 52, Math.sin(a + 0.4) * 52)
+            .stroke({ color: 0x1a1030, width: 4, alpha: 0.8 });
+        }
+        sting('lose');
+        this.camera?.shake(12, 0.35);
+        life = 0.8;
+        break;
+      }
+      case 'hatch':
+        g.circle(0, 0, 80).stroke({ color: NIGHT.gate, width: 10, alpha: 0.9 });
+        g.circle(0, 0, 46).stroke({ color: NIGHT.gate, width: 5, alpha: 0.6 });
+        sting('gate');
+        this.camera?.shake(8, 0.35);
+        life = 0.7;
         break;
       case 'teleport': {
         // Violet rings at BOTH ends of the ride; the ridden player warps
@@ -2506,6 +2705,16 @@ export class MatchScene extends Scene {
       tpCount: () => this.teleportPts.length,
       tpPos: (i: number) => this.teleportPts[i] ?? null,
       tpCd: () => this.snapTpCd,
+      hatchOpen: () => this.snapHatch,
+      hatchPos: () => ({ ...this.hatchPt }),
+      slowedCount: () => this.snapSlowed.size,
+      amSlowed: () => this.snapSlowed.has(this.session.id),
+      rootedCount: () => this.snapRooted.size,
+      trapCount: () => this.traps.length,
+      forceDownsTaken: (n: number) => {
+        if (!this.session.isHost) return;
+        for (const id of this.activeHiders()) this.downsTaken[id] = n;
+      },
       visionActive: () => this.t < this.visionBoostUntil,
       reachOk: () => this.reachabilityOk(),
     };

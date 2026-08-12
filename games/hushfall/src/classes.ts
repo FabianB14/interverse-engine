@@ -184,6 +184,38 @@ function owlMark(r: number): Container {
   return c;
 }
 
+function webMark(r: number): Container {
+  // Weaver: a spun web crest above the head.
+  const c = new Container();
+  const g = new Graphics();
+  const cy = -r * 0.95;
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    g.moveTo(0, cy)
+      .lineTo(Math.cos(a) * r * 0.44, cy + Math.sin(a) * r * 0.44)
+      .stroke({ color: 0xd8d4e8, width: Math.max(2, r * 0.06) });
+  }
+  for (const ring of [0.18, 0.32]) {
+    g.circle(0, cy, r * ring).stroke({ color: 0xd8d4e8, width: Math.max(2, r * 0.05) });
+  }
+  return (c.addChild(g), c);
+}
+
+function trapMark(r: number): Container {
+  // Trapper: a toothy jaw-trap badge.
+  const c = new Container();
+  const g = new Graphics();
+  const cy = -r * 0.9;
+  g.arc(0, cy, r * 0.4, Math.PI * 0.1, Math.PI * 0.9).stroke({ color: 0xbfc6d0, width: Math.max(3, r * 0.09) });
+  g.arc(0, cy, r * 0.4, Math.PI * 1.1, Math.PI * 1.9).stroke({ color: 0xbfc6d0, width: Math.max(3, r * 0.09) });
+  for (let i = 0; i < 4; i++) {
+    const x = -r * 0.28 + (i / 3) * r * 0.56;
+    g.poly([x - r * 0.05, cy - r * 0.3, x + r * 0.05, cy - r * 0.3, x, cy - r * 0.12]).fill(0xbfc6d0);
+    g.poly([x - r * 0.05, cy + r * 0.3, x + r * 0.05, cy + r * 0.3, x, cy + r * 0.12]).fill(0xbfc6d0);
+  }
+  return (c.addChild(g), c);
+}
+
 // ---- class roster -------------------------------------------------------
 
 export const SEEKERS: ClassDef[] = [
@@ -231,6 +263,40 @@ export const SEEKERS: ClassDef[] = [
       blurb: 'See far into the gloom for a few seconds.',
     },
     accessory: wardenEye,
+  },
+  {
+    id: 'weaver',
+    role: 'seeker',
+    name: 'Weaver',
+    emoji: '🕸️',
+    color: 0xd8d4e8,
+    speed: 282,
+    blurb: 'Spits webs that slow the prey.',
+    ability: {
+      id: 'web',
+      name: 'Web Bolt',
+      emoji: '🕸️',
+      cooldown: 9,
+      blurb: 'Snare the nearest hider in webbing — they crawl for a bit.',
+    },
+    accessory: webMark,
+  },
+  {
+    id: 'trapper',
+    role: 'seeker',
+    name: 'Trapper',
+    emoji: '🪤',
+    color: 0x8a6a3b,
+    speed: 288,
+    blurb: 'Seeds the manor with hidden snares.',
+    ability: {
+      id: 'snare',
+      name: 'Snare Trap',
+      emoji: '🪤',
+      cooldown: 12,
+      blurb: 'Lay a trap that roots whoever steps in.',
+    },
+    accessory: trapMark,
   },
 ];
 

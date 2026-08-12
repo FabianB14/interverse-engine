@@ -86,6 +86,13 @@ export interface HushfallDebug {
   tpCount?: () => number;
   tpPos?: (i: number) => { x: number; y: number } | null;
   tpCd?: () => number;
+  hatchOpen?: () => boolean;
+  hatchPos?: () => { x: number; y: number };
+  slowedCount?: () => number;
+  amSlowed?: () => boolean;
+  rootedCount?: () => number;
+  trapCount?: () => number;
+  forceDownsTaken?: (n: number) => void;
 }
 
 declare global {

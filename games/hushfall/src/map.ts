@@ -17,6 +17,7 @@ export const legend: Record<string, TileLegendEntry> = {
   '@': { tile: TILE.CARPET, object: 'spawn' },
   S: { tile: TILE.FLOOR, object: 'seekerspawn' },
   T: { tile: TILE.CARPET, object: 'teleport' },
+  X: { tile: TILE.FLOOR, object: 'hatch' },
 };
 
 const CH: Record<number, string> = {
@@ -278,6 +279,23 @@ export function generateBuilding(level: LevelDef = LEVELS[0]!): string[] {
         stamp(tx + dx, ty + dy, 'T');
         break;
       }
+    }
+  }
+
+  // The DAWN HATCH: a second exit as far from the main gate as possible.
+  // When dawn breaks it creaks open (the gate does NOT) — the Seeker can't
+  // camp one door through the endgame.
+  const [gx0, gy0] = center(gateRoom);
+  const hatchRoom = [...(rest.length ? rest : sorted)].sort(
+    (a, b) =>
+      Math.hypot(center(b)[0] - gx0, center(b)[1] - gy0) - Math.hypot(center(a)[0] - gx0, center(a)[1] - gy0),
+  )[0]!;
+  const [hx, hy] = center(hatchRoom);
+  for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [2, 0], [0, 2], [-2, 0]] as const) {
+    const ch = rows[hy + dy]?.[hx + dx];
+    if (ch === ',' || ch === '.') {
+      stamp(hx + dx, hy + dy, 'X');
+      break;
     }
   }
 

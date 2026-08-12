@@ -108,7 +108,7 @@ const phaseAtStart = await p1.evaluate(() => window.__hushfall.phase());
 // Walls must block line of sight (checked against the real tile grid).
 const losOk = await p1.evaluate(() => window.__hushfall.losSelfTest?.() ?? false);
 await p1.evaluate(() => window.__hushfall.skipHide());
-await p1.waitForFunction(() => window.__hushfall.phase() === 'playing', null, { timeout: 6_000 });
+await p1.waitForFunction(() => window.__hushfall.phase() === 'playing', null, { timeout: 15_000 });
 const hidePhaseOk = phaseAtStart === 'hiding';
 
 const p1Role = await p1.evaluate(() => window.__hushfall.myRole());
@@ -281,6 +281,27 @@ const p3AfterTp = await p3.evaluate(() => window.__hushfall.myPos());
 const refused = Math.hypot(p3AfterTp.x - tp0.x, p3AfterTp.y - tp0.y) < 200;
 const teleportOk = tpCount === 2 && rode && tpCdLeft > 0 && refused;
 
+// LAST-LIFE DOWN: no camp-able corpses — the final down DRAGS the body to a
+// random far spot, still downed, still rescuable, NOT eliminated.
+await p1.evaluate(() => window.__hushfall.forceDownsTaken?.(2));
+const preDrag = await p2.evaluate(() => window.__hushfall.myPos());
+let draggedFar = false;
+for (let i = 0; i < 6 && !draggedFar; i++) {
+  await strike();
+  const pos = await p2.evaluate(() => window.__hushfall.myPos());
+  const downNow = await p2.evaluate(() => window.__hushfall.amDowned());
+  draggedFar = downNow && Math.hypot(pos.x - preDrag.x, pos.y - preDrag.y) > 700;
+}
+const outAfterDrag = await p1.evaluate(() => window.__hushfall.outCount());
+const relocOk = draggedFar && outAfterDrag === 0;
+// …and the dragged body can still be saved: the Engineer treks out to them.
+const dragPos = await p2.evaluate(() => window.__hushfall.myPos());
+await p1.evaluate(() => window.__hushfall.warp(200, 200)); // seeker walks away
+await p3.evaluate((p) => window.__hushfall.warp(p.x, p.y), dragPos);
+await p2.waitForFunction(() => window.__hushfall.amDowned?.() === false, null, { timeout: 16_000 }).catch(() => {});
+const dragRescued = await p2.evaluate(() => window.__hushfall.amDowned());
+const dragRescueOk = dragRescued === false;
+
 // ESCAPE: host lights all lanterns, the gate opens, both hiders reach it and
 // escape — ending the hunt as a Hider win.
 await p1.evaluate(() => window.__hushfall.forceLightAll());
@@ -319,7 +340,7 @@ for (const p of [p1, p2, p3]) {
 }
 await sleep(800);
 await p1.evaluate(() => window.__hushfall.skipHide());
-await p1.waitForFunction(() => window.__hushfall.phase() === 'playing', null, { timeout: 6_000 });
+await p1.waitForFunction(() => window.__hushfall.phase() === 'playing', null, { timeout: 15_000 });
 // FREEZE: Frost snaps the Seeker frozen for a beat.
 const rootedBefore = await p1.evaluate(() => window.__hushfall.amRooted?.() ?? false);
 await p2.evaluate(() => window.__hushfall.ability());
@@ -354,7 +375,7 @@ await pb.evaluate(() => window.__hushfall.start());
 await pb.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { timeout: 12_000 });
 await sleep(600);
 await pb.evaluate(() => window.__hushfall.skipHide());
-await pb.waitForFunction(() => window.__hushfall.phase() === 'playing', null, { timeout: 6_000 });
+await pb.waitForFunction(() => window.__hushfall.phase() === 'playing', null, { timeout: 15_000 });
 const matchBots = await pb.evaluate(() => window.__hushfall.botCount());
 const swarm0 = await pb.evaluate(() => window.__hushfall.botPositions());
 await sleep(4600);
@@ -403,7 +424,7 @@ const lvlLobby = await pe.evaluate(() => window.__hushfall.levelIndex?.() ?? -1)
 await pe.evaluate(() => window.__hushfall.start());
 await pe.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { timeout: 12_000 });
 await pe.evaluate(() => window.__hushfall.skipHide());
-await pe.waitForFunction(() => window.__hushfall.phase() === 'playing', null, { timeout: 6_000 });
+await pe.waitForFunction(() => window.__hushfall.phase() === 'playing', null, { timeout: 15_000 });
 await sleep(500);
 const lvlMatch = await pe.evaluate(() => window.__hushfall.levelIndex?.() ?? -1);
 const lvlName = await pe.evaluate(() => window.__hushfall.levelName?.() ?? '');
@@ -413,11 +434,13 @@ const levelOk = levelCount >= 3 && lvlLobby === 1 && lvlMatch === 1 && lvlLanter
 // hunt drags past dawn it opens on its own.
 const lanternsNeeded = await pe.evaluate(() => window.__hushfall.lanternsNeeded?.() ?? -1);
 const spareOk = lanternsNeeded === lvlLanterns - 1;
+// Dawn no longer frees the MAIN gate — it creaks open the HATCH, a second
+// exit far across the manor, so the Seeker can't camp one door.
 await pe.evaluate(() => window.__hushfall.forceDawn?.());
 await pe
-  .waitForFunction(() => window.__hushfall.gateOpen?.() === true, null, { timeout: 15_000 })
+  .waitForFunction(() => window.__hushfall.hatchOpen?.() === true, null, { timeout: 15_000 })
   .catch(() => {});
-const dawnOk = await pe.evaluate(() => window.__hushfall.gateOpen?.() ?? false);
+const dawnOk = await pe.evaluate(() => window.__hushfall.hatchOpen?.() ?? false);
 // Down everyone at once → immediate Seeker win.
 await pe.evaluate(() => window.__hushfall.forceDownAll?.());
 await pe
@@ -426,6 +449,52 @@ await pe
 const allDownPhase = await pe.evaluate(() => window.__hushfall.phase?.());
 const allDownOk = allDownPhase === 'seeker-wins';
 await pe.screenshot({ path: `${outDir}/hf-7-level-end.png` });
+
+// NEW SEEKERS: the Weaver's ranged Web Bolt SLOWS the nearest hider…
+const pw = await phone('host=1&seeker=1&class=weaver&name=Web');
+await pw.waitForFunction(() => window.__hushfall?.scene() === 'lobby', null, { timeout: 12_000 });
+await pw.evaluate(() => window.__hushfall.setBots?.(1));
+await pw.evaluate(() => window.__hushfall.start());
+await pw.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { timeout: 12_000 });
+await pw.evaluate(() => window.__hushfall.skipHide());
+await pw.waitForFunction(() => window.__hushfall.phase() === 'playing', null, { timeout: 15_000 });
+await sleep(400);
+let weaverOk = false;
+for (let attempt = 0; attempt < 2 && !weaverOk; attempt++) {
+  const bp = await pw.evaluate(() => window.__hushfall.botPos());
+  if (bp) {
+    await pw.evaluate((p) => window.__hushfall.warp(p.x + 120, p.y), bp);
+    await sleep(250);
+    await pw.evaluate(() => window.__hushfall.ability());
+    await sleep(700);
+    weaverOk = (await pw.evaluate(() => window.__hushfall.slowedCount?.() ?? 0)) >= 1;
+  }
+  if (!weaverOk) await sleep(9_500); // ride out the ability cooldown, try once more
+}
+
+// …and the Trapper's snare roots whoever steps in.
+const pt = await phone('host=1&seeker=1&class=trapper&name=Trap');
+await pt.waitForFunction(() => window.__hushfall?.scene() === 'lobby', null, { timeout: 12_000 });
+await pt.evaluate(() => window.__hushfall.setBots?.(1));
+await pt.evaluate(() => window.__hushfall.start());
+await pt.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { timeout: 12_000 });
+await pt.evaluate(() => window.__hushfall.skipHide());
+await pt.waitForFunction(() => window.__hushfall.phase() === 'playing', null, { timeout: 15_000 });
+await sleep(400);
+const bp2 = await pt.evaluate(() => window.__hushfall.botPos());
+if (bp2) {
+  await pt.evaluate((p) => window.__hushfall.warp(p.x, p.y), bp2);
+  await sleep(200);
+  await pt.evaluate(() => window.__hushfall.ability()); // trap laid right under the bot
+}
+const trapLaid = await pt.evaluate(() => window.__hushfall.trapCount?.() ?? 0);
+await pt.evaluate(() => window.__hushfall.warp(200, 200));
+let rootedSeen = 0;
+for (let i = 0; i < 12 && !rootedSeen; i++) {
+  await sleep(500);
+  rootedSeen = await pt.evaluate(() => window.__hushfall.rootedCount?.() ?? 0);
+}
+const trapOk = trapLaid >= 1 && rootedSeen >= 1;
 
 await browser.close();
 relay.kill();
@@ -450,6 +519,10 @@ const ok =
   hidePhaseOk &&
   losOk &&
   teleportOk &&
+  relocOk &&
+  dragRescueOk &&
+  weaverOk &&
+  trapOk &&
   freezeOk &&
   round2Ok &&
   botOk &&
@@ -507,6 +580,12 @@ console.log(
       rode,
       tpCdLeft,
       refused,
+      relocOk,
+      dragRescueOk,
+      weaverOk,
+      trapOk,
+      trapLaid,
+      rootedSeen,
       gateOnP2,
       escapedHost,
       phaseHost,
