@@ -372,7 +372,7 @@ export class MatchScene extends Scene {
 
     this.level = this.roster.level ?? 0;
     setDroneMood(this.level); // every manor hums its own chord
-    this.map = tileMapFromRows(levelRows(this.level), TILE_SIZE, legend);
+    this.map = tileMapFromRows(levelRows(this.level, this.roster.salt ?? 0), TILE_SIZE, legend);
     this.mapLayer = new Container();
     this.uiLayer = new Container();
     this.stage.addChild(this.mapLayer, this.uiLayer);

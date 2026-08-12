@@ -65,9 +65,12 @@ export const LEVELS: LevelDef[] = [
   { name: 'Blackwood Keep', blurb: 'A fortress of endless halls.', seed: 77345, w: 84, h: 66, min: 7, lanterns: 10, teleporters: 4 },
 ];
 
-export function levelRows(i: number): string[] {
+/** `salt` re-rolls the LANTERN scatter for a fresh hunt (0 = the fixed
+ *  classic layout). Walls, hide spots, pads and the hatch stay put — only
+ *  where the lanterns hang changes match to match. */
+export function levelRows(i: number, salt = 0): string[] {
   const idx = Math.max(0, Math.min(LEVELS.length - 1, i | 0));
-  return generateBuilding(LEVELS[idx]!);
+  return generateBuilding(LEVELS[idx]!, salt);
 }
 
 /**
@@ -77,7 +80,7 @@ export function levelRows(i: number): string[] {
  * collision. Fixed anchors (hider spawn, Seeker spawn, escape gate, five
  * lanterns) live in different rooms.
  */
-export function generateBuilding(level: LevelDef = LEVELS[0]!): string[] {
+export function generateBuilding(level: LevelDef = LEVELS[0]!, salt = 0): string[] {
   const { seed, w: W, h: H, min: MIN } = level;
   const rng = lcg(seed);
   const grid: number[][] = Array.from({ length: H }, () => Array<number>(W).fill(TILE.WALL));
@@ -225,13 +228,49 @@ export function generateBuilding(level: LevelDef = LEVELS[0]!): string[] {
   const used = new Set([spawnRoom, seekerRoom, gateRoom]);
   const rest = sorted.filter((r) => !used.has(r));
   const want = level.lanterns;
-  // Spread the lanterns across the widest-apart rooms available.
-  const lanternRooms = rest.slice().sort((a, b) => b.w * b.h - a.w * a.h);
-  for (let i = 0; i < Math.min(want, lanternRooms.length); i++) stampCenter(lanternRooms[i]!, 'L');
+  // Lanterns: a fresh SCATTER every hunt. The building is fixed per level,
+  // but WHERE the lamps hang re-rolls with the match salt: a random first
+  // room, then each next lamp as far from the ones already hung as the
+  // manor allows — spread wide, never twice the same.
+  const lrng = lcg(((seed ^ Math.imul(salt, 2654435761)) >>> 0) || 7);
+  const roomDist = (a: Rect, b: Rect): number => {
+    const [ax, ay] = center(a);
+    const [bx, by] = center(b);
+    return Math.hypot(ax - bx, ay - by);
+  };
+  const lanternRooms: Rect[] = [];
+  if (rest.length) {
+    lanternRooms.push(rest[Math.floor(lrng() * rest.length)]!);
+    while (lanternRooms.length < Math.min(want, rest.length)) {
+      let bestRoom: Rect | null = null;
+      let bestScore = -1;
+      for (const room of rest) {
+        if (lanternRooms.includes(room)) continue;
+        const score = Math.min(...lanternRooms.map((c) => roomDist(room, c)));
+        if (score > bestScore) {
+          bestScore = score;
+          bestRoom = room;
+        }
+      }
+      if (!bestRoom) break;
+      lanternRooms.push(bestRoom);
+    }
+  }
+  for (const room of lanternRooms) {
+    // Hang each lamp at a salt-random free tile of its room (center backup).
+    let placed = false;
+    for (let tries = 0; tries < 14 && !placed; tries++) {
+      const x = room.x + 1 + Math.floor(lrng() * (room.w - 2));
+      const y = room.y + 1 + Math.floor(lrng() * (room.h - 2));
+      placed = stampFree(x, y, 'L');
+    }
+    if (!placed) stampCenter(room, 'L');
+  }
   // If there were too few rooms, drop extra lanterns into big rooms'
   // corners — try every corner, so a huge hall can hold two lamps.
-  let lanterns = Math.min(want, lanternRooms.length);
-  for (const room of lanternRooms) {
+  let lanterns = lanternRooms.length;
+  const byArea = rest.slice().sort((a, b) => b.w * b.h - a.w * a.h);
+  for (const room of byArea) {
     if (lanterns >= want) break;
     const corners: [number, number][] = [
       [room.x + 2, room.y + 2],

@@ -23,6 +23,9 @@ export interface RosterState {
   ready?: Record<string, boolean>;
   seekerId?: string | null;
   level?: number;
+  /** Match salt: re-rolls the lantern scatter. Host picks it at START so
+   *  every peer carves the same map. */
+  salt?: number;
 }
 
 type LobbyMsg =
@@ -763,6 +766,8 @@ export class LobbyScene extends Scene {
     for (const id of this.roster.order) {
       this.roster.classes[id] ??= defaultClassFor(this.roster.roles[id] ?? 'hider');
     }
+    // Fresh lantern scatter every hunt — same walls, new lamp spots.
+    this.roster.salt = Math.floor(Math.random() * 0x7fffffff);
     this.live = false;
     sting('gate');
     this.session.broadcast({ type: 'start', roster: this.roster });
