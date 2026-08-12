@@ -51,33 +51,73 @@ function ensure(): void {
   master.connect(ctx.destination);
 }
 
-/** Start the sustained ambient bed (two detuned low drones + a slow shimmer). */
+/** Per-map ambience: each manor hums its own chord. notes are
+ *  [freq, detune, gain]; trem is the breathing speed. */
+interface DroneMood {
+  name: string;
+  notes: readonly (readonly [number, number, number])[];
+  trem: number;
+}
+const MOODS: readonly DroneMood[] = [
+  // Hollow Manor — the classic warm A drone (root/fifth/octave).
+  { name: 'manor', notes: [[55, -6, 0.5], [82.4, 5, 0.5], [110, 0, 0.4]], trem: 0.08 },
+  // Ashen Asylum — hollow fifths a step up, with a nervous flicker.
+  { name: 'asylum', notes: [[73.4, -4, 0.45], [110, 3, 0.4], [146.8, -2, 0.28]], trem: 0.16 },
+  // The Cellars — a sub-bass E rubbed against F: slow, oppressive beating.
+  { name: 'cellars', notes: [[41.2, -3, 0.6], [43.7, 4, 0.35], [82.4, 0, 0.25]], trem: 0.05 },
+  // Grand Estate — a stately C-minor sigh, almost music.
+  { name: 'estate', notes: [[65.4, -4, 0.45], [98, 2, 0.4], [155.6, -3, 0.24]], trem: 0.06 },
+  // Blackwood Keep — a tritone under the floorboards, pulsing faster.
+  { name: 'keep', notes: [[49, -5, 0.5], [69.3, 4, 0.45], [98, -6, 0.3]], trem: 0.22 },
+];
+let moodIdx = 0;
+let droneNodes: OscillatorNode[] = [];
+
+/** Start the sustained ambient bed for the current mood. */
 function startDrone(): void {
   if (!ctx || !master || droneGain) return;
   droneGain = ctx.createGain();
   droneGain.gain.value = musicOn ? 0.14 : 0;
   droneGain.connect(master);
-  for (const [freq, detune] of [
-    [55, -6],
-    [82.4, 5],
-    [110, 0],
-  ] as const) {
+  const mood = MOODS[moodIdx] ?? MOODS[0]!;
+  for (const [freq, detune, vol] of mood.notes) {
     const o = ctx.createOscillator();
     o.type = 'sine';
     o.frequency.value = freq;
     o.detune.value = detune;
     const g = ctx.createGain();
-    g.gain.value = 0.5;
-    // Slow tremolo so the drone breathes.
+    g.gain.value = vol;
+    // Tremolo so the drone breathes — each mood at its own pace.
     const lfo = ctx.createOscillator();
-    lfo.frequency.value = 0.08 + Math.random() * 0.06;
+    lfo.frequency.value = mood.trem * (0.8 + Math.random() * 0.5);
     const lfoGain = ctx.createGain();
-    lfoGain.gain.value = 0.25;
+    lfoGain.gain.value = vol * 0.5;
     lfo.connect(lfoGain).connect(g.gain);
     o.connect(g).connect(droneGain);
     o.start();
     lfo.start();
+    droneNodes.push(o, lfo);
   }
+}
+
+/** Switch the ambient bed to a map's mood (index into MOODS; wraps). The
+ *  menu/lobby live on mood 0. No-op until audio is unlocked. */
+export function setDroneMood(i: number): void {
+  const next = ((Math.floor(i) % MOODS.length) + MOODS.length) % MOODS.length;
+  if (next === moodIdx) return;
+  moodIdx = next;
+  if (!droneGain) return; // not started yet — unlock will pick this mood up
+  for (const n of droneNodes) {
+    try {
+      n.stop();
+    } catch {
+      /* already stopped */
+    }
+  }
+  droneNodes = [];
+  droneGain.disconnect();
+  droneGain = null;
+  startDrone();
 }
 
 /** Unlock audio on the first user gesture (call once from the first scene). */

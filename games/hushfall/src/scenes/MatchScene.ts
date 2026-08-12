@@ -21,7 +21,7 @@ import type { TileMapData } from '@interverse/engine';
 import type { Session } from '@interverse/net';
 import { UIButton } from '@interverse/ui';
 import { classById } from '../classes.js';
-import { NIGHT, setTerror, sting, updateHeartbeat } from '../theme.js';
+import { NIGHT, setDroneMood, setTerror, sting, updateHeartbeat } from '../theme.js';
 import { accessoryView } from '../accessories.js';
 import { LEVELS, TILE_SIZE, legend, levelRows, painters } from '../map.js';
 import { makeText } from '../text.js';
@@ -371,6 +371,7 @@ export class MatchScene extends Scene {
     if (!session.isHost) saveLastRoom(session.code);
 
     this.level = this.roster.level ?? 0;
+    setDroneMood(this.level); // every manor hums its own chord
     this.map = tileMapFromRows(levelRows(this.level), TILE_SIZE, legend);
     this.mapLayer = new Container();
     this.uiLayer = new Container();
@@ -462,6 +463,7 @@ export class MatchScene extends Scene {
     this.unsub = [];
     delete window.__hushfall;
     setTerror(0);
+    setDroneMood(0); // back to the menu's ambience
   }
 
   // ------------------------------------------------------------- visuals
@@ -919,7 +921,14 @@ export class MatchScene extends Scene {
         target = id;
       }
     }
-    this.broadcastFx({ type: 'fx', kind: 'attack', x: sp.x, y: sp.y });
+    // The swing FX auto-aims: it sweeps TOWARD the victim (tx/ty). With
+    // nobody in range it plays as an all-around whiff instead.
+    const tp0 = target ? this.hostPositions[target] : undefined;
+    this.broadcastFx(
+      tp0
+        ? { type: 'fx', kind: 'attack', x: sp.x, y: sp.y, tx: tp0.x, ty: tp0.y }
+        : { type: 'fx', kind: 'attack', x: sp.x, y: sp.y },
+    );
     if (target) {
       const p = this.hostPositions[target]!;
       // Caught hiding: the first strike smashes the hiding spot itself — the
@@ -2044,6 +2053,13 @@ export class MatchScene extends Scene {
       } else if (iAmHidden) {
         this.roleHud.text = '🫥 Hidden — stay still, the Seeker must search you out';
         this.roleHud.style.fill = NIGHT.gate;
+      } else if (
+        this.snapTpCd <= 0 &&
+        this.teleportPts.some((p) => Math.hypot(p.x - this.me.x, p.y - this.me.y) < 260)
+      ) {
+        // Teach the teleporter right where it matters.
+        this.roleHud.text = '🌀 Step on the rune ring to ride to its twin pad';
+        this.roleHud.style.fill = NIGHT.violet;
       } else {
         this.roleHud.text = this.roleHudBase;
         this.roleHud.style.fill = NIGHT.gate;
@@ -2187,8 +2203,16 @@ export class MatchScene extends Scene {
     let life = 0.5;
     switch (fx.kind) {
       case 'attack':
-        g.arc(0, 0, ATTACK_RANGE * 0.8, -0.9, 1.5).stroke({ color: NIGHT.blood, width: 14, alpha: 0.85 });
-        g.arc(0, 0, ATTACK_RANGE * 0.55, -0.7, 1.3).stroke({ color: 0xff8fa8, width: 8, alpha: 0.7 });
+        if (fx.tx !== undefined && fx.ty !== undefined) {
+          // A landed swing sweeps toward its victim.
+          g.arc(0, 0, ATTACK_RANGE * 0.8, -1.1, 1.1).stroke({ color: NIGHT.blood, width: 14, alpha: 0.85 });
+          g.arc(0, 0, ATTACK_RANGE * 0.55, -0.9, 0.9).stroke({ color: 0xff8fa8, width: 8, alpha: 0.7 });
+          e.rotation = Math.atan2(fx.ty - fx.y, fx.tx - fx.x);
+        } else {
+          // A whiff spins all the way around — swung at shadows.
+          g.circle(0, 0, ATTACK_RANGE * 0.7).stroke({ color: NIGHT.blood, width: 10, alpha: 0.5 });
+          g.circle(0, 0, ATTACK_RANGE * 0.45).stroke({ color: 0xff8fa8, width: 6, alpha: 0.4 });
+        }
         sting('blip');
         life = 0.24;
         break;
