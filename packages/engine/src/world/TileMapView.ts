@@ -51,9 +51,11 @@ function tileRng(tx: number, ty: number): () => number {
 }
 
 /**
- * Render a tilemap's ground layer into a single static Graphics, then cache
- * it as one texture — the whole floor becomes a single textured quad, which
- * keeps fill cost flat no matter how detailed the tile painters are.
+ * Render a tilemap's ground layer as cached-texture CHUNKS (≤2048px each) —
+ * fill cost stays flat no matter how detailed the tile painters are, and no
+ * chunk ever exceeds a GPU's max texture size. (Caching a huge map as ONE
+ * texture silently fails past ~4096px on many phones — the floor renders
+ * black. Chunking is what makes 80+ tile maps safe everywhere.)
  */
 export function buildTileMapView(
   map: TileMapData,
@@ -61,18 +63,31 @@ export function buildTileMapView(
   sameGroup?: (a: number, b: number) => boolean,
 ): Container {
   const view = new Container();
-  const g = new Graphics();
   const ts = map.tileSize;
-  for (let ty = 0; ty < map.height; ty++) {
-    for (let tx = 0; tx < map.width; tx++) {
-      const id = map.ground[ty]?.[tx] ?? 0;
-      if (id === 0) continue;
-      const paint = painters[id];
-      const mask = sameGroup ? neighborMask(map, tx, ty, sameGroup) : 15;
-      paint?.(g, tx * ts, ty * ts, ts, tileRng(tx, ty), mask);
+  const chunkTiles = Math.max(8, Math.floor(2048 / ts));
+  for (let cy = 0; cy < map.height; cy += chunkTiles) {
+    for (let cx = 0; cx < map.width; cx += chunkTiles) {
+      const g = new Graphics();
+      let any = false;
+      for (let ty = cy; ty < Math.min(map.height, cy + chunkTiles); ty++) {
+        for (let tx = cx; tx < Math.min(map.width, cx + chunkTiles); tx++) {
+          const id = map.ground[ty]?.[tx] ?? 0;
+          if (id === 0) continue;
+          const paint = painters[id];
+          const mask = sameGroup ? neighborMask(map, tx, ty, sameGroup) : 15;
+          paint?.(g, tx * ts, ty * ts, ts, tileRng(tx, ty), mask);
+          any = true;
+        }
+      }
+      if (!any) {
+        g.destroy();
+        continue;
+      }
+      const chunk = new Container();
+      chunk.addChild(g);
+      chunk.cacheAsTexture(true);
+      view.addChild(chunk);
     }
   }
-  view.addChild(g);
-  view.cacheAsTexture(true);
   return view;
 }

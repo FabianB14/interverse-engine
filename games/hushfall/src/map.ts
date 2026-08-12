@@ -52,14 +52,16 @@ export interface LevelDef {
   /** smallest room-region side (rooms vary from this up to very large). */
   min: number;
   lanterns: number;
+  /** linked teleporter pads (bigger manors carry more; still ONE shared CD). */
+  teleporters: number;
 }
 
 export const LEVELS: LevelDef[] = [
-  { name: 'Hollow Manor', blurb: 'A cramped, boarded-up house.', seed: 91027, w: 54, h: 46, min: 9, lanterns: 6 },
-  { name: 'Ashen Asylum', blurb: 'Long wards and cold cells.', seed: 40213, w: 64, h: 50, min: 8, lanterns: 7 },
-  { name: 'The Cellars', blurb: 'Twisting stone vaults below.', seed: 13001, w: 56, h: 60, min: 6, lanterns: 7 },
-  { name: 'Grand Estate', blurb: 'A sprawling manor of wings.', seed: 52020, w: 72, h: 56, min: 6, lanterns: 8 },
-  { name: 'Blackwood Keep', blurb: 'A fortress of endless halls.', seed: 77345, w: 84, h: 66, min: 7, lanterns: 10 },
+  { name: 'Hollow Manor', blurb: 'A cramped, boarded-up house.', seed: 91027, w: 54, h: 46, min: 9, lanterns: 6, teleporters: 2 },
+  { name: 'Ashen Asylum', blurb: 'Long wards and cold cells.', seed: 40213, w: 64, h: 50, min: 8, lanterns: 7, teleporters: 3 },
+  { name: 'The Cellars', blurb: 'Twisting stone vaults below.', seed: 13001, w: 56, h: 60, min: 6, lanterns: 7, teleporters: 3 },
+  { name: 'Grand Estate', blurb: 'A sprawling manor of wings.', seed: 52020, w: 72, h: 56, min: 6, lanterns: 8, teleporters: 3 },
+  { name: 'Blackwood Keep', blurb: 'A fortress of endless halls.', seed: 77345, w: 84, h: 66, min: 7, lanterns: 10, teleporters: 4 },
 ];
 
 export function levelRows(i: number): string[] {
@@ -242,14 +244,33 @@ export function generateBuilding(level: LevelDef = LEVELS[0]!): string[] {
     }
   }
 
-  // Two LINKED teleporter pads at opposite ends of the manor (westmost and
-  // eastmost rooms): a hider steps on one and rides it to the other. The
-  // pair then shares one cooldown for the whole match — see MatchScene.
-  // Never in the spawn/seeker/gate rooms: a pad under a spawn point would
-  // yank players the moment they appear.
-  const tpPool = rest.length >= 2 ? rest : sorted;
-  const byX = [...tpPool].sort((a, b) => center(a)[0] - center(b)[0]);
-  for (const room of [byX[0]!, byX[byX.length - 1]!]) {
+  // LINKED teleporter pads — bigger manors carry more (a hider rides pad i
+  // to pad i+1 in the ring; ONE cooldown shared by all of them, see
+  // MatchScene). Placed greedily so each new pad lands as far as possible
+  // from the ones already down. Never in the spawn/seeker/gate rooms: a pad
+  // under a spawn point would yank players the moment they appear.
+  const tpWant = Math.max(2, level.teleporters);
+  const tpPool = rest.length >= tpWant ? rest : sorted;
+  const chosen: Rect[] = [[...tpPool].sort((a, b) => center(a)[0] - center(b)[0])[0]!];
+  while (chosen.length < Math.min(tpWant, tpPool.length)) {
+    let bestRoom: Rect | null = null;
+    let bestScore = -1;
+    for (const room of tpPool) {
+      if (chosen.includes(room)) continue;
+      const [x, y] = center(room);
+      const score = Math.min(...chosen.map((c) => {
+        const [cx2, cy2] = center(c);
+        return Math.hypot(x - cx2, y - cy2);
+      }));
+      if (score > bestScore) {
+        bestScore = score;
+        bestRoom = room;
+      }
+    }
+    if (!bestRoom) break;
+    chosen.push(bestRoom);
+  }
+  for (const room of chosen) {
     const [tx, ty] = center(room);
     for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [2, 0], [0, 2]] as const) {
       const ch = rows[ty + dy]?.[tx + dx];
