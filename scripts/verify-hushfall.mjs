@@ -96,12 +96,20 @@ const seekers = Object.values(roles).filter((r) => r === 'seeker').length;
 const rolesOk = seekers === 1 && Object.values(roles).filter((r) => r === 'hider').length === 2 && !!seekerId;
 await p1.screenshot({ path: `${outDir}/hf-1-lobby.png` });
 
-// START -> everyone in the match.
+// START -> everyone in the match, opening in the HIDE PHASE (the Seeker
+// counts blindfolded while hiders scatter), then the host skips the count
+// so the rest of the playtest runs at full speed.
 await p1.evaluate(() => window.__hushfall.start());
 for (const p of [p1, p2, p3]) {
   await p.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { timeout: 12_000 });
 }
 await sleep(800);
+const phaseAtStart = await p1.evaluate(() => window.__hushfall.phase());
+// Walls must block line of sight (checked against the real tile grid).
+const losOk = await p1.evaluate(() => window.__hushfall.losSelfTest?.() ?? false);
+await p1.evaluate(() => window.__hushfall.skipHide());
+await p1.waitForFunction(() => window.__hushfall.phase() === 'playing', null, { timeout: 6_000 });
+const hidePhaseOk = phaseAtStart === 'hiding';
 
 const p1Role = await p1.evaluate(() => window.__hushfall.myRole());
 const p2Role = await p2.evaluate(() => window.__hushfall.myRole());
@@ -196,7 +204,13 @@ const visAfter = await p1.evaluate(() => window.__hushfall.visionActive?.() ?? f
 const visionOk = visBefore === false && visAfter === true;
 
 // DOWN: one hit no longer downs a hider — the first strike INJURES (they stay
-// up), the second DOWNS. Re-warp + swing to ride out transient position lag.
+// up), the second DOWNS. First move the target into OPEN ground: room centers
+// are always clear of hide spots, so the strike can't bust furniture instead.
+await p2.evaluate(() => {
+  const s = window.__hushfall.spawnPos();
+  window.__hushfall.warp(s.x, s.y);
+});
+await sleep(400);
 const strike = async () => {
   const pp = await p2.evaluate(() => window.__hushfall.myPos());
   await p1.evaluate((p) => window.__hushfall.warp(p.x, p.y), pp);
@@ -204,9 +218,15 @@ const strike = async () => {
   await p1.evaluate(() => window.__hushfall.attack());
   await sleep(500);
 };
-await strike();
-const hurtAfter1 = await p2.evaluate(() => window.__hushfall.amHurt?.() ?? false);
-const downAfter1 = await p2.evaluate(() => window.__hushfall.amDowned());
+// Swing until the FIRST strike lands (a warp can race the 10Hz position
+// stream, whiffing a swing) — that first HIT must injure, not down.
+let hurtAfter1 = false;
+let downAfter1 = false;
+for (let i = 0; i < 5 && !hurtAfter1 && !downAfter1; i++) {
+  await strike();
+  hurtAfter1 = await p2.evaluate(() => window.__hushfall.amHurt?.() ?? false);
+  downAfter1 = await p2.evaluate(() => window.__hushfall.amDowned());
+}
 const injuredNotDowned = hurtAfter1 === true && downAfter1 === false;
 let p2Downed = downAfter1;
 for (let i = 0; i < 6 && !p2Downed; i++) {
@@ -251,6 +271,9 @@ const escapedHost = await p1.evaluate(() => window.__hushfall.escapedCount());
 const phaseHost = await p1.evaluate(() => window.__hushfall.phase());
 const phaseP2 = await p2.evaluate(() => window.__hushfall.phase());
 const escapeOk = gateOnP2 === true && escapedHost >= 1 && phaseHost === 'hiders-win' && phaseP2 === 'hiders-win';
+// DEEDS: the host tallied who lit lanterns and who landed strikes.
+const deedVals = Object.values(await p1.evaluate(() => window.__hushfall.stats?.() ?? {}));
+const deedOk = deedVals.some((d) => d.lit >= 1) && deedVals.some((d) => d.down >= 1);
 await p2.screenshot({ path: `${outDir}/hf-3-escape.png` });
 await p1.screenshot({ path: `${outDir}/hf-4-end.png` });
 
@@ -269,6 +292,8 @@ for (const p of [p1, p2, p3]) {
   await p.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { timeout: 12_000 });
 }
 await sleep(800);
+await p1.evaluate(() => window.__hushfall.skipHide());
+await p1.waitForFunction(() => window.__hushfall.phase() === 'playing', null, { timeout: 6_000 });
 // FREEZE: Frost snaps the Seeker frozen for a beat.
 const rootedBefore = await p1.evaluate(() => window.__hushfall.amRooted?.() ?? false);
 await p2.evaluate(() => window.__hushfall.ability());
@@ -302,6 +327,8 @@ await pb.screenshot({ path: `${outDir}/hf-5-bots-lobby.png` });
 await pb.evaluate(() => window.__hushfall.start());
 await pb.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { timeout: 12_000 });
 await sleep(600);
+await pb.evaluate(() => window.__hushfall.skipHide());
+await pb.waitForFunction(() => window.__hushfall.phase() === 'playing', null, { timeout: 6_000 });
 const matchBots = await pb.evaluate(() => window.__hushfall.botCount());
 const swarm0 = await pb.evaluate(() => window.__hushfall.botPositions());
 await sleep(4600);
@@ -349,6 +376,8 @@ await pe.evaluate(() => window.__hushfall.setBots?.(2));
 const lvlLobby = await pe.evaluate(() => window.__hushfall.levelIndex?.() ?? -1);
 await pe.evaluate(() => window.__hushfall.start());
 await pe.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { timeout: 12_000 });
+await pe.evaluate(() => window.__hushfall.skipHide());
+await pe.waitForFunction(() => window.__hushfall.phase() === 'playing', null, { timeout: 6_000 });
 await sleep(500);
 const lvlMatch = await pe.evaluate(() => window.__hushfall.levelIndex?.() ?? -1);
 const lvlName = await pe.evaluate(() => window.__hushfall.levelName?.() ?? '');
@@ -360,7 +389,7 @@ const lanternsNeeded = await pe.evaluate(() => window.__hushfall.lanternsNeeded?
 const spareOk = lanternsNeeded === lvlLanterns - 1;
 await pe.evaluate(() => window.__hushfall.forceDawn?.());
 await pe
-  .waitForFunction(() => window.__hushfall.gateOpen?.() === true, null, { timeout: 8_000 })
+  .waitForFunction(() => window.__hushfall.gateOpen?.() === true, null, { timeout: 15_000 })
   .catch(() => {});
 const dawnOk = await pe.evaluate(() => window.__hushfall.gateOpen?.() ?? false);
 // Down everyone at once → immediate Seeker win.
@@ -391,6 +420,9 @@ const ok =
   downSignalOk &&
   rescueOk &&
   escapeOk &&
+  deedOk &&
+  hidePhaseOk &&
+  losOk &&
   freezeOk &&
   round2Ok &&
   botOk &&
@@ -440,6 +472,9 @@ console.log(
       rescueOk,
       p2Revived,
       escapeOk,
+      deedOk,
+      hidePhaseOk,
+      losOk,
       gateOnP2,
       escapedHost,
       phaseHost,

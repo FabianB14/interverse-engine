@@ -67,6 +67,13 @@ const FREEZE_SECONDS = 1.6;
 // past dawn, the gate creaks open on its own.
 const DAWN_BASE_SECONDS = 300; // 5 min on a 5-lantern map, +30s per extra
 const GATE_RADIUS = 90;
+// The hunt opens with a HIDE PHASE: the Seeker stands blindfolded and
+// counting while the hiders scatter into the manor.
+const HIDE_PHASE_SECONDS = 12;
+// Lit lanterns cast real light: anyone inside the pool is visible to
+// everyone (the reward has a risk), and the pools punch through the fog.
+const LIGHT_FULL = 150;
+const LIGHT_FADE = 260;
 const SNARE_RADIUS = 60;
 const SNARE_SECONDS = 2.6;
 const VANISH_SECONDS = 4.5;
@@ -111,7 +118,8 @@ interface Fx {
     | 'poof'
     | 'bust'
     | 'freeze'
-    | 'dead';
+    | 'dead'
+    | 'release';
   x: number;
   y: number;
   id?: string;
@@ -133,10 +141,18 @@ interface Snap {
   dawn: number;
   decoys: { x: number; y: number }[];
   phase: string;
+  hideL: number;
+}
+/** What each player DID this hunt — shown on the end screen and paid out. */
+interface Deeds {
+  lit: number;
+  res: number;
+  down: number;
 }
 interface EndMsg {
   type: 'end';
   result: string;
+  stats?: Record<string, Deeds>;
 }
 interface ToLobbyMsg {
   type: 'toLobby';
@@ -230,7 +246,9 @@ export class MatchScene extends Scene {
   private rootUntil: Record<string, number> = {};
   private traps: { x: number; y: number }[] = [];
   private decoys: { x: number; y: number; until: number }[] = [];
-  private phase = 'playing';
+  private phase = 'hiding';
+  private hideLeft = HIDE_PHASE_SECONDS;
+  private deeds: Record<string, Deeds> = {};
 
   // client mirror
   private snapLant: number[] = [];
@@ -243,10 +261,14 @@ export class MatchScene extends Scene {
   private snapDowns: Record<string, number> = {};
   private snapBusted = new Set<number>();
   private snapDawn = DAWN_BASE_SECONDS;
+  private snapHideLeft = HIDE_PHASE_SECONDS;
 
   // bots (host-simulated)
   private botAtkCd = 0;
   private botPaths = new Map<string, { goal: string; path: [number, number][]; idx: number }>();
+  private botSearch: Record<string, number> = {}; // next time a bot may search furniture
+  private botCd: Record<string, number> = {}; // per-bot ability cooldown
+  private botBoost: Record<string, number> = {}; // dash/lunge speed-up until t
 
   // hiding (client)
   private hideTarget: { x: number; y: number } | null = null;
@@ -297,6 +319,7 @@ export class MatchScene extends Scene {
     this.attackBtn?.position.set(W - 118, H - 300);
     this.homeBtn?.position.set(W - 46, 44);
     this.codeHud?.position.set(W / 2, 40);
+    this.blindfold?.position.set(W / 2, H / 2);
     this.hud?.position.set(16, 74);
     this.roleHud?.position.set(16, 110);
     this.partyPanel?.position.set(16, 150);
@@ -333,7 +356,7 @@ export class MatchScene extends Scene {
     this.snapLant = this.lanternPts.map(() => 0);
     this.bustedUntil = this.hidePts.map(() => 0);
     this.needed = Math.max(1, this.lanternPts.length - 1);
-    this.dawnAt = DAWN_BASE_SECONDS + Math.max(0, this.lanternPts.length - 5) * 30;
+    this.dawnAt = HIDE_PHASE_SECONDS + DAWN_BASE_SECONDS + Math.max(0, this.lanternPts.length - 5) * 30;
 
     this.drawObjectives();
 
@@ -571,8 +594,13 @@ export class MatchScene extends Scene {
       this.fog.scale.set(this.fogBaseScale);
       this.uiLayer.addChild(this.fog);
     }
+    // Light pools render ABOVE the fog so lit lanterns glow through it.
+    this.lightGlow = new Graphics();
+    this.uiLayer.addChild(this.lightGlow);
     this.terrorVignette = new Graphics();
     this.uiLayer.addChild(this.terrorVignette);
+    this.compass = new Graphics();
+    this.uiLayer.addChild(this.compass);
 
     this.joystick = new VirtualJoystick({ radius: 96 });
     this.add(this.joystick, this.uiLayer);
@@ -637,6 +665,24 @@ export class MatchScene extends Scene {
     // Directional signals pointing at downed teammates (hiders only).
     this.downSignals = new Container();
     this.uiLayer.addChild(this.downSignals);
+
+    // The Seeker's hide-phase blindfold.
+    if (this.amSeeker) {
+      this.blindfold = new Container();
+      const curtain = new Graphics();
+      curtain.rect(-4000, -4000, 8000, 8000).fill({ color: 0x05040a, alpha: 0.96 });
+      this.blindfold.addChild(curtain);
+      const line1 = makeText('🙈 Eyes shut — count with me', 34, { color: NIGHT.blood, weight: '800' });
+      line1.position.set(0, -90);
+      this.blindfold.addChild(line1);
+      this.blindfoldNum = makeText(`${HIDE_PHASE_SECONDS}`, 120, { color: NIGHT.ink });
+      this.blindfold.addChild(this.blindfoldNum);
+      const line2 = makeText('they are scattering into the dark…', 22, { color: NIGHT.inkSoft, weight: 'bold' });
+      line2.position.set(0, 96);
+      this.blindfold.addChild(line2);
+      this.blindfold.visible = false;
+      this.uiLayer.addChild(this.blindfold);
+    }
   }
 
   private partyRows = new Map<string, { dot: Graphics; label: Text }>();
@@ -692,7 +738,7 @@ export class MatchScene extends Scene {
       return;
     }
     if (msg.type === 'end') {
-      this.showEnd(msg.result);
+      this.showEnd(msg.result, msg.stats);
       return;
     }
     if (msg.type === 'toLobby' && !this.session.isHost) {
@@ -720,18 +766,19 @@ export class MatchScene extends Scene {
     this.snapDowns = s.downs ?? {};
     this.snapBusted = new Set(s.busted ?? []);
     this.snapDawn = s.dawn ?? this.snapDawn;
+    this.snapHideLeft = s.hideL ?? 0;
     this.escaped = new Set(s.esc);
     this.out = new Set(s.out);
     this.phase = s.phase;
     this.syncDecoys(s.decoys);
     this.redrawObjectives();
-    if (s.phase !== 'playing' && !this.endShown) this.showEnd(s.phase);
+    if (s.phase !== 'playing' && s.phase !== 'hiding' && !this.endShown) this.showEnd(s.phase);
   }
 
   // ---------------------------------------------------------- host sim
 
   private hostAttack(seekerId: string): void {
-    if (seekerId !== this.seekerId) return;
+    if (seekerId !== this.seekerId || this.phase !== 'playing') return;
     const sp = this.hostPositions[seekerId];
     if (!sp) return;
     let target: string | null = null;
@@ -761,6 +808,7 @@ export class MatchScene extends Scene {
         this.broadcastFx({ type: 'fx', kind: 'bust', x: b.x, y: b.y });
         return;
       }
+      this.deed(seekerId).down++;
       if (this.hurt.has(target)) {
         // Second strike — down. Each down spends a life; the last one is final.
         this.hurt.delete(target);
@@ -835,7 +883,9 @@ export class MatchScene extends Scene {
           }
         });
         if (li >= 0) {
-          this.lant[li] = Math.min(1, (this.lant[li] ?? 0) + 0.5);
+          const before = this.lant[li] ?? 0;
+          this.lant[li] = Math.min(1, before + 0.5);
+          if (before < 1 && this.lant[li]! >= 1) this.deed(from).lit++;
           const p = this.lanternPts[li]!;
           this.broadcastFx({ type: 'fx', kind: 'lantern', x: p.x, y: p.y });
         }
@@ -856,6 +906,7 @@ export class MatchScene extends Scene {
         if (tid) {
           delete this.down[tid];
           this.reviveProg[tid] = 0;
+          this.deed(from).res++;
           const p = this.hostPositions[tid]!;
           this.broadcastFx({ type: 'fx', kind: 'rescue', x: p.x, y: p.y, id: tid });
         }
@@ -905,7 +956,22 @@ export class MatchScene extends Scene {
     );
   }
 
+  private deed(id: string): Deeds {
+    return (this.deeds[id] ??= { lit: 0, res: 0, down: 0 });
+  }
+
   private hostSim(dt: number): void {
+    // Hide phase: the Seeker counts with eyes shut while everyone scatters.
+    // No lanterns, no attacks, no dawn — the hunt proper starts at zero.
+    if (this.phase === 'hiding') {
+      this.hideLeft = Math.max(0, this.hideLeft - dt);
+      if (this.hideLeft <= 0) {
+        this.phase = 'playing';
+        const sp = this.hostPositions[this.seekerId];
+        this.broadcastFx({ type: 'fx', kind: 'release', x: sp?.x ?? 0, y: sp?.y ?? 0 });
+      }
+      return;
+    }
     const active = this.activeHiders();
     // Lanterns.
     for (const id of active) {
@@ -922,6 +988,12 @@ export class MatchScene extends Scene {
           if (before < 1 && this.lant[i]! >= 1) {
             const q = this.lanternPts[i]!;
             this.broadcastFx({ type: 'fx', kind: 'lantern', x: q.x, y: q.y });
+            // Every hider at the lantern shares the credit.
+            for (const hid of active) {
+              if (this.down[hid] !== undefined) continue;
+              const hp = this.hostPositions[hid];
+              if (hp && Math.hypot(lp.x - hp.x, lp.y - hp.y) < LANTERN_RADIUS) this.deed(hid).lit++;
+            }
           }
         }
       });
@@ -966,6 +1038,11 @@ export class MatchScene extends Scene {
       if (helper && (this.reviveProg[did] ?? 0) >= 1) {
         delete this.down[did];
         this.reviveProg[did] = 0;
+        for (const hid of active) {
+          if (hid === did || this.down[hid] !== undefined) continue;
+          const hp = this.hostPositions[hid];
+          if (hp && Math.hypot(hp.x - dp.x, hp.y - dp.y) < REVIVE_RADIUS) this.deed(hid).res++;
+        }
         this.broadcastFx({ type: 'fx', kind: 'rescue', x: dp.x, y: dp.y, id: did });
       } else {
         this.down[did] = Math.max(0, (this.down[did] ?? 0) - dt);
@@ -1021,8 +1098,10 @@ export class MatchScene extends Scene {
 
   private endMatch(result: string): void {
     this.phase = result;
-    this.session.broadcast({ type: 'end', result });
-    this.showEnd(result);
+    const stats: Record<string, Deeds> = {};
+    for (const id of this.roster.order) stats[id] = this.deed(id);
+    this.session.broadcast({ type: 'end', result, stats });
+    this.showEnd(result, stats);
   }
 
   /** Host: drive the AI bots (fill-in players). Everything else — lantern
@@ -1039,14 +1118,20 @@ export class MatchScene extends Scene {
       if ((this.rootUntil[id] ?? 0) > this.t) continue; // snared
       const cls = classById(this.roster.classes[id]);
       const isSeeker = this.roster.roles[id] === 'seeker';
+      const bi0 = parseInt(id.slice(3), 10) || 0;
       let gx = p.x;
       let gy = p.y;
       let speed = cls.speed * 0.9;
       let stop = 40;
 
       if (isSeeker) {
+        if (this.phase === 'hiding') continue; // eyes shut, counting
         speed = cls.speed * 0.82; // a touch slower so humans can juke
+        if ((this.botBoost[id] ?? 0) > this.t) speed *= 1.5; // mid-lunge
         stop = ATTACK_RANGE * 0.55;
+        // Fair play: the bot sees what a human Seeker sees. Concealed hiders
+        // don't exist until searched, and a Trickster decoy looks exactly
+        // like prey — it chases those too.
         let tgt: { x: number; y: number } | null = null;
         let best = 1e9;
         for (const hid of this.activeHiders()) {
@@ -1054,32 +1139,92 @@ export class MatchScene extends Scene {
           const hp = this.hostPositions[hid];
           if (!hp) continue;
           const d = Math.hypot(hp.x - p.x, hp.y - p.y);
+          if (this.isConcealed(hid) && d > SEARCH_RADIUS) continue;
           if (d < best) {
             best = d;
             tgt = hp;
           }
         }
+        for (const dcy of this.decoys) {
+          const d = Math.hypot(dcy.x - p.x, dcy.y - p.y);
+          if (d < best) {
+            best = d;
+            tgt = dcy;
+          }
+        }
         if (tgt) {
           gx = tgt.x;
           gy = tgt.y;
+          // Lunge (Stalker): burst forward when prey is just out of reach.
+          if (cls.ability.id === 'lunge' && best > 200 && best < 450 && this.t >= (this.botCd[id] ?? 0)) {
+            this.botCd[id] = this.t + cls.ability.cooldown;
+            this.botBoost[id] = this.t + 0.5;
+          }
           if (best < ATTACK_RANGE * 0.9 && this.botAtkCd <= 0) {
             this.botAtkCd = BOT_ATTACK_EVERY;
             this.hostAttack(id);
           }
         } else {
-          const lp = this.lanternPts[0];
-          if (lp) {
-            gx = lp.x;
-            gy = lp.y;
+          // Nobody in sight: search the nearest furniture now and then, or
+          // patrol the unlit lanterns (rotating so it doesn't camp one).
+          let spot = -1;
+          let sd = 340;
+          this.hidePts.forEach((q, i) => {
+            if ((this.bustedUntil[i] ?? 0) > this.t) return;
+            const d0 = Math.hypot(q.x - p.x, q.y - p.y);
+            if (d0 < sd) {
+              sd = d0;
+              spot = i;
+            }
+          });
+          if (spot >= 0 && this.t >= (this.botSearch[id] ?? 0)) {
+            const q = this.hidePts[spot]!;
+            gx = q.x;
+            gy = q.y;
+            stop = SEARCH_RADIUS * 0.6;
+            if (sd < SEARCH_RADIUS * 0.7) this.botSearch[id] = this.t + 14;
+          } else {
+            const unlit: number[] = [];
+            this.lanternPts.forEach((_, i) => {
+              if ((this.lant[i] ?? 1) < 1) unlit.push(i);
+            });
+            const pool = unlit.length ? unlit : this.lanternPts.map((_, i) => i);
+            const li = pool[(Math.floor(this.t / 9) + bi0) % pool.length]!;
+            const lp2 = this.lanternPts[li] ?? this.gatePt;
+            gx = lp2.x;
+            gy = lp2.y;
+            // Howler: screech while prowling — flush anyone in the open.
+            if (cls.ability.id === 'screech' && this.t >= (this.botCd[id] ?? 0)) {
+              this.botCd[id] = this.t + cls.ability.cooldown + 4;
+              this.hostAbility(id, 'screech', p.x, p.y);
+            }
           }
         }
       } else {
         if (this.down[id] !== undefined) continue; // downed — wait for a rescue
         // A stable per-bot index so each bot prefers different spots and they
         // fan out instead of all chasing the single nearest objective.
-        const bi = parseInt(id.slice(3), 10) || 0;
-        const fleeing = !!seekerPos && Math.hypot(seekerPos.x - p.x, seekerPos.y - p.y) < BOT_FLEE_DIST;
-        if (fleeing && seekerPos) {
+        const bi = bi0;
+        if (this.phase === 'hiding') {
+          // The count is on — scurry to your own hiding spot.
+          const hs = this.hidePts[bi % Math.max(1, this.hidePts.length)];
+          if (hs) {
+            gx = hs.x;
+            gy = hs.y;
+            stop = 16;
+          }
+          speed = cls.speed;
+        } else {
+          this.botHiderAbility(id, cls.ability.id, cls.ability.cooldown, p, seekerPos);
+          if ((this.botBoost[id] ?? 0) > this.t) speed *= 1.7; // mid-dash
+        }
+        const fleeing =
+          this.phase !== 'hiding' &&
+          !!seekerPos &&
+          Math.hypot(seekerPos.x - p.x, seekerPos.y - p.y) < BOT_FLEE_DIST;
+        if (this.phase === 'hiding') {
+          /* goal already set above */
+        } else if (fleeing && seekerPos) {
           // Scatter: each bot bolts for a *different* nearby hiding spot rather
           // than every bot piling onto the single closest one.
           const cand = this.hidePts
@@ -1169,6 +1314,46 @@ export class MatchScene extends Scene {
     }
   }
 
+  /** Hider bots fight back with their class kit, on honest cooldowns:
+   *  Frost snaps the closing Seeker, Medic mends a nearby downed ally,
+   *  Ghost vanishes at the last moment, Trickster drops a decoy while
+   *  fleeing, Sprinter dashes. */
+  private botHiderAbility(
+    id: string,
+    ability: string,
+    cooldown: number,
+    p: { x: number; y: number },
+    seekerPos: { x: number; y: number } | undefined,
+  ): void {
+    if (this.t < (this.botCd[id] ?? 0)) return;
+    const seekerDist = seekerPos ? Math.hypot(seekerPos.x - p.x, seekerPos.y - p.y) : 1e9;
+    const fire = (): void => {
+      this.botCd[id] = this.t + cooldown;
+    };
+    if (ability === 'freeze' && seekerDist < 200) {
+      fire();
+      this.hostAbility(id, 'freeze', p.x, p.y);
+    } else if (ability === 'vanish' && seekerDist < 170) {
+      fire();
+      this.hostAbility(id, 'vanish', p.x, p.y);
+    } else if (ability === 'decoy' && seekerDist < BOT_FLEE_DIST) {
+      fire();
+      this.hostAbility(id, 'decoy', p.x, p.y);
+    } else if (ability === 'dash' && seekerDist < BOT_FLEE_DIST) {
+      fire();
+      this.botBoost[id] = this.t + 1.1;
+    } else if (ability === 'mend') {
+      for (const did of Object.keys(this.down)) {
+        const dp = this.hostPositions[did];
+        if (dp && Math.hypot(dp.x - p.x, dp.y - p.y) < 200) {
+          fire();
+          this.hostAbility(id, 'mend', p.x, p.y);
+          break;
+        }
+      }
+    }
+  }
+
   /** BFS over walkable tiles → a tile path from (fx,fy) to (tx,ty). Returns
    *  just the start tile if the target is unreachable/solid. */
   private bfsPath(fx: number, fy: number, tx: number, ty: number): [number, number][] {
@@ -1246,7 +1431,10 @@ export class MatchScene extends Scene {
     const iAmRooted = this.snapRooted.has(this.session.id) || (this.rootUntil[this.session.id] ?? 0) > this.t;
     const iAmOut = this.out.has(this.session.id);
     const iAmEscaped = this.escaped.has(this.session.id);
-    const frozen = iAmDown || iAmRooted || iAmOut || iAmEscaped || this.phase !== 'playing';
+    // During the hide phase the SEEKER stands counting (eyes shut) while the
+    // hiders are free to scatter; terminal phases freeze everyone.
+    const phaseFrozen = this.phase === 'hiding' ? this.amSeeker : this.phase !== 'playing';
+    const frozen = iAmDown || iAmRooted || iAmOut || iAmEscaped || phaseFrozen;
 
     // Movement.
     if (this.t < this.boostUntil) {
@@ -1334,39 +1522,176 @@ export class MatchScene extends Scene {
       const k = Math.min(1, dt * 12);
       r.entity.x += (r.targetX - r.entity.x) * k;
       r.entity.y += (r.targetY - r.entity.y) * k;
-      this.styleRemote(id, r);
+      this.styleRemote(id, r, dt);
     }
 
+    this.updateSpectate(iAmOut, iAmEscaped);
     this.updateHud();
     this.updateDownSignals();
+    this.updateCompass();
     this.updateTerror(dt);
     this.camera.update(dt);
-    // Keep the lit disc centred on me and grow it while a vision ability runs.
+    // Keep the lit disc centred on the camera's star (me, or whoever I'm
+    // spectating) and grow it while a vision ability runs.
+    const eye = this.spectating ?? this.me;
     if (this.fog) {
-      this.fog.position.set(this.me.x + this.mapLayer.x, this.me.y + this.mapLayer.y);
-      const target = this.t < this.visionBoostUntil ? VISION_BOOST : 1;
+      this.fog.position.set(eye.x + this.mapLayer.x, eye.y + this.mapLayer.y);
+      const target = this.t < this.visionBoostUntil || this.spectating ? VISION_BOOST : 1;
       const cur = this.fog.scale.x / this.fogBaseScale;
       const next = cur + (target - cur) * Math.min(1, dt * 6);
       this.fog.scale.set(this.fogBaseScale * next);
     }
+    this.drawLightPools();
+    this.updateBlindfold();
   }
 
-  private styleRemote(id: string, r: Remote): void {
+  /** Tile-grid line of sight: walls (and tall furniture) block your view of
+   *  other blobs — corners finally mean something. */
+  private losBlocked(x0: number, y0: number, x1: number, y1: number): boolean {
+    const dist = Math.hypot(x1 - x0, y1 - y0);
+    const steps = Math.ceil(dist / (TILE_SIZE * 0.45));
+    for (let i = 1; i < steps; i++) {
+      const x = x0 + ((x1 - x0) * i) / steps;
+      const y = y0 + ((y1 - y0) * i) / steps;
+      if (solidAt(this.map, Math.floor(x / TILE_SIZE), Math.floor(y / TILE_SIZE))) return true;
+    }
+    return false;
+  }
+
+  /** How strongly the lit lanterns illuminate a world position (0..1). */
+  private lanternLightAt(x: number, y: number): number {
+    let best = 0;
+    this.lanternPts.forEach((p, i) => {
+      if ((this.snapLant[i] ?? 0) < 1) return;
+      best = Math.max(best, sightAlpha(Math.hypot(p.x - x, p.y - y), LIGHT_FULL, LIGHT_FADE));
+    });
+    return best;
+  }
+
+  // Spectator cam: once you've escaped (or the dark claimed you), ride along
+  // with a teammate still in the hunt instead of staring at frozen fog.
+  private spectating: Entity | null = null;
+  private spectateName = '';
+  private updateSpectate(iAmOut: boolean, iAmEscaped: boolean): void {
+    const want = (iAmOut || iAmEscaped) && this.phase === 'playing';
+    if (!want) {
+      if (this.spectating) {
+        this.spectating = null;
+        this.spectateName = '';
+        this.camera.follow(this.me);
+      }
+      return;
+    }
+    // Follow the first teammate still standing (falling back to the Seeker).
+    const targetId =
+      this.activeHiders().find((id) => id !== this.session.id && this.remotes.has(id)) ??
+      (this.remotes.has(this.seekerId) ? this.seekerId : null);
+    const r = targetId ? this.remotes.get(targetId) : null;
+    if (r && this.spectating !== r.entity) {
+      this.spectating = r.entity;
+      this.spectateName = this.roster.names[targetId!] ?? '?';
+      this.camera.follow(r.entity);
+    }
+  }
+
+  // Lit lanterns (and the open gate) punch warm pools through the fog.
+  private lightGlow: Graphics | null = null;
+  private drawLightPools(): void {
+    if (!this.lightGlow) return;
+    const g = this.lightGlow;
+    g.clear();
+    const W = this.game.viewWidth;
+    const H = this.game.viewHeight;
+    const pool = (wx: number, wy: number, color: number, k: number): void => {
+      const sx = wx + this.mapLayer.x;
+      const sy = wy + this.mapLayer.y;
+      if (sx < -LIGHT_FADE || sy < -LIGHT_FADE || sx > W + LIGHT_FADE || sy > H + LIGHT_FADE) return;
+      g.circle(sx, sy, LIGHT_FADE * k).fill({ color, alpha: 0.09 });
+      g.circle(sx, sy, LIGHT_FULL * k).fill({ color, alpha: 0.11 });
+      g.circle(sx, sy, LIGHT_FULL * 0.55 * k).fill({ color, alpha: 0.13 });
+    };
+    this.lanternPts.forEach((p, i) => {
+      if ((this.snapLant[i] ?? 0) >= 1) pool(p.x, p.y - 26, NIGHT.lantern, 1);
+    });
+    if (this.snapGate) pool(this.gatePt.x, this.gatePt.y, NIGHT.gate, 0.8);
+  }
+
+  // The Seeker's blindfold: a near-black curtain with the countdown while
+  // the hiders scatter.
+  private blindfold: Container | null = null;
+  private blindfoldNum: Text | null = null;
+  private updateBlindfold(): void {
+    if (!this.blindfold) return;
+    const on = this.amSeeker && this.phase === 'hiding';
+    this.blindfold.visible = on;
+    if (on && this.blindfoldNum) {
+      const secs = `${Math.max(0, Math.ceil(this.snapHideLeft))}`;
+      if (this.blindfoldNum.text !== secs) this.blindfoldNum.text = secs;
+    }
+  }
+
+  // A soft edge-arrow nudging hiders toward the nearest unlit lantern (or
+  // the open gate) — the big manors need a sense of direction.
+  private compass: Graphics | null = null;
+  private updateCompass(): void {
+    if (!this.compass) return;
+    const g = this.compass;
+    g.clear();
+    if (this.amSeeker || this.phase !== 'playing' || this.spectating) return;
+    if (this.snapDown[this.session.id] !== undefined || this.out.has(this.session.id) || this.escaped.has(this.session.id))
+      return;
+    let target: { x: number; y: number } | null = null;
+    let color: number = NIGHT.lantern;
+    if (this.snapGate) {
+      target = this.gatePt;
+      color = NIGHT.gate;
+    } else {
+      let bd = 1e9;
+      this.lanternPts.forEach((p, i) => {
+        if ((this.snapLant[i] ?? 0) >= 1) return;
+        const d = Math.hypot(p.x - this.me.x, p.y - this.me.y);
+        if (d < bd) {
+          bd = d;
+          target = p;
+        }
+      });
+    }
+    if (!target) return;
+    const t2: { x: number; y: number } = target;
+    const d = Math.hypot(t2.x - this.me.x, t2.y - this.me.y);
+    if (d < 420) return; // close enough to spot it yourself
+    const ang = Math.atan2(t2.y - this.me.y, t2.x - this.me.x);
+    const px = this.me.x + this.mapLayer.x + Math.cos(ang) * 120;
+    const py = this.me.y + this.mapLayer.y + Math.sin(ang) * 120;
+    g.poly([14, 0, -9, -9, -9, 9])
+      .fill({ color, alpha: 0.55 });
+    g.position.set(px, py);
+    g.rotation = ang;
+  }
+
+  private styleRemote(id: string, r: Remote, dt: number): void {
     const isSeeker = this.roster.roles[id] === 'seeker';
     const downed = this.snapDown[id] !== undefined || this.down[id] !== undefined;
     const gone = this.escaped.has(id) || this.out.has(id);
     r.entity.visible = !gone;
     // Fog of war: anyone beyond your sight radius is hidden; they fade in as
     // they cross into view. Sight widens while your vision ability is active.
-    const boost = this.t < this.visionBoostUntil ? VISION_BOOST : 1;
+    const eye = this.spectating ?? this.me;
+    const boost = this.t < this.visionBoostUntil || this.spectating ? VISION_BOOST : 1;
     const full = (this.amSeeker ? SEEKER_SIGHT_FULL : HIDER_SIGHT_FULL) * boost;
     const fade = (this.amSeeker ? SEEKER_SIGHT_FADE : HIDER_SIGHT_FADE) * boost;
-    const dist = Math.hypot(r.entity.x - this.me.x, r.entity.y - this.me.y);
+    const dist = Math.hypot(r.entity.x - eye.x, r.entity.y - eye.y);
     let distAlpha = sightAlpha(dist, full, fade);
+    // Standing in a lit lantern's pool makes you visible from anywhere —
+    // the light you fought for cuts both ways.
+    distAlpha = Math.max(distAlpha, this.lanternLightAt(r.entity.x, r.entity.y));
+    // …but a wall between you blocks the view entirely. Corners matter.
+    if (distAlpha > 0 && this.losBlocked(eye.x, eye.y, r.entity.x, r.entity.y)) distAlpha = 0;
     // A hider in a hiding spot is invisible to the Seeker until searched — the
     // Seeker must step within SEARCH_RADIUS of them to reveal them.
     if (this.amSeeker && !isSeeker && this.snapHidden.has(id) && dist > SEARCH_RADIUS) distAlpha = 0;
-    r.entity.alpha = distAlpha;
+    // Ease toward the target so corner reveals don't strobe.
+    r.entity.alpha += (distAlpha - r.entity.alpha) * Math.min(1, dt * 10);
     // Vanish (Ghost) hides fully from the Seeker.
     let alpha = 1;
     if (this.amSeeker && !isSeeker && this.snapVanished.has(id)) alpha = 0;
@@ -1412,6 +1737,7 @@ export class MatchScene extends Scene {
       dawn: Math.max(0, this.dawnAt - this.t),
       decoys: this.decoys.map((d) => ({ x: d.x, y: d.y })),
       phase: this.phase,
+      hideL: this.hideLeft,
     };
     this.session.broadcast(snap);
     // Host mirrors its own snap-derived view.
@@ -1425,6 +1751,7 @@ export class MatchScene extends Scene {
     this.snapDowns = this.downsTaken;
     this.snapBusted = new Set(busted);
     this.snapDawn = Math.max(0, this.dawnAt - this.t);
+    this.snapHideLeft = this.hideLeft;
     this.syncDecoys(snap.decoys);
     this.redrawObjectives();
   }
@@ -1435,9 +1762,12 @@ export class MatchScene extends Scene {
     const dawnSecs = Math.max(0, Math.ceil(this.snapDawn));
     const mm = Math.floor(dawnSecs / 60);
     const ss = `${dawnSecs % 60}`.padStart(2, '0');
-    let hudLine = this.snapGate
-      ? '🚪 GATE OPEN — escape!'
-      : `🕯️ ${lit}/${needTo} · 🌅 ${mm}:${ss}`;
+    let hudLine =
+      this.phase === 'hiding'
+        ? `🙈 The Seeker counts… ${Math.max(0, Math.ceil(this.snapHideLeft))}`
+        : this.snapGate
+          ? '🚪 GATE OPEN — escape!'
+          : `🕯️ ${lit}/${needTo} · 🌅 ${mm}:${ss}`;
     if (!this.amSeeker && !this.escaped.has(this.session.id)) {
       const left = Math.max(0, LIVES - (this.snapDowns[this.session.id] ?? 0));
       hudLine += `  ${'❤️'.repeat(left)}${'🖤'.repeat(LIVES - left)}`;
@@ -1448,7 +1778,13 @@ export class MatchScene extends Scene {
     const iAmHidden = this.hiddenAmt > 0.5;
     const lastLife = (this.snapDowns[this.session.id] ?? 0) >= LIVES - 1;
     if (!this.amSeeker) {
-      if (this.out.has(this.session.id)) {
+      if (this.phase === 'hiding') {
+        this.roleHud.text = '🏃 Scatter — find a spot before the count ends!';
+        this.roleHud.style.fill = NIGHT.violet;
+      } else if (this.spectating) {
+        this.roleHud.text = `👻 Spectating ${this.spectateName}`;
+        this.roleHud.style.fill = NIGHT.inkSoft;
+      } else if (this.out.has(this.session.id)) {
         this.roleHud.text = '💀 The dark claimed you — watch the hunt play out';
         this.roleHud.style.fill = NIGHT.inkSoft;
       } else if (iAmDown) {
@@ -1707,6 +2043,14 @@ export class MatchScene extends Scene {
         sting('lantern');
         life = FREEZE_SECONDS;
         break;
+      case 'release':
+        // "…ready or not, HERE I COME." The hunt begins.
+        g.circle(0, 0, 90).stroke({ color: NIGHT.blood, width: 10, alpha: 0.9 });
+        g.circle(0, 0, 50).stroke({ color: NIGHT.blood, width: 6, alpha: 0.6 });
+        sting('screech');
+        this.camera?.shake(10, 0.4);
+        life = 0.8;
+        break;
       case 'dead':
         // Final down — a skull-dark burst; they're out of the hunt for good.
         g.circle(0, 0, 44).fill({ color: 0x000000, alpha: 0.6 });
@@ -1746,7 +2090,9 @@ export class MatchScene extends Scene {
   }
 
   private tryAbility(): void {
-    if (this.cooldownLeft > 0 || this.phase !== 'playing') return;
+    // Hiders may burn abilities while scattering; the counting Seeker may not.
+    const okPhase = this.phase === 'playing' || (this.phase === 'hiding' && !this.amSeeker);
+    if (this.cooldownLeft > 0 || !okPhase) return;
     const cls = classById(this.roster.classes[this.session.id]);
     const iAmDown = this.snapDown[this.session.id] !== undefined;
     if (iAmDown) return;
@@ -1772,7 +2118,7 @@ export class MatchScene extends Scene {
   // ---------------------------------------------------------------- end
 
   private endRoot: Container | null = null;
-  private showEnd(result: string): void {
+  private showEnd(result: string, stats?: Record<string, Deeds>): void {
     if (this.endShown) return;
     this.endShown = true;
     this.phase = result;
@@ -1781,23 +2127,30 @@ export class MatchScene extends Scene {
     const H = this.game.viewHeight;
     const hidersWin = result === 'hiders-win';
     const iWon = this.amSeeker ? !hidersWin : hidersWin && this.escaped.has(this.session.id);
-    // Verium payout.
-    let reward = 0;
-    if (this.amSeeker) reward = hidersWin ? 30 : 80;
-    else reward = this.escaped.has(this.session.id) ? 60 : 12;
+    // Verium payout: a base for the result plus a cut for every DEED —
+    // lanterns lit, rescues made, strikes landed. Doing things pays.
+    const my = stats?.[this.session.id];
+    let reward: number;
+    if (this.amSeeker) {
+      reward = (hidersWin ? 25 : 70) + (my ? Math.min(60, my.down * 12) : hidersWin ? 5 : 10);
+    } else if (this.escaped.has(this.session.id)) {
+      reward = 40 + (my ? my.lit * 8 + my.res * 10 : 20);
+    } else {
+      reward = (this.out.has(this.session.id) ? 8 : 15) + (my ? my.lit * 8 + my.res * 10 : 0);
+    }
     verium.add(reward);
     sting(iWon ? 'escape' : 'lose');
 
     this.endRoot = new Container();
-    const bg = new Graphics().rect(0, 0, W, H).fill({ color: 0x0a0812, alpha: 0.9 });
+    const bg = new Graphics().rect(0, 0, W, H).fill({ color: 0x0a0812, alpha: 0.92 });
     bg.eventMode = 'static';
     this.endRoot.addChild(bg);
     const title = makeText(
       this.amSeeker ? (hidersWin ? 'THEY ESCAPED' : 'HUNT SUCCESSFUL') : hidersWin ? 'YOU SURVIVED' : 'THE DARK WINS',
-      64,
+      56,
       { color: iWon ? NIGHT.gate : NIGHT.blood },
     );
-    title.position.set(W / 2, H * 0.3);
+    title.position.set(W / 2, H * 0.16);
     this.endRoot.addChild(title);
 
     // Announce the winners by name.
@@ -1810,28 +2163,48 @@ export class MatchScene extends Scene {
         ? `🏆 Escaped: ${escNames.join(', ')}`
         : '🏆 The hiders got away'
       : `🏆 ${seekerName} wins — nobody escaped`;
-    const winners = makeText(winnersLine, 34, {
+    const winners = makeText(winnersLine, 28, {
       color: hidersWin ? NIGHT.gate : NIGHT.blood,
       weight: '800',
       wrapWidth: 680,
     });
-    winners.position.set(W / 2, H * 0.43);
+    winners.position.set(W / 2, H * 0.26);
     this.endRoot.addChild(winners);
+
+    // Deed scoreboard: what everyone actually DID this hunt.
+    let rowY = H * 0.34;
+    if (stats) {
+      for (const id of this.roster.order.slice(0, 8)) {
+        const d = stats[id] ?? { lit: 0, res: 0, down: 0 };
+        const isSeeker = this.roster.roles[id] === 'seeker';
+        const fate = isSeeker ? '' : this.escaped.has(id) ? ' · ✓ escaped' : this.out.has(id) ? ' · ✗ lost' : '';
+        const line = isSeeker
+          ? `🩸 ${this.roster.names[id] ?? '?'} — ${d.down} strikes`
+          : `${this.roster.names[id] ?? '?'} — 🕯️${d.lit} 💚${d.res}${fate}`;
+        const row = makeText(line, 21, {
+          color: id === this.session.id ? NIGHT.lantern : NIGHT.ink,
+          weight: 'bold',
+        });
+        row.position.set(W / 2, rowY);
+        this.endRoot.addChild(row);
+        rowY += 30;
+      }
+    }
 
     const lv = LEVELS[this.level] ?? LEVELS[0]!;
     const sub = makeText(
-      `${lv.name} — ${this.escaped.size} escaped · ${this.out.size} lost\n+${reward} ⬡ Verium`,
-      28,
-      { color: NIGHT.ink, weight: 'bold', wrapWidth: 640 },
+      `${lv.name} — ${this.escaped.size} escaped · ${this.out.size} lost   +${reward} ⬡`,
+      24,
+      { color: NIGHT.ink, weight: 'bold', wrapWidth: 660 },
     );
-    sub.position.set(W / 2, H * 0.54);
+    sub.position.set(W / 2, rowY + 26);
     this.endRoot.addChild(sub);
 
     if (this.session.isHost) {
       const btn = new UIButton('BACK TO LOBBY', {
-        width: 460,
-        height: 96,
-        fontSize: 34,
+        width: 380,
+        height: 76,
+        fontSize: 28,
         fill: NIGHT.gate,
         textColor: 0x0c1a12,
         onTap: () => {
@@ -1839,12 +2212,12 @@ export class MatchScene extends Scene {
           this.returnToLobby();
         },
       });
-      btn.position.set(W / 2, H * 0.66);
+      btn.position.set(W / 2, Math.min(H - 60, rowY + 96));
       this.add(btn, this.uiLayer);
       this.endRoot.addChild(btn);
     } else {
-      const wait = makeText('waiting for the host…', 26, { color: NIGHT.inkSoft, weight: 'bold' });
-      wait.position.set(W / 2, H * 0.66);
+      const wait = makeText('waiting for the host…', 24, { color: NIGHT.inkSoft, weight: 'bold' });
+      wait.position.set(W / 2, Math.min(H - 60, rowY + 96));
       this.endRoot.addChild(wait);
     }
     this.uiLayer.addChild(this.endRoot);
@@ -1984,6 +2357,25 @@ export class MatchScene extends Scene {
       },
       revealSeen: () => this.revealSeen,
       abilityUses: () => this.abilityUses,
+      hideLeft: () => this.snapHideLeft,
+      skipHide: () => {
+        if (this.session.isHost) this.hideLeft = 0.01;
+      },
+      stats: () => ({ ...this.deeds }),
+      losSelfTest: () => {
+        // Find a solid tile flanked by open tiles: sight across it must be
+        // blocked, sight between two open neighbours must be clear.
+        for (let r = 1; r < this.map.height - 1; r++) {
+          for (let c = 2; c < this.map.width - 2; c++) {
+            if (!solidAt(this.map, c, r) || solidAt(this.map, c - 1, r) || solidAt(this.map, c + 1, r)) continue;
+            const y = r * TILE_SIZE + TILE_SIZE / 2;
+            const ax = (c - 1) * TILE_SIZE + TILE_SIZE / 2;
+            const bx = (c + 1) * TILE_SIZE + TILE_SIZE / 2;
+            return this.losBlocked(ax, y, bx, y) && !this.losBlocked(ax, y, ax + 4, y);
+          }
+        }
+        return false;
+      },
       botCount: () => this.roster.order.filter((id) => id.startsWith('bot')).length,
       botPos: () => {
         const id = this.roster.order.find((x) => x.startsWith('bot'));

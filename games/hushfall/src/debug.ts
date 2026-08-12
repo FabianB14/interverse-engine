@@ -78,6 +78,11 @@ export interface HushfallDebug {
   backToLobby?: () => void;
   revealSeen?: () => number;
   abilityUses?: () => number;
+  hideLeft?: () => number;
+  skipHide?: () => void;
+  stats?: () => Record<string, { lit: number; res: number; down: number }>;
+  losSelfTest?: () => boolean;
+  setName?: (name: string) => void;
 }
 
 declare global {

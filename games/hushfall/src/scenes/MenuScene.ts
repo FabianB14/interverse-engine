@@ -5,9 +5,9 @@ import { host, join } from '@interverse/net';
 import { UIButton } from '@interverse/ui';
 import { GAME_TAG, resolveRelayUrl } from '../config.js';
 import { GAME_TITLE } from '../game.js';
-import { NIGHT, sting } from '../theme.js';
+import { NIGHT, setMusic, sting } from '../theme.js';
 import { makeText, playerName } from '../text.js';
-import { clearLastRoom, lastRoom, savedName } from '../store.js';
+import { clearLastRoom, lastRoom, musicPref, savedName, setMusicPref } from '../store.js';
 import { JoinScene } from './JoinScene.js';
 import { LobbyScene } from './LobbyScene.js';
 import '../debug.js';
@@ -21,6 +21,7 @@ export class MenuScene extends Scene {
   private hostBtn!: UIButton;
   private joinBtn!: UIButton;
   private rejoinBtn: UIButton | null = null;
+  private soundBtn: UIButton | null = null;
   private moon!: Graphics;
   private eyes!: Graphics;
   private t = 0;
@@ -40,6 +41,7 @@ export class MenuScene extends Scene {
       this.joinBtn.position.set(W * 0.72, H * 0.3 + 130);
       this.rejoinBtn?.position.set(W * 0.72, H * 0.3 + 252);
       this.status?.position.set(W * 0.72, H * 0.88);
+      this.soundBtn?.position.set(52, H - 52);
       return;
     }
     this.moon.position.set(W * 0.78, H * 0.14);
@@ -50,6 +52,7 @@ export class MenuScene extends Scene {
     this.joinBtn.position.set(W / 2, H * 0.64 + 130);
     this.rejoinBtn?.position.set(W / 2, H * 0.64 + 252);
     this.status?.position.set(W / 2, H * 0.92);
+    this.soundBtn?.position.set(52, H - 52);
   }
 
   protected override onEnter(): void {
@@ -135,6 +138,24 @@ export class MenuScene extends Scene {
 
     this.status = makeText('', 28, { color: NIGHT.blood, weight: 'bold', wrapWidth: 620 });
     this.stage.addChild(this.status);
+
+    // The atmosphere toggle the save always had a slot for.
+    setMusic(musicPref());
+    this.soundBtn = new UIButton(musicPref() ? '🔊' : '🔇', {
+      width: 64,
+      height: 64,
+      fontSize: 28,
+      fill: 0x1a1826,
+      textColor: NIGHT.ink,
+      onTap: () => {
+        const on = !musicPref();
+        setMusicPref(on);
+        setMusic(on);
+        this.soundBtn?.setLabel(on ? '🔊' : '🔇');
+        sting('blip');
+      },
+    });
+    this.add(this.soundBtn);
 
     this.layout(W, H);
 

@@ -8,7 +8,7 @@ import type { ClassDef, Role } from '../classes.js';
 import { ACCESSORIES, FREE_ACCESSORIES, accessoryView } from '../accessories.js';
 import { NIGHT, sting } from '../theme.js';
 import { makeText } from '../text.js';
-import { savedClass, store } from '../store.js';
+import { cleanName, savedClass, store } from '../store.js';
 import { LEVELS } from '../map.js';
 import { MatchScene } from './MatchScene.js';
 import { MenuScene } from './MenuScene.js';
@@ -29,6 +29,7 @@ type LobbyMsg =
   | ({ type: 'roster' } & RosterState)
   | { type: 'class'; cls: string; acc?: number }
   | { type: 'acc'; acc: number }
+  | { type: 'name'; name: string }
   | { type: 'volunteer' }
   | { type: 'ready'; ready: boolean }
   | { type: 'start'; roster: RosterState }
@@ -64,6 +65,7 @@ export class LobbyScene extends Scene {
   private levelLabel: Text | null = null;
   private waitText: Text | null = null;
   private statusText!: Text;
+  private nameBtn!: UIButton;
 
   private wardRoot!: Container;
   private wardBg!: Graphics;
@@ -110,6 +112,7 @@ export class LobbyScene extends Scene {
       const lx = W * 0.24; // left column centre
       const rx = W * 0.72; // right column centre
       this.veriumChip.position.set(80, 34);
+      this.nameBtn?.position.set(96, 82);
       this.codeLabel.position.set(lx, 40);
       this.codeText.position.set(lx, 86);
       this.countText.position.set(lx, 130);
@@ -153,6 +156,7 @@ export class LobbyScene extends Scene {
     const rowH = 84;
     const top = 508;
     this.veriumChip.position.set(96, 44);
+    this.nameBtn?.position.set(112, 92);
     this.codeLabel.position.set(W / 2, 52);
     this.codeText.position.set(W / 2, 112);
     this.countText.position.set(W / 2, 170);
@@ -221,6 +225,12 @@ export class LobbyScene extends Scene {
     this.roster.classes[session.id] = savedClass('hider');
     (this.roster.accs ??= {})[session.id] = store.get<number>('acc', 0);
     this.classRole = 'hider';
+    if (session.isHost) {
+      // Hosts keep their setup between rounds: bot count and level stick.
+      this.botCount = Math.max(0, Math.min(7, store.get<number>('bots', 0)));
+      this.roster.level = Math.max(0, Math.min(LEVELS.length - 1, store.get<number>('level', 0)));
+      this.rebuildBots();
+    }
 
     this.codeLabel = makeText('ROOM CODE', 26, { color: NIGHT.inkSoft, weight: 'bold' });
     this.codeText = makeText(session.code, 84, { color: NIGHT.blood, letterSpacing: 14 });
@@ -247,6 +257,17 @@ export class LobbyScene extends Scene {
 
     this.veriumChip = makeText('⬡ 0', 24, { color: NIGHT.ghost, weight: '800' });
     this.stage.addChild(this.veriumChip);
+
+    // Your name, remembered forever — no more being Blob47.
+    this.nameBtn = new UIButton('✏️ NAME', {
+      width: 140,
+      height: 46,
+      fontSize: 17,
+      fill: 0x1a1826,
+      textColor: NIGHT.ink,
+      onTap: () => this.editName(),
+    });
+    this.add(this.nameBtn);
 
     this.wardrobeBtn = new UIButton('🎭 WARDROBE', {
       width: 270,
@@ -366,6 +387,7 @@ export class LobbyScene extends Scene {
       },
       inProgress: () => this.inProgress,
       joinNow: () => this.joinInProgress(),
+      setName: (name: string) => this.applyName(cleanName(name)),
       botCount: () => this.botCount,
       levelIndex: () => this.roster.level ?? 0,
       levelCount: () => LEVELS.length,
@@ -433,6 +455,9 @@ export class LobbyScene extends Scene {
           if (msg.acc !== undefined) (this.roster.accs ??= {})[from] = msg.acc;
         } else if (msg?.type === 'acc') {
           (this.roster.accs ??= {})[from] = msg.acc;
+        } else if (msg?.type === 'name') {
+          const v = cleanName(String(msg.name ?? ''));
+          if (v) this.roster.names[from] = this.uniqueName(v);
         } else if (msg?.type === 'volunteer') {
           this.setSeeker(from);
         } else if (msg?.type === 'ready') {
@@ -507,6 +532,27 @@ export class LobbyScene extends Scene {
     /* reserved: mid-match join */
   }
 
+  /** Rename yourself: saved on this device, applied to the roster live. */
+  private editName(): void {
+    const cur = this.roster.names[this.session.id] ?? '';
+    const raw = window.prompt('Your blob name (letters & numbers)', cur);
+    if (raw === null) return;
+    this.applyName(cleanName(raw));
+  }
+
+  private applyName(v: string): void {
+    if (!v) return;
+    store.set('name', v);
+    sting('blip');
+    if (this.session.isHost) {
+      this.roster.names[this.session.id] = this.uniqueName(v);
+      this.shareRoster();
+      this.refreshRoster();
+    } else {
+      this.session.send({ type: 'name', name: v });
+    }
+  }
+
   private shareRoster(): void {
     this.session.broadcast({ type: 'roster', ...this.roster });
   }
@@ -570,6 +616,7 @@ export class LobbyScene extends Scene {
     if (!this.session.isHost) return;
     const humans = this.roster.order.filter((id) => !this.isBot(id)).length;
     this.botCount = Math.max(0, Math.min(n, 8 - humans));
+    store.set('bots', this.botCount);
     sting('blip');
     this.rebuildBots();
     this.updateBotLabel();
@@ -589,6 +636,7 @@ export class LobbyScene extends Scene {
     if (!this.session.isHost) return;
     const n = LEVELS.length;
     this.roster.level = ((i % n) + n) % n; // wrap both ways
+    store.set('level', this.roster.level);
     sting('blip');
     this.updateLevelLabel();
     this.shareRoster();
