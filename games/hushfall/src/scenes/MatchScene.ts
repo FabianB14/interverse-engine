@@ -77,9 +77,10 @@ const LIGHT_FADE = 260;
 const SNARE_RADIUS = 60;
 const SNARE_SECONDS = 2.6;
 // Weaver's Web Bolt: a ranged shot that SLOWS the nearest visible hider.
+// The webbing is THICK — webbed prey moves at about a third of its speed.
 const WEB_RANGE = 460;
-const WEB_SECONDS = 2.8;
-const WEB_SLOW = 0.55;
+const WEB_SECONDS = 3.2;
+const WEB_SLOW = 0.35;
 // A hider downed on their LAST life isn't a camp-able corpse: the dark
 // drags their body to a random far corner, where allies can still save
 // them before they bleed out.
@@ -2704,7 +2705,8 @@ export class MatchScene extends Scene {
       hiddenIds: () => this.activeHiders().filter((id) => this.isConcealed(id)),
       tpCount: () => this.teleportPts.length,
       tpPos: (i: number) => this.teleportPts[i] ?? null,
-      tpCd: () => this.snapTpCd,
+      tpCd: () =>
+        this.session.isHost ? Math.max(0, this.tpReadyAt - this.t) : this.snapTpCd,
       hatchOpen: () => this.snapHatch,
       hatchPos: () => ({ ...this.hatchPt }),
       slowedCount: () => this.snapSlowed.size,

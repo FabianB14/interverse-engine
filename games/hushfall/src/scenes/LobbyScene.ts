@@ -204,12 +204,14 @@ export class LobbyScene extends Scene {
       this.wardDone.position.set(W * 0.22, H - 60);
       return;
     }
-    this.wardTitle.position.set(W / 2, 60);
-    this.preview.position.set(W / 2, 210);
-    this.wardVerium.position.set(W / 2, 320);
-    this.wardNote.position.set(W / 2, 358);
-    this.wardGrid.position.set(W / 2, 430);
-    this.wardDone.position.set(W / 2, H - 90);
+    this.wardTitle.position.set(W / 2, 56);
+    this.preview.position.set(W / 2, 196);
+    this.wardVerium.position.set(W / 2, 300);
+    this.wardNote.position.set(W / 2, 336);
+    this.wardGrid.position.set(W / 2, 408);
+    this.wardDone.position.set(W / 2, H - 76);
+    // Re-grid on orientation change (column count differs by orientation).
+    if (this.wardRoot.visible) this.redrawWardGrid();
   }
 
   protected override onEnter(): void {
@@ -820,9 +822,12 @@ export class LobbyScene extends Scene {
     for (const old of this.wardGrid.removeChildren()) old.destroy({ children: true });
     const owned = this.ownedAccessories();
     const cur = this.myAcc();
-    const cols = 5;
-    const dx = 128;
-    const dy = 128;
+    // Landscape spreads the (now 20+) chips over more columns so the grid
+    // stays inside the 720-tall design space.
+    const landscape = this.game.viewWidth > this.game.viewHeight;
+    const cols = landscape ? 7 : 5;
+    const dx = landscape ? 114 : 128;
+    const dy = landscape ? 118 : 128;
     ACCESSORIES.forEach((a, i) => {
       const col = i % cols;
       const row = Math.floor(i / cols);
