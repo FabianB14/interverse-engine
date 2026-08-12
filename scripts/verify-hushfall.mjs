@@ -353,7 +353,7 @@ await sleep(500);
 const lvlMatch = await pe.evaluate(() => window.__hushfall.levelIndex?.() ?? -1);
 const lvlName = await pe.evaluate(() => window.__hushfall.levelName?.() ?? '');
 const lvlLanterns = await pe.evaluate(() => window.__hushfall.lanternCount?.() ?? 0);
-const levelOk = levelCount >= 3 && lvlLobby === 1 && lvlMatch === 1 && lvlLanterns === 6;
+const levelOk = levelCount >= 3 && lvlLobby === 1 && lvlMatch === 1 && lvlLanterns === 7;
 // ANTI-CAMP: the gate needs one lantern FEWER than the map holds, and if the
 // hunt drags past dawn it opens on its own.
 const lanternsNeeded = await pe.evaluate(() => window.__hushfall.lanternsNeeded?.() ?? -1);

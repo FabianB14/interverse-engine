@@ -54,10 +54,11 @@ export interface LevelDef {
 }
 
 export const LEVELS: LevelDef[] = [
-  { name: 'Hollow Manor', blurb: 'A cramped, boarded-up house.', seed: 91027, w: 44, h: 38, min: 9, lanterns: 5 },
-  { name: 'Ashen Asylum', blurb: 'Long wards and cold cells.', seed: 40213, w: 52, h: 40, min: 8, lanterns: 6 },
-  { name: 'The Cellars', blurb: 'Twisting stone vaults below.', seed: 13001, w: 44, h: 48, min: 6, lanterns: 5 },
-  { name: 'Grand Estate', blurb: 'A sprawling manor of wings.', seed: 52020, w: 58, h: 46, min: 6, lanterns: 7 },
+  { name: 'Hollow Manor', blurb: 'A cramped, boarded-up house.', seed: 91027, w: 54, h: 46, min: 9, lanterns: 6 },
+  { name: 'Ashen Asylum', blurb: 'Long wards and cold cells.', seed: 40213, w: 64, h: 50, min: 8, lanterns: 7 },
+  { name: 'The Cellars', blurb: 'Twisting stone vaults below.', seed: 13001, w: 56, h: 60, min: 6, lanterns: 7 },
+  { name: 'Grand Estate', blurb: 'A sprawling manor of wings.', seed: 52020, w: 72, h: 56, min: 6, lanterns: 8 },
+  { name: 'Blackwood Keep', blurb: 'A fortress of endless halls.', seed: 77345, w: 84, h: 66, min: 7, lanterns: 10 },
 ];
 
 export function levelRows(i: number): string[] {
@@ -183,9 +184,10 @@ export function generateBuilding(level: LevelDef = LEVELS[0]!): string[] {
   const farFromHides = (x: number, y: number): boolean =>
     hidesPlaced.every(([hx, hy]) => Math.max(Math.abs(hx - x), Math.abs(hy - y)) >= 3);
   for (const room of rooms) {
-    const want = room.w * room.h > 120 ? 2 : 1;
+    const area = room.w * room.h;
+    const want = area > 300 ? 3 : area > 120 ? 2 : 1;
     let placed = 0;
-    for (let tries = 0; tries < 24 && placed < want; tries++) {
+    for (let tries = 0; tries < 40 && placed < want; tries++) {
       const edge = Math.floor(rng() * 4);
       const x =
         edge === 0 ? room.x + 1 : edge === 1 ? room.x + room.w - 2 : room.x + 1 + Math.floor(rng() * (room.w - 2));
@@ -222,11 +224,21 @@ export function generateBuilding(level: LevelDef = LEVELS[0]!): string[] {
   // Spread the lanterns across the widest-apart rooms available.
   const lanternRooms = rest.slice().sort((a, b) => b.w * b.h - a.w * a.h);
   for (let i = 0; i < Math.min(want, lanternRooms.length); i++) stampCenter(lanternRooms[i]!, 'L');
-  // If there were too few rooms, drop extra lanterns into big rooms' corners.
+  // If there were too few rooms, drop extra lanterns into big rooms'
+  // corners — try every corner, so a huge hall can hold two lamps.
   let lanterns = Math.min(want, lanternRooms.length);
   for (const room of lanternRooms) {
     if (lanterns >= want) break;
-    if (stampFree(room.x + 2, room.y + 2, 'L')) lanterns++;
+    const corners: [number, number][] = [
+      [room.x + 2, room.y + 2],
+      [room.x + room.w - 3, room.y + 2],
+      [room.x + 2, room.y + room.h - 3],
+      [room.x + room.w - 3, room.y + room.h - 3],
+    ];
+    for (const [cx2, cy2] of corners) {
+      if (lanterns >= want) break;
+      if (stampFree(cx2, cy2, 'L')) lanterns++;
+    }
   }
 
   return rows;

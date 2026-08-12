@@ -104,30 +104,32 @@ export class LobbyScene extends Scene {
 
     if (landscape) {
       // Two columns: room info + steppers on the LEFT, the class picker on
-      // the RIGHT, actions along the bottom. Nothing shares a Y band.
+      // the RIGHT, actions along the bottom. Nothing shares a Y band — the
+      // roster chips (name + class tag hang to +94) end well above the
+      // seeker button.
       const lx = W * 0.24; // left column centre
       const rx = W * 0.72; // right column centre
       this.veriumChip.position.set(80, 34);
-      this.codeLabel.position.set(lx, 44);
-      this.codeText.position.set(lx, 92);
-      this.countText.position.set(lx, 138);
-      this.rosterRow.position.set(lx, 208);
-      this.roleBtn.position.set(lx, 300);
-      this.statusText.position.set(lx, 386);
+      this.codeLabel.position.set(lx, 40);
+      this.codeText.position.set(lx, 86);
+      this.countText.position.set(lx, 130);
+      this.rosterRow.position.set(lx, 196);
+      this.roleBtn.position.set(lx, 336);
+      this.statusText.position.set(lx, 392);
       // Steppers: arrows well clear of the label text.
-      this.levelLabel?.position.set(lx, 470);
-      this.levelMinus?.position.set(lx - 240, 470);
-      this.levelPlus?.position.set(lx + 240, 470);
-      this.botLabel?.position.set(lx, 560);
-      this.botMinus?.position.set(lx - 240, 560);
-      this.botPlus?.position.set(lx + 240, 560);
+      this.levelLabel?.position.set(lx, 452);
+      this.levelMinus?.position.set(lx - 200, 452);
+      this.levelPlus?.position.set(lx + 200, 452);
+      this.botLabel?.position.set(lx, 528);
+      this.botMinus?.position.set(lx - 200, 528);
+      this.botPlus?.position.set(lx + 200, 528);
       // Right column: class grid.
       this.pickLabel.position.set(rx, 56);
       const cols = this.classRole === 'seeker' ? 3 : 4;
-      const colW = Math.min(236, (W * 0.52 - 30) / cols);
-      const scale = Math.max(0.5, Math.min(1, (colW - 10) / 220));
-      const top = 130;
-      const rowH = 96;
+      const colW = Math.min(206, (W * 0.52 - 30) / cols);
+      const scale = Math.max(0.5, Math.min(1, (colW - 10) / 200));
+      const top = 120;
+      const rowH = 80;
       this.classBtns.forEach((btn, i) => {
         const row = Math.floor(i / cols);
         const idx = i - row * cols;
@@ -136,10 +138,10 @@ export class LobbyScene extends Scene {
         btn.position.set(rx + (idx - (inRow - 1) / 2) * colW, top + row * rowH);
       });
       const rows = Math.max(1, Math.ceil(n / cols));
-      this.abilityInfo.position.set(rx, top + rows * rowH + 40);
-      this.wardrobeBtn.position.set(rx, top + rows * rowH + 116);
+      this.abilityInfo.position.set(rx, top + rows * rowH + 36);
+      this.wardrobeBtn.position.set(rx, top + rows * rowH + 100);
       // Bottom band.
-      const ay = H - 56;
+      const ay = H - 52;
       this.startBtn?.position.set(lx, ay);
       this.randomBtn?.position.set(rx, ay);
       this.readyBtn?.position.set(rx, ay);
@@ -148,18 +150,18 @@ export class LobbyScene extends Scene {
       return;
     }
 
-    const rowH = 100;
-    const top = 500;
+    const rowH = 84;
+    const top = 508;
     this.veriumChip.position.set(96, 44);
-    this.codeLabel.position.set(W / 2, 56);
-    this.codeText.position.set(W / 2, 118);
-    this.countText.position.set(W / 2, 178);
-    this.rosterRow.position.set(W / 2, 262);
-    this.roleBtn.position.set(W / 2, 360);
-    this.pickLabel.position.set(W / 2, 430);
+    this.codeLabel.position.set(W / 2, 52);
+    this.codeText.position.set(W / 2, 112);
+    this.countText.position.set(W / 2, 170);
+    this.rosterRow.position.set(W / 2, 252);
+    this.roleBtn.position.set(W / 2, 392);
+    this.pickLabel.position.set(W / 2, 452);
     const cols = this.classRole === 'seeker' ? 3 : 4;
-    const colW = Math.min(236, (W - 40) / cols);
-    const scale = Math.max(0.5, Math.min(1, (colW - 10) / 220));
+    const colW = Math.min(206, (W - 40) / cols);
+    const scale = Math.max(0.5, Math.min(1, (colW - 10) / 200));
     this.classBtns.forEach((btn, i) => {
       const row = Math.floor(i / cols);
       const idx = i - row * cols;
@@ -168,20 +170,20 @@ export class LobbyScene extends Scene {
       btn.position.set(W / 2 + (idx - (inRow - 1) / 2) * colW, top + row * rowH);
     });
     const rows = Math.max(1, Math.ceil(n / cols));
-    const bottom = top + (rows - 1) * rowH + 90;
-    this.abilityInfo.position.set(W / 2, bottom - 40);
-    this.wardrobeBtn.position.set(W / 2, bottom + 24);
-    this.statusText.position.set(W / 2, bottom + 92);
-    this.startBtn?.position.set(W / 2, H - 96);
-    this.randomBtn?.position.set(W / 2, H - 190);
-    this.botLabel?.position.set(W / 2, H - 296);
-    this.botMinus?.position.set(W / 2 - 240, H - 296);
-    this.botPlus?.position.set(W / 2 + 240, H - 296);
-    this.levelLabel?.position.set(W / 2, H - 380);
-    this.levelMinus?.position.set(W / 2 - 240, H - 380);
-    this.levelPlus?.position.set(W / 2 + 240, H - 380);
-    this.readyBtn?.position.set(W / 2, H - 96);
-    this.waitText?.position.set(W / 2, H - 176);
+    const bottom = top + (rows - 1) * rowH + 84;
+    this.abilityInfo.position.set(W / 2, bottom - 36);
+    this.wardrobeBtn.position.set(W / 2, bottom + 22);
+    this.statusText.position.set(W / 2, bottom + 84);
+    this.startBtn?.position.set(W / 2, H - 84);
+    this.randomBtn?.position.set(W / 2, H - 164);
+    this.botLabel?.position.set(W / 2, H - 244);
+    this.botMinus?.position.set(W / 2 - 200, H - 244);
+    this.botPlus?.position.set(W / 2 + 200, H - 244);
+    this.levelLabel?.position.set(W / 2, H - 316);
+    this.levelMinus?.position.set(W / 2 - 200, H - 316);
+    this.levelPlus?.position.set(W / 2 + 200, H - 316);
+    this.readyBtn?.position.set(W / 2, H - 84);
+    this.waitText?.position.set(W / 2, H - 152);
     this.layoutWardrobe(W, H);
   }
 
@@ -229,9 +231,9 @@ export class LobbyScene extends Scene {
     this.add(this.rosterRow);
 
     this.roleBtn = new UIButton('🩸 BE THE SEEKER', {
-      width: 440,
-      height: 76,
-      fontSize: 28,
+      width: 330,
+      height: 58,
+      fontSize: 21,
       fill: NIGHT.blood,
       textColor: 0xffffff,
       onTap: () => this.toggleSeeker(),
@@ -247,9 +249,9 @@ export class LobbyScene extends Scene {
     this.stage.addChild(this.veriumChip);
 
     this.wardrobeBtn = new UIButton('🎭 WARDROBE', {
-      width: 360,
-      height: 80,
-      fontSize: 30,
+      width: 270,
+      height: 60,
+      fontSize: 23,
       fill: NIGHT.violet,
       textColor: 0x140f1e,
       onTap: () => this.openWardrobe(),
@@ -264,17 +266,17 @@ export class LobbyScene extends Scene {
       this.botLabel = makeText('🤖 Bots: 0/7', 26, { color: NIGHT.ghost, weight: '800' });
       this.stage.addChild(this.botLabel);
       this.botMinus = new UIButton('➖', {
-        width: 76,
-        height: 76,
-        fontSize: 32,
+        width: 58,
+        height: 58,
+        fontSize: 24,
         fill: 0x2a3a4a,
         textColor: NIGHT.ink,
         onTap: () => this.setBots(this.botCount - 1),
       });
       this.botPlus = new UIButton('➕', {
-        width: 76,
-        height: 76,
-        fontSize: 32,
+        width: 58,
+        height: 58,
+        fontSize: 24,
         fill: 0x2a3a4a,
         textColor: NIGHT.ink,
         onTap: () => this.setBots(this.botCount + 1),
@@ -286,17 +288,17 @@ export class LobbyScene extends Scene {
       this.levelLabel = makeText('', 23, { color: NIGHT.lantern, weight: '800' });
       this.stage.addChild(this.levelLabel);
       this.levelMinus = new UIButton('◀', {
-        width: 76,
-        height: 76,
-        fontSize: 32,
+        width: 58,
+        height: 58,
+        fontSize: 24,
         fill: 0x2a3a4a,
         textColor: NIGHT.ink,
         onTap: () => this.setLevel((this.roster.level ?? 0) - 1),
       });
       this.levelPlus = new UIButton('▶', {
-        width: 76,
-        height: 76,
-        fontSize: 32,
+        width: 58,
+        height: 58,
+        fontSize: 24,
         fill: 0x2a3a4a,
         textColor: NIGHT.ink,
         onTap: () => this.setLevel((this.roster.level ?? 0) + 1),
@@ -305,18 +307,18 @@ export class LobbyScene extends Scene {
       this.add(this.levelPlus);
       this.updateLevelLabel();
       this.randomBtn = new UIButton('🎲 RANDOM SEEKER', {
-        width: 440,
-        height: 84,
-        fontSize: 30,
+        width: 340,
+        height: 64,
+        fontSize: 23,
         fill: 0x2a3a4a,
         textColor: NIGHT.ink,
         onTap: () => this.randomSeeker(),
       });
       this.add(this.randomBtn);
       this.startBtn = new UIButton('START THE HUNT', {
-        width: 480,
-        height: 100,
-        fontSize: 38,
+        width: 400,
+        height: 84,
+        fontSize: 30,
         fill: NIGHT.gate,
         textColor: 0x0c1a12,
         onTap: () => this.startMatch(),
@@ -326,9 +328,9 @@ export class LobbyScene extends Scene {
       this.waitText = makeText('tap READY when you are set', 24, { color: NIGHT.inkSoft, weight: 'bold' });
       this.stage.addChild(this.waitText);
       this.readyBtn = new UIButton("I'M READY", {
-        width: 480,
-        height: 100,
-        fontSize: 38,
+        width: 400,
+        height: 84,
+        fontSize: 30,
         fill: NIGHT.gate,
         textColor: 0x0c1a12,
         onTap: () => this.toggleReady(),
@@ -638,9 +640,9 @@ export class LobbyScene extends Scene {
     this.updateAbilityInfo();
     for (const cls of list) {
       const btn = new UIButton(`${cls.emoji} ${cls.name}`, {
-        width: 220,
-        height: 82,
-        fontSize: 24,
+        width: 200,
+        height: 64,
+        fontSize: 20,
         fill: cls.color,
         textColor: 0x140f1e,
         onTap: () => this.pickClass(cls.id),
