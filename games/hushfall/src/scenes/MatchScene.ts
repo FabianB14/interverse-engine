@@ -76,6 +76,11 @@ const LIGHT_FULL = 150;
 const LIGHT_FADE = 260;
 const SNARE_RADIUS = 60;
 const SNARE_SECONDS = 2.6;
+// Teleporter pads (hiders only): step on one, ride it to its twin at the
+// far end of the manor. ONE cooldown is shared by the whole pair — after
+// any ride the pads go dark for EVERYONE until they hum again.
+const TELEPORT_RADIUS = 70;
+const TELEPORT_CD = 30;
 const VANISH_SECONDS = 4.5;
 const DECOY_SECONDS = 8;
 const BOT_FLEE_DIST = 250;
@@ -119,10 +124,14 @@ interface Fx {
     | 'bust'
     | 'freeze'
     | 'dead'
-    | 'release';
+    | 'release'
+    | 'teleport';
   x: number;
   y: number;
   id?: string;
+  /** teleport destination — the ridden player warps themselves here. */
+  tx?: number;
+  ty?: number;
 }
 interface Snap {
   type: 'snap';
@@ -142,6 +151,8 @@ interface Snap {
   decoys: { x: number; y: number }[];
   phase: string;
   hideL: number;
+  /** shared teleporter cooldown remaining (0 = pads ready). */
+  tp: number;
 }
 /** What each player DID this hunt — shown on the end screen and paid out. */
 interface Deeds {
@@ -228,6 +239,7 @@ export class MatchScene extends Scene {
   private lanternPts: { x: number; y: number }[] = [];
   private hidePts: { x: number; y: number }[] = [];
   private gatePt = { x: 0, y: 0 };
+  private teleportPts: { x: number; y: number }[] = [];
 
   // host sim state
   private lant: number[] = [];
@@ -249,6 +261,7 @@ export class MatchScene extends Scene {
   private phase = 'hiding';
   private hideLeft = HIDE_PHASE_SECONDS;
   private deeds: Record<string, Deeds> = {};
+  private tpReadyAt = 0; // game-time when the SHARED teleporter cooldown ends
 
   // client mirror
   private snapLant: number[] = [];
@@ -262,6 +275,7 @@ export class MatchScene extends Scene {
   private snapBusted = new Set<number>();
   private snapDawn = DAWN_BASE_SECONDS;
   private snapHideLeft = HIDE_PHASE_SECONDS;
+  private snapTpCd = 0;
 
   // bots (host-simulated)
   private botAtkCd = 0;
@@ -352,6 +366,7 @@ export class MatchScene extends Scene {
     this.gatePt = { x: gateObj.x, y: gateObj.y };
     this.lanternPts = this.map.objects.filter((o) => o.name === 'lantern').map((o) => ({ x: o.x, y: o.y }));
     this.hidePts = this.map.objects.filter((o) => o.name === 'hide').map((o) => ({ x: o.x, y: o.y }));
+    this.teleportPts = this.map.objects.filter((o) => o.name === 'teleport').map((o) => ({ x: o.x, y: o.y }));
     this.lant = this.lanternPts.map(() => 0);
     this.snapLant = this.lanternPts.map(() => 0);
     this.bustedUntil = this.hidePts.map(() => 0);
@@ -434,6 +449,7 @@ export class MatchScene extends Scene {
   private gateView!: Graphics;
   private hideGlow!: Graphics;
   private hideViews: Graphics[] = [];
+  private tpViews: Graphics[] = [];
 
   private drawObjectives(): void {
     this.objectiveLayer = new Container();
@@ -449,6 +465,13 @@ export class MatchScene extends Scene {
     this.gateView = new Graphics();
     this.gateView.position.set(this.gatePt.x, this.gatePt.y);
     this.objectiveLayer.addChild(this.gateView);
+    // Teleporter pads: arcane rune circles at the manor's far ends.
+    this.tpViews = this.teleportPts.map((p) => {
+      const g = new Graphics();
+      g.position.set(p.x, p.y);
+      this.objectiveLayer.addChild(g);
+      return g;
+    });
     // Hiding spots: a mix of furniture you can duck into — wardrobes, desks
     // (crawl under) and big potted plants — so they blend into the rooms
     // instead of reading as identical doors. Tap one to auto-walk in and hide.
@@ -541,6 +564,30 @@ export class MatchScene extends Scene {
       this.gateView.roundRect(i * 40 - 6, -40, 12, 80, 4).fill(open ? NIGHT.gate : 0x3a3550);
     }
     if (open) this.gateView.circle(0, 0, GATE_RADIUS).stroke({ color: NIGHT.gate, alpha: 0.3, width: 3 });
+    // Teleporter pads: humming violet runes when ready; dark with a filling
+    // recharge arc while the SHARED cooldown ticks down.
+    const tpReady = this.snapTpCd <= 0;
+    for (const g of this.tpViews) {
+      g.clear();
+      const col = tpReady ? NIGHT.violet : 0x4a4460;
+      if (tpReady) g.circle(0, 0, 46).fill({ color: NIGHT.violet, alpha: 0.14 });
+      g.circle(0, 0, 30).stroke({ color: col, width: 4, alpha: tpReady ? 0.95 : 0.5 });
+      g.circle(0, 0, 18).stroke({ color: col, width: 2, alpha: tpReady ? 0.6 : 0.35 });
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+        g.circle(Math.cos(a) * 24, Math.sin(a) * 24, 3.5).fill({ color: col, alpha: tpReady ? 0.9 : 0.5 });
+      }
+      if (!tpReady) {
+        const frac = 1 - Math.min(1, this.snapTpCd / TELEPORT_CD);
+        if (frac > 0.02) {
+          g.arc(0, 0, 36, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * frac).stroke({
+            color: NIGHT.violet,
+            width: 4,
+            alpha: 0.7,
+          });
+        }
+      }
+    }
   }
 
   private makeBlob(id: string, isMe: boolean): { entity: Entity; body: Container } {
@@ -767,6 +814,7 @@ export class MatchScene extends Scene {
     this.snapBusted = new Set(s.busted ?? []);
     this.snapDawn = s.dawn ?? this.snapDawn;
     this.snapHideLeft = s.hideL ?? 0;
+    this.snapTpCd = s.tp ?? 0;
     this.escaped = new Set(s.esc);
     this.out = new Set(s.out);
     this.phase = s.phase;
@@ -973,6 +1021,42 @@ export class MatchScene extends Scene {
       return;
     }
     const active = this.activeHiders();
+    // Teleporters: a standing hider on a ready pad rides to the twin pad.
+    // ONE shared cooldown — the first ride locks the pair for everyone.
+    if (this.teleportPts.length >= 2 && this.t >= this.tpReadyAt) {
+      outer: for (const id of active) {
+        if (this.down[id] !== undefined) continue;
+        const p = this.hostPositions[id];
+        if (!p) continue;
+        // Bots wander through room centres constantly — they only ride to
+        // ESCAPE (seeker close), never burn the shared cooldown idly.
+        if (id.startsWith('bot')) {
+          const sp = this.hostPositions[this.seekerId];
+          if (!sp || Math.hypot(sp.x - p.x, sp.y - p.y) > BOT_FLEE_DIST) continue;
+        }
+        for (let i = 0; i < this.teleportPts.length; i++) {
+          const pad = this.teleportPts[i]!;
+          if (Math.hypot(pad.x - p.x, pad.y - p.y) >= TELEPORT_RADIUS) continue;
+          const dest = this.teleportPts[(i + 1) % this.teleportPts.length]!;
+          // Land just OFF the twin pad (first open side) so nobody re-rides
+          // the instant the cooldown ends.
+          let lx = dest.x + 90;
+          let ly = dest.y;
+          for (const [dx, dy] of [[90, 0], [-90, 0], [0, 90], [0, -90]] as const) {
+            if (!solidAt(this.map, Math.floor((dest.x + dx) / TILE_SIZE), Math.floor((dest.y + dy) / TILE_SIZE))) {
+              lx = dest.x + dx;
+              ly = dest.y + dy;
+              break;
+            }
+          }
+          this.hostPositions[id] = { x: lx, y: ly };
+          this.botPaths.delete(id); // a teleported bot re-plans from the far side
+          this.tpReadyAt = this.t + TELEPORT_CD;
+          this.broadcastFx({ type: 'fx', kind: 'teleport', x: pad.x, y: pad.y, id, tx: lx, ty: ly });
+          break outer;
+        }
+      }
+    }
     // Lanterns.
     for (const id of active) {
       if (this.down[id] !== undefined) continue;
@@ -1738,6 +1822,7 @@ export class MatchScene extends Scene {
       decoys: this.decoys.map((d) => ({ x: d.x, y: d.y })),
       phase: this.phase,
       hideL: this.hideLeft,
+      tp: Math.max(0, this.tpReadyAt - this.t),
     };
     this.session.broadcast(snap);
     // Host mirrors its own snap-derived view.
@@ -1752,6 +1837,7 @@ export class MatchScene extends Scene {
     this.snapBusted = new Set(busted);
     this.snapDawn = Math.max(0, this.dawnAt - this.t);
     this.snapHideLeft = this.hideLeft;
+    this.snapTpCd = Math.max(0, this.tpReadyAt - this.t);
     this.syncDecoys(snap.decoys);
     this.redrawObjectives();
   }
@@ -2015,6 +2101,25 @@ export class MatchScene extends Scene {
         g.circle(0, 0, 30).fill({ color: NIGHT.ghost, alpha: 0.4 });
         life = 0.4;
         break;
+      case 'teleport': {
+        // Violet rings at BOTH ends of the ride; the ridden player warps
+        // themselves (positions are client-authoritative for humans).
+        if (fx.id === this.session.id && fx.tx !== undefined && fx.ty !== undefined) {
+          this.me.position.set(fx.tx, fx.ty);
+          this.hideTarget = null;
+        }
+        g.circle(0, 0, 40).stroke({ color: NIGHT.violet, width: 6, alpha: 0.9 });
+        g.circle(0, 0, 20).stroke({ color: NIGHT.violet, width: 3, alpha: 0.6 });
+        if (fx.tx !== undefined && fx.ty !== undefined) {
+          const dxr = fx.tx - fx.x;
+          const dyr = fx.ty - fx.y;
+          g.circle(dxr, dyr, 40).stroke({ color: NIGHT.violet, width: 6, alpha: 0.9 });
+          g.circle(dxr, dyr, 20).stroke({ color: NIGHT.violet, width: 3, alpha: 0.6 });
+        }
+        sting('lantern');
+        life = 0.6;
+        break;
+      }
       case 'bust':
         // The hiding spot shatters — splinters fly.
         for (let i = 0; i < 10; i++) {
@@ -2279,7 +2384,8 @@ export class MatchScene extends Scene {
     return (
       reach(this.gatePt.x, this.gatePt.y) &&
       reach(this.seekerSpawn.x, this.seekerSpawn.y) &&
-      this.lanternPts.every((p) => reach(p.x, p.y))
+      this.lanternPts.every((p) => reach(p.x, p.y)) &&
+      this.teleportPts.every((p) => reach(p.x, p.y))
     );
   }
 
@@ -2397,6 +2503,9 @@ export class MatchScene extends Scene {
       hidePos: (i: number) => this.hidePts[i] ?? null,
       hideCount: () => this.hidePts.length,
       hiddenIds: () => this.activeHiders().filter((id) => this.isConcealed(id)),
+      tpCount: () => this.teleportPts.length,
+      tpPos: (i: number) => this.teleportPts[i] ?? null,
+      tpCd: () => this.snapTpCd,
       visionActive: () => this.t < this.visionBoostUntil,
       reachOk: () => this.reachabilityOk(),
     };

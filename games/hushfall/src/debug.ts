@@ -83,6 +83,9 @@ export interface HushfallDebug {
   stats?: () => Record<string, { lit: number; res: number; down: number }>;
   losSelfTest?: () => boolean;
   setName?: (name: string) => void;
+  tpCount?: () => number;
+  tpPos?: (i: number) => { x: number; y: number } | null;
+  tpCd?: () => number;
 }
 
 declare global {

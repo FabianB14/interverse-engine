@@ -16,6 +16,7 @@ export const legend: Record<string, TileLegendEntry> = {
   G: { tile: TILE.FLOOR, object: 'gate' },
   '@': { tile: TILE.CARPET, object: 'spawn' },
   S: { tile: TILE.FLOOR, object: 'seekerspawn' },
+  T: { tile: TILE.CARPET, object: 'teleport' },
 };
 
 const CH: Record<number, string> = {
@@ -238,6 +239,24 @@ export function generateBuilding(level: LevelDef = LEVELS[0]!): string[] {
     for (const [cx2, cy2] of corners) {
       if (lanterns >= want) break;
       if (stampFree(cx2, cy2, 'L')) lanterns++;
+    }
+  }
+
+  // Two LINKED teleporter pads at opposite ends of the manor (westmost and
+  // eastmost rooms): a hider steps on one and rides it to the other. The
+  // pair then shares one cooldown for the whole match — see MatchScene.
+  // Never in the spawn/seeker/gate rooms: a pad under a spawn point would
+  // yank players the moment they appear.
+  const tpPool = rest.length >= 2 ? rest : sorted;
+  const byX = [...tpPool].sort((a, b) => center(a)[0] - center(b)[0]);
+  for (const room of [byX[0]!, byX[byX.length - 1]!]) {
+    const [tx, ty] = center(room);
+    for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [2, 0], [0, 2]] as const) {
+      const ch = rows[ty + dy]?.[tx + dx];
+      if (ch === ',' || ch === '.') {
+        stamp(tx + dx, ty + dy, 'T');
+        break;
+      }
     }
   }
 

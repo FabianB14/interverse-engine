@@ -255,6 +255,32 @@ await sleep(400);
 const p2Revived = await p2.evaluate(() => window.__hushfall.amDowned());
 const rescueOk = p2Revived === false;
 
+// TELEPORT: a hider stepping on a rune pad rides it to the twin at the far
+// end — then the pads share ONE cooldown for everyone: a second hider
+// stepping on right after goes nowhere.
+const tpCount = await p1.evaluate(() => window.__hushfall.tpCount?.() ?? 0);
+const tp0 = await p1.evaluate(() => window.__hushfall.tpPos?.(0));
+const tp1 = await p1.evaluate(() => window.__hushfall.tpPos?.(1));
+await p2.evaluate((p) => window.__hushfall.warp(p.x, p.y), tp0);
+await p2
+  .waitForFunction(
+    (dest) => {
+      const m = window.__hushfall.myPos();
+      return Math.hypot(m.x - dest.x, m.y - dest.y) < 300;
+    },
+    tp1,
+    { timeout: 8_000 },
+  )
+  .catch(() => {});
+const p2AfterTp = await p2.evaluate(() => window.__hushfall.myPos());
+const rode = Math.hypot(p2AfterTp.x - tp1.x, p2AfterTp.y - tp1.y) < 300;
+const tpCdLeft = await p1.evaluate(() => window.__hushfall.tpCd?.() ?? 0);
+await p3.evaluate((p) => window.__hushfall.warp(p.x, p.y), tp0);
+await sleep(1600);
+const p3AfterTp = await p3.evaluate(() => window.__hushfall.myPos());
+const refused = Math.hypot(p3AfterTp.x - tp0.x, p3AfterTp.y - tp0.y) < 200;
+const teleportOk = tpCount === 2 && rode && tpCdLeft > 0 && refused;
+
 // ESCAPE: host lights all lanterns, the gate opens, both hiders reach it and
 // escape — ending the hunt as a Hider win.
 await p1.evaluate(() => window.__hushfall.forceLightAll());
@@ -423,6 +449,7 @@ const ok =
   deedOk &&
   hidePhaseOk &&
   losOk &&
+  teleportOk &&
   freezeOk &&
   round2Ok &&
   botOk &&
@@ -475,6 +502,11 @@ console.log(
       deedOk,
       hidePhaseOk,
       losOk,
+      teleportOk,
+      tpCount,
+      rode,
+      tpCdLeft,
+      refused,
       gateOnP2,
       escapedHost,
       phaseHost,
