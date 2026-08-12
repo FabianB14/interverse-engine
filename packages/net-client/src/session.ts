@@ -130,6 +130,14 @@ export class Session {
     this.raw({ t: 'presence', friendCode });
   }
 
+  /** Host only: list this room in the relay's PUBLIC room browser (or pull
+   *  it back out). Private (unlisted, code-only) is the default. `label`
+   *  is the room's display name (relay-filtered), `info` a short blurb
+   *  like the map name. Older relays answer with an error; harmless. */
+  setPublic(on: boolean, label?: string, info?: string): void {
+    this.raw(on ? { t: 'listing', on: true, label, info } : { t: 'listing', on: false });
+  }
+
   leave(): void {
     this.stopKeepalive();
     this.raw({ t: 'leave' });
@@ -259,4 +267,28 @@ export async function join(code: string, name: string, opts: NetOptions): Promis
     'joined',
   );
   return new Session(r.ws, r.code, r.id, false, r.players);
+}
+
+/** One public room, as the browser lists it. */
+export interface PublicRoom {
+  code: string;
+  label: string;
+  info: string;
+  players: number;
+  max: number;
+}
+
+/** Fetch the relay's public room list (rooms whose hosts opted in),
+ *  optionally scoped to one game tag. Returns [] on any failure — the
+ *  browser UI degrades to "none found" instead of erroring. */
+export async function listRooms(relayUrl: string, game?: string): Promise<PublicRoom[]> {
+  try {
+    const http = relayUrl.replace(/^ws/, 'http');
+    const res = await fetch(`${http}/rooms${game ? `?game=${encodeURIComponent(game)}` : ''}`);
+    if (!res.ok) return [];
+    const data = (await res.json()) as { rooms?: PublicRoom[] };
+    return Array.isArray(data.rooms) ? data.rooms : [];
+  } catch {
+    return [];
+  }
 }

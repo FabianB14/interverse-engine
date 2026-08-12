@@ -69,6 +69,8 @@ export class LobbyScene extends Scene {
   private waitText: Text | null = null;
   private statusText!: Text;
   private nameBtn!: UIButton;
+  private publicBtn: UIButton | null = null;
+  private isPublic = false;
 
   private wardRoot!: Container;
   private wardBg!: Graphics;
@@ -116,6 +118,7 @@ export class LobbyScene extends Scene {
       const rx = W * 0.72; // right column centre
       this.veriumChip.position.set(80, 34);
       this.nameBtn?.position.set(96, 82);
+      this.publicBtn?.position.set(96, 134);
       this.codeLabel.position.set(lx, 40);
       this.codeText.position.set(lx, 86);
       this.countText.position.set(lx, 130);
@@ -160,6 +163,7 @@ export class LobbyScene extends Scene {
     const top = 508;
     this.veriumChip.position.set(96, 44);
     this.nameBtn?.position.set(112, 92);
+    this.publicBtn?.position.set(117, 144);
     this.codeLabel.position.set(W / 2, 52);
     this.codeText.position.set(W / 2, 112);
     this.countText.position.set(W / 2, 170);
@@ -231,10 +235,13 @@ export class LobbyScene extends Scene {
     (this.roster.accs ??= {})[session.id] = store.get<number>('acc', 0);
     this.classRole = 'hider';
     if (session.isHost) {
-      // Hosts keep their setup between rounds: bot count and level stick.
+      // Hosts keep their setup between rounds: bot count, level and the
+      // public/private choice stick.
       this.botCount = Math.max(0, Math.min(7, store.get<number>('bots', 0)));
       this.roster.level = Math.max(0, Math.min(LEVELS.length - 1, store.get<number>('level', 0)));
+      this.isPublic = store.get<boolean>('public', false);
       this.rebuildBots();
+      this.updateListing();
     }
 
     this.codeLabel = makeText('ROOM CODE', 26, { color: NIGHT.inkSoft, weight: 'bold' });
@@ -288,6 +295,17 @@ export class LobbyScene extends Scene {
     this.stage.addChild(this.statusText);
 
     if (session.isHost) {
+      // Public/private: a PUBLIC room shows up in the menu's Find-a-Hunt
+      // browser; private (the default) stays code-only.
+      this.publicBtn = new UIButton(this.isPublic ? '🌐 PUBLIC' : '🔒 PRIVATE', {
+        width: 150,
+        height: 46,
+        fontSize: 16,
+        fill: this.isPublic ? 0x2e6b3e : 0x1a1826,
+        textColor: NIGHT.ink,
+        onTap: () => this.togglePublic(),
+      });
+      this.add(this.publicBtn);
       // AI bots to fill out a short-handed hunt.
       this.botLabel = makeText('🤖 Bots: 0/7', 26, { color: NIGHT.ghost, weight: '800' });
       this.stage.addChild(this.botLabel);
@@ -402,6 +420,10 @@ export class LobbyScene extends Scene {
             randomSeeker: () => this.randomSeeker(),
             setBots: (n: number) => this.setBots(n),
             setLevel: (i: number) => this.setLevel(i),
+            setPublic: (on: boolean) => {
+              if (this.isPublic !== on) this.togglePublic();
+            },
+            isPublic: () => this.isPublic,
           }
         : {}),
     };
@@ -551,6 +573,7 @@ export class LobbyScene extends Scene {
     sting('blip');
     if (this.session.isHost) {
       this.roster.names[this.session.id] = this.uniqueName(v);
+      if (this.isPublic) this.updateListing(); // the listing carries the name
       this.shareRoster();
       this.refreshRoster();
     } else {
@@ -644,12 +667,36 @@ export class LobbyScene extends Scene {
     store.set('level', this.roster.level);
     sting('blip');
     this.updateLevelLabel();
+    if (this.isPublic) this.updateListing(); // the listing names the manor
     this.shareRoster();
   }
 
   private updateLevelLabel(): void {
     const lv = LEVELS[this.roster.level ?? 0] ?? LEVELS[0]!;
     if (this.levelLabel) this.levelLabel.text = `🏚️ ${lv.name} · ${lv.lanterns}🕯️`;
+  }
+
+  // ------------------------------------------------------ public listing
+
+  private togglePublic(): void {
+    if (!this.session.isHost) return;
+    this.isPublic = !this.isPublic;
+    store.set('public', this.isPublic);
+    sting('blip');
+    this.updateListing();
+    this.publicBtn?.setLabel(this.isPublic ? '🌐 PUBLIC' : '🔒 PRIVATE');
+  }
+
+  /** Host: (re)announce the room in the relay's public browser — the label
+   *  is the host's name, the blurb the chosen manor. */
+  private updateListing(): void {
+    if (!this.session.isHost) return;
+    if (this.isPublic) {
+      const lv = LEVELS[this.roster.level ?? 0] ?? LEVELS[0]!;
+      this.session.setPublic(true, this.roster.names[this.session.id], lv.name);
+    } else {
+      this.session.setPublic(false);
+    }
   }
 
   private toggleSeeker(): void {

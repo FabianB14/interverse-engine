@@ -56,6 +56,8 @@ interface Room {
   lastActive: number;
   /** Presence: the friend code this room's host registered, if any. */
   friendCode?: string;
+  /** Public listing (room browser). Absent = private, code-only. */
+  listing?: { label: string; info: string };
 }
 
 const rooms = new Map<string, Room>();
@@ -158,6 +160,26 @@ const httpServer = createServer((req, res) => {
   if (req.url === '/health' || req.url === '/') {
     res.writeHead(200, { 'content-type': 'application/json', ...cors });
     res.end(JSON.stringify({ ok: true, rooms: rooms.size }));
+    return;
+  }
+  // Room browser: PUBLIC rooms only — a host opts in with {t:'listing'}.
+  // Private rooms (the default) stay invisible: code-only, as always.
+  if (req.url === '/rooms' || req.url?.startsWith('/rooms?')) {
+    const q = new URL(req.url, 'http://relay').searchParams;
+    const game = q.get('game') ?? '';
+    const open = [...rooms.values()]
+      .filter((r) => r.listing && (game === '' || r.game === game))
+      .sort((a, b) => b.lastActive - a.lastActive)
+      .slice(0, 50)
+      .map((r) => ({
+        code: r.code,
+        label: r.listing!.label,
+        info: r.listing!.info,
+        players: r.players.size + 1,
+        max: MAX_PLAYERS,
+      }));
+    res.writeHead(200, { 'content-type': 'application/json', ...cors });
+    res.end(JSON.stringify({ rooms: open }));
     return;
   }
   // Presence lookup: which of MY friends are online, and where? Answers
@@ -354,6 +376,26 @@ wss.on('connection', (ws: WebSocket & { missedPongs?: number }) => {
       // socket and refreshes the room's TTL while players sit in menus.
       case 'ping': {
         send(ws, { t: 'pong' });
+        return;
+      }
+
+      // Public listing: the HOST opts the room into the browser (or back
+      // out). Labels ride through the same kid-safe name filter; info is
+      // a short machine-ish string (map name etc.), scrubbed hard.
+      case 'listing': {
+        if (!me || !room) return fail('not-in-room', 'host or join first');
+        if (!me.isHost) return fail('host-only', 'only the host can list the room');
+        if (msg.on) {
+          const label = sanitizeName(msg.label ?? me.name);
+          const info = String(msg.info ?? '')
+            .replace(/[^\p{L}\p{N} ·'&-]/gu, '')
+            .trim()
+            .slice(0, 32);
+          room.listing = { label, info };
+        } else {
+          delete room.listing;
+        }
+        send(ws, { t: 'listing-ok', on: !!msg.on });
         return;
       }
 

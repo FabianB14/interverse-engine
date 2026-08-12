@@ -1,7 +1,7 @@
-import { Graphics } from 'pixi.js';
+import { Container, Graphics } from 'pixi.js';
 import type { Text } from 'pixi.js';
 import { Entity, Scene, Wobble, blobCharacter, popIn } from '@interverse/engine';
-import { host, join } from '@interverse/net';
+import { host, join, listRooms } from '@interverse/net';
 import { UIButton } from '@interverse/ui';
 import { GAME_TAG, resolveRelayUrl } from '../config.js';
 import { GAME_TITLE } from '../game.js';
@@ -22,6 +22,14 @@ export class MenuScene extends Scene {
   private joinBtn!: UIButton;
   private rejoinBtn: UIButton | null = null;
   private soundBtn: UIButton | null = null;
+  private findBtn: UIButton | null = null;
+  private finder: Container | null = null;
+  private finderBg!: Graphics;
+  private finderTitle!: Text;
+  private finderHint!: Text;
+  private finderRows: UIButton[] = [];
+  private finderRefresh!: UIButton;
+  private finderClose!: UIButton;
   private moon!: Graphics;
   private eyes!: Graphics;
   private t = 0;
@@ -37,22 +45,37 @@ export class MenuScene extends Scene {
       this.titleT.position.set(W * 0.3, H * 0.2);
       this.sub.position.set(W * 0.3, H * 0.2 + 74);
       this.mascot.position.set(W * 0.3, H * 0.62);
-      this.hostBtn.position.set(W * 0.72, H * 0.3);
-      this.joinBtn.position.set(W * 0.72, H * 0.3 + 130);
-      this.rejoinBtn?.position.set(W * 0.72, H * 0.3 + 252);
-      this.status?.position.set(W * 0.72, H * 0.88);
+      this.hostBtn.position.set(W * 0.72, H * 0.24);
+      this.joinBtn.position.set(W * 0.72, H * 0.24 + 118);
+      this.findBtn?.position.set(W * 0.72, H * 0.24 + 226);
+      this.rejoinBtn?.position.set(W * 0.72, H * 0.24 + 330);
+      this.status?.position.set(W * 0.72, H * 0.9);
       this.soundBtn?.position.set(52, H - 52);
+      this.layoutFinder(W, H);
       return;
     }
     this.moon.position.set(W * 0.78, H * 0.14);
     this.titleT.position.set(W / 2, H * 0.2);
     this.sub.position.set(W / 2, H * 0.2 + 74);
     this.mascot.position.set(W / 2, H * 0.44);
-    this.hostBtn.position.set(W / 2, H * 0.64);
-    this.joinBtn.position.set(W / 2, H * 0.64 + 130);
-    this.rejoinBtn?.position.set(W / 2, H * 0.64 + 252);
-    this.status?.position.set(W / 2, H * 0.92);
+    this.hostBtn.position.set(W / 2, H * 0.6);
+    this.joinBtn.position.set(W / 2, H * 0.6 + 118);
+    this.findBtn?.position.set(W / 2, H * 0.6 + 226);
+    this.rejoinBtn?.position.set(W / 2, H * 0.6 + 330);
+    this.status?.position.set(W / 2, H * 0.95);
     this.soundBtn?.position.set(52, H - 52);
+    this.layoutFinder(W, H);
+  }
+
+  private layoutFinder(W: number, H: number): void {
+    if (!this.finder) return;
+    this.finderBg.clear();
+    this.finderBg.rect(0, 0, W, H).fill({ color: 0x0a0812, alpha: 0.97 });
+    this.finderTitle.position.set(W / 2, 74);
+    this.finderHint.position.set(W / 2, 136);
+    this.finderRows.forEach((row, i) => row.position.set(W / 2, 214 + i * 92));
+    this.finderRefresh.position.set(W / 2 - 140, H - 76);
+    this.finderClose.position.set(W / 2 + 140, H - 76);
   }
 
   protected override onEnter(): void {
@@ -123,6 +146,17 @@ export class MenuScene extends Scene {
     });
     this.add(this.joinBtn);
 
+    this.findBtn = new UIButton('🔍 FIND A HUNT', {
+      width: 480,
+      height: 92,
+      fontSize: 30,
+      fill: NIGHT.violet,
+      textColor: 0x140f1e,
+      onTap: () => void this.openFinder(relayUrl),
+    });
+    this.add(this.findBtn);
+    this.buildFinder(relayUrl);
+
     const rejoin = lastRoom();
     if (rejoin) {
       this.rejoinBtn = new UIButton(`↩ REJOIN ${rejoin}`, {
@@ -174,6 +208,83 @@ export class MenuScene extends Scene {
 
   protected override onExit(): void {
     delete window.__hushfall;
+  }
+
+  // ------------------------------------------------------ room browser
+
+  /** The Find-a-Hunt overlay: every PUBLIC Hushfall room on the relay,
+   *  tap one to join. Private rooms never appear here. */
+  private buildFinder(relayUrl: string): void {
+    this.finder = new Container();
+    this.finder.visible = false;
+    this.finderBg = new Graphics();
+    this.finderBg.eventMode = 'static'; // swallow taps behind the overlay
+    this.finder.addChild(this.finderBg);
+    this.finderTitle = makeText('🔍 OPEN HUNTS', 44, { color: NIGHT.violet });
+    this.finder.addChild(this.finderTitle);
+    this.finderHint = makeText('', 22, { color: NIGHT.inkSoft, weight: 'bold', wrapWidth: 620 });
+    this.finder.addChild(this.finderHint);
+    this.finderRefresh = new UIButton('⟳ REFRESH', {
+      width: 240,
+      height: 72,
+      fontSize: 24,
+      fill: 0x2a3a4a,
+      textColor: NIGHT.ink,
+      onTap: () => void this.refreshFinder(relayUrl),
+    });
+    this.finder.addChild(this.finderRefresh);
+    this.finderClose = new UIButton('CLOSE', {
+      width: 240,
+      height: 72,
+      fontSize: 24,
+      fill: NIGHT.blood,
+      textColor: 0xffffff,
+      onTap: () => {
+        sting('blip');
+        if (this.finder) this.finder.visible = false;
+      },
+    });
+    this.finder.addChild(this.finderClose);
+    this.stage.addChild(this.finder);
+  }
+
+  private async openFinder(relayUrl: string): Promise<void> {
+    if (!this.finder) return;
+    sting('blip');
+    this.finder.visible = true;
+    this.stage.addChild(this.finder); // keep it on top
+    await this.refreshFinder(relayUrl);
+  }
+
+  private async refreshFinder(relayUrl: string): Promise<void> {
+    if (!this.finder) return;
+    for (const row of this.finderRows) {
+      this.finder.removeChild(row);
+      row.destroy({ children: true });
+    }
+    this.finderRows = [];
+    this.finderHint.text = 'searching the dark…';
+    const found = await listRooms(relayUrl, GAME_TAG);
+    if (!this.finder.visible) return;
+    this.finderHint.text = found.length
+      ? 'tap a hunt to join'
+      : 'no open hunts right now — host one and flip it 🌐 PUBLIC!';
+    found.slice(0, 6).forEach((r) => {
+      const full = r.players >= r.max;
+      const row = new UIButton(`🏚️ ${r.label} · ${r.info} · ${r.players}/${r.max}`, {
+        width: 600,
+        height: 78,
+        fontSize: 23,
+        fill: full ? 0x1a1826 : 0x2a3a4a,
+        textColor: full ? NIGHT.inkSoft : NIGHT.ink,
+        onTap: () => {
+          if (!full) void this.joinRoom(relayUrl, r.code);
+        },
+      });
+      this.finder!.addChild(row);
+      this.finderRows.push(row);
+    });
+    this.layoutFinder(this.game.viewWidth, this.game.viewHeight);
   }
 
   private async hostRoom(relayUrl: string): Promise<void> {

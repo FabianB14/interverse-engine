@@ -93,6 +93,8 @@ export interface HushfallDebug {
   rootedCount?: () => number;
   trapCount?: () => number;
   forceDownsTaken?: (n: number) => void;
+  setPublic?: (on: boolean) => void;
+  isPublic?: () => boolean;
 }
 
 declare global {

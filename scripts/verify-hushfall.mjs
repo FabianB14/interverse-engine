@@ -96,6 +96,21 @@ const seekers = Object.values(roles).filter((r) => r === 'seeker').length;
 const rolesOk = seekers === 1 && Object.values(roles).filter((r) => r === 'hider').length === 2 && !!seekerId;
 await p1.screenshot({ path: `${outDir}/hf-1-lobby.png` });
 
+// PUBLIC ROOMS: flipping the lobby 🌐 PUBLIC lists it in the relay's room
+// browser (with a live player count); flipping back to 🔒 PRIVATE removes
+// it. Private is the default — this room was invisible until now.
+const listedBefore = await (await fetch('http://localhost:8787/rooms?game=hushfall')).json();
+const wasHidden = !(listedBefore.rooms ?? []).some((r) => r.code === code);
+await p1.evaluate(() => window.__hushfall.setPublic?.(true));
+await sleep(500);
+const listedOn = await (await fetch('http://localhost:8787/rooms?game=hushfall')).json();
+const listing = (listedOn.rooms ?? []).find((r) => r.code === code);
+await p1.evaluate(() => window.__hushfall.setPublic?.(false));
+await sleep(500);
+const listedOff = await (await fetch('http://localhost:8787/rooms?game=hushfall')).json();
+const unlisted = !(listedOff.rooms ?? []).some((r) => r.code === code);
+const publicOk = wasHidden && !!listing && listing.players === 3 && unlisted;
+
 // START -> everyone in the match, opening in the HIDE PHASE (the Seeker
 // counts blindfolded while hiders scatter), then the host skips the count
 // so the rest of the playtest runs at full speed.
@@ -519,6 +534,7 @@ const ok =
   hidePhaseOk &&
   losOk &&
   teleportOk &&
+  publicOk &&
   relocOk &&
   dragRescueOk &&
   weaverOk &&
@@ -580,6 +596,7 @@ console.log(
       rode,
       tpCdLeft,
       refused,
+      publicOk,
       relocOk,
       dragRescueOk,
       weaverOk,
