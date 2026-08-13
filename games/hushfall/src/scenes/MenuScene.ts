@@ -4,7 +4,7 @@ import { Entity, Scene, Wobble, blobCharacter, popIn } from '@interverse/engine'
 import { host, join, listRooms } from '@interverse/net';
 import { UIButton } from '@interverse/ui';
 import { GAME_TAG, resolveRelayUrl } from '../config.js';
-import { GAME_TITLE } from '../game.js';
+import { GAME_TITLE, GAME_VERSION } from '../game.js';
 import { NIGHT, setMusic, sting } from '../theme.js';
 import { makeText, playerName } from '../text.js';
 import { clearLastRoom, lastRoom, musicPref, savedName, setMusicPref } from '../store.js';
@@ -32,6 +32,7 @@ export class MenuScene extends Scene {
   private finderClose!: UIButton;
   private moon!: Graphics;
   private eyes!: Graphics;
+  private versionT: Text | null = null;
   private t = 0;
 
   protected override onResize(w: number, h: number): void {
@@ -51,6 +52,7 @@ export class MenuScene extends Scene {
       this.rejoinBtn?.position.set(W * 0.72, H * 0.24 + 330);
       this.status?.position.set(W * 0.72, H * 0.9);
       this.soundBtn?.position.set(52, H - 52);
+      this.versionT?.position.set(W - 40, H - 24);
       this.layoutFinder(W, H);
       return;
     }
@@ -64,6 +66,7 @@ export class MenuScene extends Scene {
     this.rejoinBtn?.position.set(W / 2, H * 0.6 + 330);
     this.status?.position.set(W / 2, H * 0.95);
     this.soundBtn?.position.set(52, H - 52);
+    this.versionT?.position.set(W - 40, H - 24);
     this.layoutFinder(W, H);
   }
 
@@ -190,6 +193,11 @@ export class MenuScene extends Scene {
       },
     });
     this.add(this.soundBtn);
+
+    // Build tag: lets players (and bug reports) confirm which deploy they run.
+    this.versionT = makeText(GAME_VERSION, 18, { color: NIGHT.inkSoft });
+    this.versionT.alpha = 0.6;
+    this.stage.addChild(this.versionT);
 
     this.layout(W, H);
 

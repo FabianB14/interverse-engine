@@ -56,7 +56,15 @@ function tileRng(tx: number, ty: number): () => number {
  * chunk ever exceeds a GPU's max texture size. (Caching a huge map as ONE
  * texture silently fails past ~4096px on many phones — the floor renders
  * black. Chunking is what makes 80+ tile maps safe everywhere.)
+ *
+ * Huge maps also cap TOTAL cached texture memory: an 84×66 manor at full
+ * resolution is ~90MB of RGBA, enough for weak GPUs to fail allocation
+ * (black floor) or for iOS to memory-kill the tab outright — at match
+ * start, which kicks every guest when the host dies. Chunks on big maps
+ * cache at reduced resolution instead; the budget keeps small maps crisp.
  */
+const CACHE_BUDGET_BYTES = 48 * 1024 * 1024;
+
 export function buildTileMapView(
   map: TileMapData,
   painters: Record<number, TilePainter>,
@@ -65,6 +73,9 @@ export function buildTileMapView(
   const view = new Container();
   const ts = map.tileSize;
   const chunkTiles = Math.max(8, Math.floor(2048 / ts));
+  const totalPx = map.width * ts * map.height * ts;
+  const fit = Math.sqrt(CACHE_BUDGET_BYTES / 4 / totalPx);
+  const resolution = [1, 0.75, 0.5, 0.25].find((r) => r <= fit) ?? 0.25;
   for (let cy = 0; cy < map.height; cy += chunkTiles) {
     for (let cx = 0; cx < map.width; cx += chunkTiles) {
       const g = new Graphics();
@@ -85,7 +96,7 @@ export function buildTileMapView(
       }
       const chunk = new Container();
       chunk.addChild(g);
-      chunk.cacheAsTexture(true);
+      chunk.cacheAsTexture(resolution < 1 ? { resolution } : true);
       view.addChild(chunk);
     }
   }

@@ -5,3 +5,6 @@
  */
 export const GAME_TITLE = 'HUSHFALL';
 export const GAME_TAG = 'hushfall';
+// Shown in the menu corner so players (and bug reports) can tell which
+// build they're actually running — bump on every deploy that matters.
+export const GAME_VERSION = 'v2.1';

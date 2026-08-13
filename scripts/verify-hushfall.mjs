@@ -373,6 +373,10 @@ for (let i = 0; i < 24 && !lit2; i++) {
 }
 const round2Ok = lit2;
 await p2.screenshot({ path: `${outDir}/hf-8-round2.png` });
+// The trio's gates are all measured — close their pages so the solo-host
+// sections that follow aren't starved for CPU (13 live game pages under
+// software rendering is enough to time out page loads on slow machines).
+await Promise.all([p1.close(), p2.close(), p3.close()]);
 
 // BOTS: a short-handed host fills the hunt with AI bots. They appear in the
 // roster as hiders, enter the match, and their AI steers them (they move).
@@ -426,6 +430,7 @@ const botEscaped = await pb.evaluate(() => window.__hushfall.escapedCount?.() ??
 const botToGate = botDist1 < botDist0 - 40 || botEscaped >= 1;
 const botOk = botLobbyOk && matchBots === 3 && botMoved && botSpread && botToGate;
 await pb.screenshot({ path: `${outDir}/hf-6-bots-match.png` });
+await pb.close();
 
 // LEVELS + ALL-DOWN END: a solo host picks a non-default level (Ashen Asylum,
 // 6 lanterns) and fills with bots. The match loads THAT level, and downing
@@ -464,6 +469,7 @@ await pe
 const allDownPhase = await pe.evaluate(() => window.__hushfall.phase?.());
 const allDownOk = allDownPhase === 'seeker-wins';
 await pe.screenshot({ path: `${outDir}/hf-7-level-end.png` });
+await pe.close();
 
 // NEW SEEKERS: the Weaver's ranged Web Bolt SLOWS the nearest hider…
 const pw = await phone('host=1&seeker=1&class=weaver&name=Web');
@@ -486,6 +492,7 @@ for (let attempt = 0; attempt < 2 && !weaverOk; attempt++) {
   }
   if (!weaverOk) await sleep(9_500); // ride out the ability cooldown, try once more
 }
+await pw.close();
 
 // …and the Trapper's snare roots whoever steps in.
 const pt = await phone('host=1&seeker=1&class=trapper&name=Trap');
