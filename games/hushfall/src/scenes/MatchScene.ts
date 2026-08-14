@@ -105,9 +105,10 @@ const NEST_MAX = 3;
 // Wraith: cloaks from every hider's sight, and at the hunt's opening drags
 // one random BOT hider over to the dark side (humans stay human).
 const CLOAK_SECONDS = 4;
-// Seekers only spot a Nester den when they're practically in the petals.
-const NEST_SEE_FULL = 130;
-const NEST_SEE_FADE = 220;
+// Seekers only spot a Nester den when they're REALLY close — standing in
+// the petals, basically. A patch a room away is just darkness to them.
+const NEST_SEE_FULL = 70;
+const NEST_SEE_FADE = 120;
 // Howler rework: Screech makes every hider leave a glowing trail on the
 // ground that only seekers can see — footprints in the dark.
 const TRAIL_SECONDS = 7;
