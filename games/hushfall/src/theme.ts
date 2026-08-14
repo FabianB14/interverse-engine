@@ -143,6 +143,15 @@ export function musicEnabled(): boolean {
   return musicOn;
 }
 
+// Sound effects (stingers) — separate switch from the ambient music bed.
+let sfxOn = true;
+export function setSfx(on: boolean): void {
+  sfxOn = on;
+}
+export function sfxEnabled(): boolean {
+  return sfxOn;
+}
+
 /** Terror level 0..1 (proximity to the Seeker) — drives heartbeat tempo/volume. */
 export function setTerror(level: number): void {
   heartRate = Math.max(0, Math.min(1, level));
@@ -179,6 +188,7 @@ type Sting = 'screech' | 'down' | 'rescue' | 'lantern' | 'gate' | 'escape' | 'bl
 
 /** One-shot stingers. */
 export function sting(kind: Sting): void {
+  if (!sfxOn) return;
   ensure();
   if (!ctx || !master) return;
   if (ctx.state === 'suspended') void ctx.resume();

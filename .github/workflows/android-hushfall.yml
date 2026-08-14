@@ -1,0 +1,90 @@
+# Packages Hushfall for Android as a Trusted Web Activity (TWA) — a thin
+# native wrapper around the SAME deployed PWA at interverseengine.com/hushfall.
+# Nothing about the web game changes (iPhone players are untouched); this only
+# produces an installable APK + a Play-Store-ready AAB.
+#
+# Manual for now (workflow_dispatch) — run it from the Actions tab and grab
+# the files from the run's artifacts.
+#
+# Signing: set the ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD /
+# ANDROID_KEY_PASSWORD repo secrets to sign with YOUR release key (required
+# for Play Store uploads — keep that keystore safe, it can never change).
+# Without secrets the run generates a throwaway key: the APK still installs
+# on any phone for testing, it just can't go on the Play Store.
+#
+# After the first signed build, copy the SHA-256 fingerprint this workflow
+# prints into site/.well-known/assetlinks.json and redeploy the site — that
+# is what makes Android trust the app and hide the browser bar. See
+# docs/android.md for the full walkthrough.
+name: Hushfall Android app
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install bubblewrap
+        run: npm install -g @bubblewrap/cli
+
+      - name: Prepare keystore
+        working-directory: games/hushfall/android
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > android.keystore
+            echo "Using the release keystore from repo secrets."
+          else
+            KS_PASS="hushfall-test"
+            KEY_PASS="hushfall-test"
+            keytool -genkeypair -v -keystore android.keystore -alias hushfall \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass "$KS_PASS" -keypass "$KEY_PASS" \
+              -dname "CN=Hushfall Test, OU=Interverse, O=Interverse, L=Test, S=Test, C=US"
+            echo "No signing secrets set — generated a TEST keystore (fine for sideloading, not for the Play Store)."
+          fi
+          echo "KS_PASS=${KS_PASS:-hushfall-test}" >> "$GITHUB_ENV"
+          echo "KEY_PASS=${KEY_PASS:-hushfall-test}" >> "$GITHUB_ENV"
+
+      - name: Build TWA (APK + AAB)
+        working-directory: games/hushfall/android
+        env:
+          BUBBLEWRAP_KEYSTORE_PASSWORD: ${{ env.KS_PASS }}
+          BUBBLEWRAP_KEY_PASSWORD: ${{ env.KEY_PASS }}
+        run: |
+          yes | bubblewrap doctor || true
+          bubblewrap update --skipVersionUpgrade || true
+          bubblewrap build \
+            --skipPwaValidation \
+            --signingKeyPath ./android.keystore \
+            --signingKeyAlias hushfall
+
+      - name: Print assetlinks fingerprint
+        working-directory: games/hushfall/android
+        run: |
+          echo "=== SHA-256 fingerprint for site/.well-known/assetlinks.json ==="
+          keytool -list -v -keystore android.keystore -alias hushfall \
+            -storepass "$KS_PASS" | grep 'SHA256:'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hushfall-android
+          path: |
+            games/hushfall/android/app-release-signed.apk
+            games/hushfall/android/app-release-bundle.aab
+          if-no-files-found: error

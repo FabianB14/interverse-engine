@@ -25,7 +25,9 @@ import { NIGHT, setDroneMood, setTerror, sting, updateHeartbeat } from '../theme
 import { accessoryView } from '../accessories.js';
 import { LEVELS, TILE_SIZE, legend, levelRows, painters } from '../map.js';
 import { makeText } from '../text.js';
-import { saveLastRoom, clearLastRoom } from '../store.js';
+import { saveLastRoom, clearLastRoom, recordPref, voicePref } from '../store.js';
+import { ScreenRecorder, recordingSupported } from '../recorder.js';
+import { ProximityVoice, isVcSignal, voiceSupported, type VcSignal } from '../voice.js';
 import { MenuScene } from './MenuScene.js';
 import type { RosterState } from './LobbyScene.js';
 
@@ -92,6 +94,14 @@ const TELEPORT_RADIUS = 70;
 const TELEPORT_CD = 30;
 const VANISH_SECONDS = 4.5;
 const DECOY_SECONDS = 8;
+// Siren's Dazzle: white-out the Seeker's screen — but only from close enough
+// that using it is a gamble.
+const BLIND_RANGE = 640;
+const BLIND_SECONDS = 2.6;
+// Nester's Pop-up Dens: conjured hiding spots. She can keep NEST_MAX alive;
+// the next one folds her oldest den away. A Seeker strike smashes a den for
+// good (unlike furniture, which recovers).
+const NEST_MAX = 3;
 const BOT_FLEE_DIST = 250;
 const BOT_ATTACK_EVERY = 1.2;
 
@@ -137,7 +147,9 @@ interface Fx {
     | 'teleport'
     | 'web'
     | 'dragged'
-    | 'hatch';
+    | 'hatch'
+    | 'blind'
+    | 'nest';
   x: number;
   y: number;
   id?: string;
@@ -168,6 +180,8 @@ interface Snap {
   slowed: string[];
   traps: { x: number; y: number }[];
   hatch: boolean;
+  /** Nester's conjured hiding spots (oldest first). */
+  nests: { x: number; y: number }[];
 }
 /** What each player DID this hunt — shown on the end screen and paid out. */
 interface Deeds {
@@ -275,6 +289,7 @@ export class MatchScene extends Scene {
   private slowUntil: Record<string, number> = {};
   private hatchOpen = false;
   private traps: { x: number; y: number }[] = [];
+  private nests: { x: number; y: number }[] = [];
   private decoys: { x: number; y: number; until: number }[] = [];
   private phase = 'hiding';
   private hideLeft = HIDE_PHASE_SECONDS;
@@ -296,6 +311,7 @@ export class MatchScene extends Scene {
   private snapTpCd = 0;
   private snapSlowed = new Set<string>();
   private snapHatch = false;
+  private snapNests: { x: number; y: number }[] = [];
 
   // bots (host-simulated)
   private botAtkCd = 0;
@@ -308,6 +324,16 @@ export class MatchScene extends Scene {
   private hideTarget: { x: number; y: number } | null = null;
   private hiddenAmt = 0; // 0..1 eased "tucked in" amount for my own blob
   private healEst = 0; // local estimate of my heal-while-hidden progress (secs)
+
+  // Siren blind (only ever fires on the Seeker's client)
+  private blindG: Graphics | null = null;
+  private blindLeft = 0;
+  private blindsTaken = 0;
+
+  // Opt-in extras (settings): proximity voice + screen recording
+  private voice: ProximityVoice | null = null;
+  private recorder = new ScreenRecorder();
+  private recordBtn: UIButton | null = null;
 
   // local ability
   private cooldownLeft = 0;
@@ -352,8 +378,10 @@ export class MatchScene extends Scene {
     this.abilityBtn?.position.set(W - 118, H - 130);
     this.attackBtn?.position.set(W - 118, H - 300);
     this.homeBtn?.position.set(W - 46, 44);
+    this.recordBtn?.position.set(W - 46, 118);
     this.codeHud?.position.set(W / 2, 40);
     this.blindfold?.position.set(W / 2, H / 2);
+    this.blindG?.position.set(W / 2, H / 2);
     this.hud?.position.set(16, 74);
     this.roleHud?.position.set(16, 110);
     this.partyPanel?.position.set(16, 150);
@@ -424,7 +452,21 @@ export class MatchScene extends Scene {
 
     this.unsub.push(
       session.onMessage((from, data) => {
-        if (this.live) this.onNet(from, data as Msg);
+        if (!this.live) return;
+        // Voice signaling rides the same session. The host relays
+        // joiner↔joiner packets (the room is a star, not a mesh).
+        if (isVcSignal(data)) {
+          if (session.isHost && data.vto !== session.id && data.vto !== '*') {
+            session.sendTo(data.vto, data);
+            return;
+          }
+          if (session.isHost && data.vto === '*' && from !== session.id) {
+            this.session.broadcast(data); // fan the hello out to everyone else
+          }
+          this.voice?.handleSignal(data);
+          return;
+        }
+        this.onNet(from, data as Msg);
       }),
       session.onPlayerLeave((id) => {
         if (!this.live) return;
@@ -455,6 +497,24 @@ export class MatchScene extends Scene {
         }),
       );
     }
+
+    // Proximity voice: only if THIS device opted in (Settings; default off).
+    if (voicePref() && voiceSupported()) {
+      const sendVc = (pkt: VcSignal): void => {
+        if (session.isHost) {
+          if (pkt.vto === '*') session.broadcast(pkt);
+          else session.sendTo(pkt.vto, pkt);
+        } else {
+          session.send(pkt); // the host relays it on
+        }
+      };
+      this.voice = new ProximityVoice(session.id, sendVc);
+      void this.voice.start().then((ok) => {
+        if (!ok && this.live) {
+          this.roleHud.text = '🎙️ voice chat off — mic unavailable or denied';
+        }
+      });
+    }
   }
 
   protected override onExit(): void {
@@ -464,6 +524,9 @@ export class MatchScene extends Scene {
     delete window.__hushfall;
     setTerror(0);
     setDroneMood(0); // back to the menu's ambience
+    this.voice?.stop();
+    this.voice = null;
+    this.recorder.stop(); // an in-flight clip still saves
   }
 
   // ------------------------------------------------------------- visuals
@@ -477,6 +540,7 @@ export class MatchScene extends Scene {
   private hatchView!: Graphics;
   private trapLayer!: Container;
   private trapViews: Graphics[] = [];
+  private nestViews: Graphics[] = [];
 
   private drawObjectives(): void {
     this.objectiveLayer = new Container();
@@ -664,6 +728,39 @@ export class MatchScene extends Scene {
     list.forEach((tr, i) => this.trapViews[i]?.position.set(tr.x, tr.y));
   }
 
+  /** Nester's pop-up dens — visible to EVERYONE (they're real cover), and
+   *  tappable like any hiding spot for hiders. */
+  private syncNests(list: { x: number; y: number }[]): void {
+    const changed =
+      list.length !== this.snapNests.length ||
+      list.some((n, i) => n.x !== this.snapNests[i]?.x || n.y !== this.snapNests[i]?.y);
+    this.snapNests = list.map((n) => ({ x: n.x, y: n.y }));
+    if (!changed) return;
+    while (this.nestViews.length > list.length) this.nestViews.pop()?.destroy();
+    while (this.nestViews.length < list.length) {
+      const g = new Graphics();
+      // A conjured blanket-den: soft violet tent with a shadowed doorway.
+      g.poly([-44, 30, 0, -46, 44, 30]).fill(0x4a3866);
+      g.poly([-44, 30, 0, -46, 44, 30]).stroke({ color: 0xd9b8ff, width: 3, alpha: 0.8 });
+      g.poly([-16, 30, 0, -6, 16, 30]).fill({ color: 0x120c1e, alpha: 0.92 });
+      g.circle(0, -46, 6).fill(0xd9b8ff);
+      g.circle(0, -46, 12).stroke({ color: 0xd9b8ff, width: 2, alpha: 0.4 });
+      if (!this.amSeeker) {
+        g.eventMode = 'static';
+        g.cursor = 'pointer';
+        g.hitArea = new Rectangle(-96, -96, 192, 192);
+        g.on('pointertap', () => {
+          const i = this.nestViews.indexOf(g);
+          const n = this.snapNests[i];
+          if (n) this.tapHide({ x: n.x, y: n.y });
+        });
+      }
+      this.trapLayer.addChild(g);
+      this.nestViews.push(g);
+    }
+    list.forEach((n, i) => this.nestViews[i]?.position.set(n.x, n.y));
+  }
+
   private makeBlob(id: string, isMe: boolean): { entity: Entity; body: Container } {
     const cls = classById(this.roster.classes[id]);
     const isSeeker = this.roster.roles[id] === 'seeker';
@@ -759,6 +856,29 @@ export class MatchScene extends Scene {
     });
     this.add(this.homeBtn, this.uiLayer);
 
+    // Screen-record button — only when enabled in Settings AND the browser
+    // can actually do it (feature-detected; older iPhones just never see it).
+    if (recordPref() && recordingSupported()) {
+      this.recordBtn = new UIButton('⏺', {
+        width: 64,
+        height: 64,
+        fontSize: 26,
+        fill: 0x1a1826,
+        textColor: NIGHT.blood,
+        onTap: () => {
+          if (this.recorder.recording) {
+            this.recorder.stop();
+            this.recordBtn?.setLabel('⏺');
+            this.roleHud.text = '🎬 clip saved to your downloads';
+          } else if (this.recorder.start(this.game.app.canvas)) {
+            this.recordBtn?.setLabel('⏹');
+            this.roleHud.text = '⏺ recording…';
+          }
+        },
+      });
+      this.add(this.recordBtn, this.uiLayer);
+    }
+
     const lvName = LEVELS[this.level]?.name ?? '';
     this.codeHud = makeText(`${this.session.code} · ${lvName}`, 24, { color: NIGHT.inkSoft, weight: 'bold' });
     this.uiLayer.addChild(this.codeHud);
@@ -803,6 +923,12 @@ export class MatchScene extends Scene {
       this.blindfold.addChild(line2);
       this.blindfold.visible = false;
       this.uiLayer.addChild(this.blindfold);
+      // Siren's Dazzle white-out — sits above everything, fades with time.
+      this.blindG = new Graphics();
+      this.blindG.rect(-4000, -4000, 8000, 8000).fill(0xffffff);
+      this.blindG.alpha = 0;
+      this.blindG.visible = false;
+      this.uiLayer.addChild(this.blindG);
     }
   }
 
@@ -892,6 +1018,7 @@ export class MatchScene extends Scene {
     this.snapSlowed = new Set(s.slowed ?? []);
     this.snapHatch = s.hatch ?? false;
     this.syncTraps(s.traps ?? []);
+    this.syncNests(s.nests ?? []);
     this.escaped = new Set(s.esc);
     this.out = new Set(s.out);
     this.phase = s.phase;
@@ -938,6 +1065,13 @@ export class MatchScene extends Scene {
         this.bustedUntil[spot] = this.t + BUST_SECONDS;
         const b = this.hidePts[spot]!;
         this.broadcastFx({ type: 'fx', kind: 'bust', x: b.x, y: b.y });
+        return;
+      }
+      // A conjured den doesn't recover — one strike tears it down for good.
+      const nest = this.nestAt(p.x, p.y);
+      if (nest >= 0) {
+        const n = this.nests.splice(nest, 1)[0]!;
+        this.broadcastFx({ type: 'fx', kind: 'bust', x: n.x, y: n.y });
         return;
       }
       this.deed(seekerId).down++;
@@ -1020,6 +1154,33 @@ export class MatchScene extends Scene {
         this.traps.push({ x, y });
         this.broadcastFx({ type: 'fx', kind: 'snare', x, y });
         break;
+      case 'blind': {
+        // Siren's Dazzle: white-out the Seeker's screen — if she's close
+        // enough. The fx carries the Seeker's id; only that client blanks.
+        if (from === this.seekerId) return;
+        const sp = this.hostPositions[this.seekerId];
+        if (sp && Math.hypot(sp.x - x, sp.y - y) < BLIND_RANGE) {
+          // A blinded bot Seeker forgets what it was doing.
+          if (this.seekerId.startsWith('bot')) {
+            this.botPaths.delete(this.seekerId);
+            this.botCd[this.seekerId] = Math.max(this.botCd[this.seekerId] ?? 0, this.t + BLIND_SECONDS);
+          }
+          this.broadcastFx({ type: 'fx', kind: 'blind', x: sp.x, y: sp.y, id: this.seekerId });
+        } else {
+          // Out of range — the flash fizzles at the Siren.
+          this.broadcastFx({ type: 'fx', kind: 'blind', x, y });
+        }
+        break;
+      }
+      case 'nest': {
+        // Nester's Pop-up Den: a conjured hiding spot right where she stands.
+        // Over the cap, her OLDEST den folds away (anyone inside loses cover).
+        if (from === this.seekerId) return;
+        this.nests.push({ x, y });
+        if (this.nests.length > NEST_MAX) this.nests.shift();
+        this.broadcastFx({ type: 'fx', kind: 'nest', x, y });
+        break;
+      }
       case 'freeze': {
         // Ice Snap: the Seeker is frozen in place for a beat — buy an escape.
         this.rootUntil[this.seekerId] = this.t + FREEZE_SECONDS;
@@ -1121,17 +1282,28 @@ export class MatchScene extends Scene {
     return -1;
   }
 
+  /** Host: which of the Nester's pop-up dens (if any) covers this position? */
+  private nestAt(x: number, y: number): number {
+    for (let i = 0; i < this.nests.length; i++) {
+      const n = this.nests[i]!;
+      if (Math.hypot(n.x - x, n.y - y) < HIDE_RADIUS) return i;
+    }
+    return -1;
+  }
+
   private isConcealed(id: string): boolean {
     const p = this.hostPositions[id];
     if (!p) return false;
-    return this.hideSpotAt(p.x, p.y) >= 0;
+    return this.hideSpotAt(p.x, p.y) >= 0 || this.nestAt(p.x, p.y) >= 0;
   }
 
   /** Am I (locally) tucked inside a hiding spot? Computed from my own position
    *  so the "hidden" feedback is instant, not a network round-trip away. */
   private amConcealedLocal(): boolean {
-    return this.hidePts.some(
-      (b, i) => !this.snapBusted.has(i) && Math.hypot(b.x - this.me.x, b.y - this.me.y) < HIDE_RADIUS,
+    return (
+      this.hidePts.some(
+        (b, i) => !this.snapBusted.has(i) && Math.hypot(b.x - this.me.x, b.y - this.me.y) < HIDE_RADIUS,
+      ) || this.snapNests.some((n) => Math.hypot(n.x - this.me.x, n.y - this.me.y) < HIDE_RADIUS)
     );
   }
 
@@ -1572,6 +1744,14 @@ export class MatchScene extends Scene {
     } else if (ability === 'dash' && seekerDist < BOT_FLEE_DIST) {
       fire();
       this.botBoost[id] = this.t + 1.1;
+    } else if (ability === 'blind' && seekerDist < 300) {
+      // Siren bot: dazzle the closing Seeker and slip away in the white-out.
+      fire();
+      this.hostAbility(id, 'blind', p.x, p.y);
+    } else if (ability === 'nest' && seekerDist < 220) {
+      // Nester bot: conjure cover right underfoot when cornered.
+      fire();
+      this.hostAbility(id, 'nest', p.x, p.y);
     } else if (ability === 'mend') {
       for (const did of Object.keys(this.down)) {
         const dp = this.hostPositions[did];
@@ -1650,6 +1830,18 @@ export class MatchScene extends Scene {
     this.t += dt;
     this.cooldownLeft = Math.max(0, this.cooldownLeft - dt);
     this.attackCd = Math.max(0, this.attackCd - dt);
+    // Dazzled: the white-out holds, then thins as sight returns.
+    if (this.blindG) {
+      this.blindLeft = Math.max(0, this.blindLeft - dt);
+      const frac = this.blindLeft / BLIND_SECONDS;
+      this.blindG.visible = frac > 0;
+      this.blindG.alpha = Math.min(1, frac * 1.6);
+    }
+    // Proximity voice: each peer's volume tracks in-game distance.
+    this.voice?.updateDistances((id) => {
+      const r = this.remotes.get(id);
+      return r ? Math.hypot(r.entity.x - this.me.x, r.entity.y - this.me.y) : null;
+    });
     const myCls = classById(this.roster.classes[this.session.id]);
 
     if (this.session.isHost) {
@@ -1985,6 +2177,7 @@ export class MatchScene extends Scene {
       slowed: Object.keys(this.slowUntil).filter((id) => (this.slowUntil[id] ?? 0) > this.t),
       traps: this.traps.map((tr) => ({ x: tr.x, y: tr.y })),
       hatch: this.hatchOpen,
+      nests: this.nests.map((n) => ({ x: n.x, y: n.y })),
     };
     this.session.broadcast(snap);
     // Host mirrors its own snap-derived view.
@@ -2003,6 +2196,7 @@ export class MatchScene extends Scene {
     this.snapSlowed = new Set(snap.slowed);
     this.snapHatch = this.hatchOpen;
     this.syncTraps(snap.traps);
+    this.syncNests(snap.nests);
     this.syncDecoys(snap.decoys);
     this.redrawObjectives();
   }
@@ -2284,6 +2478,31 @@ export class MatchScene extends Scene {
       case 'poof':
         g.circle(0, 0, 30).fill({ color: NIGHT.ghost, alpha: 0.4 });
         life = 0.4;
+        break;
+      case 'blind':
+        // Dazzle burst — pink starburst; the TARGETED Seeker's screen whites
+        // out (their client owns the overlay).
+        if (fx.id === this.session.id) {
+          this.blindLeft = BLIND_SECONDS;
+          this.blindsTaken += 1;
+          this.camera?.shake(10, 0.3);
+        }
+        for (let i = 0; i < 10; i++) {
+          const a = (i / 10) * Math.PI * 2;
+          g.moveTo(Math.cos(a) * 12, Math.sin(a) * 12)
+            .lineTo(Math.cos(a) * (i % 2 ? 40 : 64), Math.sin(a) * (i % 2 ? 40 : 64))
+            .stroke({ color: 0xffb6d5, width: 5, alpha: 0.9 });
+        }
+        g.circle(0, 0, 16).fill(0xfff2f8);
+        sting('screech');
+        life = 0.6;
+        break;
+      case 'nest':
+        // A den pops up — soft violet shimmer ring.
+        g.circle(0, 0, 48).stroke({ color: 0xd9b8ff, width: 6, alpha: 0.9 });
+        g.circle(0, 0, 26).stroke({ color: 0xd9b8ff, width: 3, alpha: 0.5 });
+        sting('lantern');
+        life = 0.5;
         break;
       case 'web': {
         // Web Bolt: strand from the Weaver to the webbed hider.
@@ -2737,6 +2956,10 @@ export class MatchScene extends Scene {
       amSlowed: () => this.snapSlowed.has(this.session.id),
       rootedCount: () => this.snapRooted.size,
       trapCount: () => this.traps.length,
+      nestCount: () => this.snapNests.length,
+      nestPos: (i: number) => this.snapNests[i] ?? null,
+      blindsTaken: () => this.blindsTaken,
+      amBlinded: () => this.blindLeft > 0,
       forceDownsTaken: (n: number) => {
         if (!this.session.isHost) return;
         for (const id of this.activeHiders()) this.downsTaken[id] = n;

@@ -424,6 +424,17 @@ export class LobbyScene extends Scene {
               if (this.isPublic !== on) this.togglePublic();
             },
             isPublic: () => this.isPublic,
+            setBotClass: (i: number, cls: string) => {
+              if (!this.roster.order.includes(`bot${i}`)) return;
+              this.roster.classes[`bot${i}`] = cls;
+              this.shareRoster();
+              this.refreshRoster();
+            },
+            setSeeker: (id: string) => {
+              this.setSeeker(id);
+              this.shareRoster();
+              this.refreshRoster();
+            },
           }
         : {}),
     };

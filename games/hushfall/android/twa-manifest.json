@@ -1,0 +1,39 @@
+{
+  "packageId": "com.interverse.hushfall",
+  "host": "interverseengine.com",
+  "name": "Hushfall",
+  "launcherName": "Hushfall",
+  "display": "fullscreen",
+  "themeColor": "#0b0a14",
+  "navigationColor": "#0b0a14",
+  "backgroundColor": "#0b0a14",
+  "enableNotifications": false,
+  "startUrl": "/hushfall/",
+  "iconUrl": "https://interverseengine.com/hushfall/icon-512.png",
+  "maskableIconUrl": "https://interverseengine.com/hushfall/icon-512.png",
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": {
+    "path": "./android.keystore",
+    "alias": "hushfall"
+  },
+  "appVersionName": "2.1",
+  "appVersionCode": 1,
+  "shortcuts": [],
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://interverseengine.com/hushfall/manifest.webmanifest",
+  "fallbackType": "customtabs",
+  "features": {},
+  "alphaDependencies": {
+    "enabled": false
+  },
+  "enableSiteSettingsShortcut": false,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "fullScopeUrl": "https://interverseengine.com/hushfall/",
+  "minSdkVersion": 21,
+  "orientation": "any",
+  "fingerprints": [],
+  "additionalTrustedOrigins": [],
+  "retainedBundles": [],
+  "appVersion": "2.1"
+}

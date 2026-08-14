@@ -92,6 +92,12 @@ export interface HushfallDebug {
   amSlowed?: () => boolean;
   rootedCount?: () => number;
   trapCount?: () => number;
+  nestCount?: () => number;
+  nestPos?: (i: number) => { x: number; y: number } | null;
+  blindsTaken?: () => number;
+  amBlinded?: () => boolean;
+  setBotClass?: (i: number, cls: string) => void;
+  setSeeker?: (id: string) => void;
   forceDownsTaken?: (n: number) => void;
   setPublic?: (on: boolean) => void;
   isPublic?: () => boolean;

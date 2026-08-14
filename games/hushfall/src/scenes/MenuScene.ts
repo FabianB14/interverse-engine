@@ -5,9 +5,21 @@ import { host, join, listRooms } from '@interverse/net';
 import { UIButton } from '@interverse/ui';
 import { GAME_TAG, resolveRelayUrl } from '../config.js';
 import { GAME_TITLE, GAME_VERSION } from '../game.js';
-import { NIGHT, setMusic, sting } from '../theme.js';
+import { NIGHT, setMusic, setSfx, sting } from '../theme.js';
 import { makeText, playerName } from '../text.js';
-import { clearLastRoom, lastRoom, musicPref, savedName, setMusicPref } from '../store.js';
+import {
+  clearLastRoom,
+  lastRoom,
+  musicPref,
+  recordPref,
+  savedName,
+  setMusicPref,
+  setRecordPref,
+  setSfxPref,
+  setVoicePref,
+  sfxPref,
+  voicePref,
+} from '../store.js';
 import { JoinScene } from './JoinScene.js';
 import { LobbyScene } from './LobbyScene.js';
 import '../debug.js';
@@ -33,6 +45,12 @@ export class MenuScene extends Scene {
   private moon!: Graphics;
   private eyes!: Graphics;
   private versionT: Text | null = null;
+  private settings: Container | null = null;
+  private settingsBg!: Graphics;
+  private settingsTitle!: Text;
+  private settingsNote!: Text;
+  private settingsRows: UIButton[] = [];
+  private settingsClose!: UIButton;
   private t = 0;
 
   protected override onResize(w: number, h: number): void {
@@ -54,6 +72,7 @@ export class MenuScene extends Scene {
       this.soundBtn?.position.set(52, H - 52);
       this.versionT?.position.set(W - 40, H - 24);
       this.layoutFinder(W, H);
+      this.layoutSettings(W, H);
       return;
     }
     this.moon.position.set(W * 0.78, H * 0.14);
@@ -68,6 +87,84 @@ export class MenuScene extends Scene {
     this.soundBtn?.position.set(52, H - 52);
     this.versionT?.position.set(W - 40, H - 24);
     this.layoutFinder(W, H);
+    this.layoutSettings(W, H);
+  }
+
+  /** The Settings overlay: every comfort switch in one place. Each row is a
+   *  toggle that relabels in place; prefs persist in the save. */
+  private buildSettings(): void {
+    this.settings = new Container();
+    this.settings.visible = false;
+    this.settingsBg = new Graphics();
+    this.settings.addChild(this.settingsBg);
+    this.settingsBg.eventMode = 'static'; // swallow taps behind the panel
+    this.settingsTitle = makeText('⚙️ SETTINGS', 44, { color: NIGHT.ink });
+    this.settings.addChild(this.settingsTitle);
+    const mkToggle = (label: (on: boolean) => string, get: () => boolean, set: (on: boolean) => void): UIButton => {
+      const btn = new UIButton(label(get()), {
+        width: 480,
+        height: 76,
+        fontSize: 24,
+        fill: 0x221e34,
+        textColor: NIGHT.ink,
+        onTap: () => {
+          const on = !get();
+          set(on);
+          btn.setLabel(label(on));
+          sting('blip');
+        },
+      });
+      this.settings?.addChild(btn);
+      this.settingsRows.push(btn);
+      return btn;
+    };
+    const onOff = (on: boolean): string => (on ? 'ON' : 'OFF');
+    mkToggle((on) => `🎵 Music: ${onOff(on)}`, musicPref, (on) => {
+      setMusicPref(on);
+      setMusic(on);
+    });
+    mkToggle((on) => `🔔 Sound effects: ${onOff(on)}`, sfxPref, (on) => {
+      setSfxPref(on);
+      setSfx(on);
+    });
+    mkToggle((on) => `🎙️ Proximity voice chat: ${onOff(on)}`, voicePref, setVoicePref);
+    mkToggle((on) => `⏺ Screen record button: ${onOff(on)}`, recordPref, setRecordPref);
+    this.settingsNote = makeText(
+      'Voice chat is off unless YOU turn it on — it asks for the mic when a\nhunt starts, and only players nearby in the manor can hear you.',
+      18,
+      { color: NIGHT.inkSoft, weight: 'bold', wrapWidth: 620 },
+    );
+    this.settings.addChild(this.settingsNote);
+    this.settingsClose = new UIButton('CLOSE', {
+      width: 240,
+      height: 76,
+      fontSize: 26,
+      fill: NIGHT.violet,
+      textColor: 0x140f1e,
+      onTap: () => {
+        sting('blip');
+        if (this.settings) this.settings.visible = false;
+      },
+    });
+    this.settings.addChild(this.settingsClose);
+    this.stage.addChild(this.settings);
+  }
+
+  private openSettings(): void {
+    if (!this.settings) return;
+    this.settings.visible = true;
+    this.layoutSettings(this.game.viewWidth, this.game.viewHeight);
+  }
+
+  private layoutSettings(W: number, H: number): void {
+    if (!this.settings) return;
+    this.settingsBg.clear();
+    this.settingsBg.rect(0, 0, W, H).fill({ color: 0x0a0812, alpha: 0.97 });
+    this.settingsTitle.position.set(W / 2, 84);
+    this.settingsRows.forEach((row, i) => row.position.set(W / 2, 190 + i * 96));
+    const below = 190 + this.settingsRows.length * 96;
+    this.settingsNote.position.set(W / 2, below + 10);
+    this.settingsClose.position.set(W / 2, Math.min(H - 76, below + 120));
   }
 
   private layoutFinder(W: number, H: number): void {
@@ -176,23 +273,22 @@ export class MenuScene extends Scene {
     this.status = makeText('', 28, { color: NIGHT.blood, weight: 'bold', wrapWidth: 620 });
     this.stage.addChild(this.status);
 
-    // The atmosphere toggle the save always had a slot for.
+    // Settings gear — music/sfx/voice/recording all live in one overlay.
     setMusic(musicPref());
-    this.soundBtn = new UIButton(musicPref() ? '🔊' : '🔇', {
+    setSfx(sfxPref());
+    this.soundBtn = new UIButton('⚙️', {
       width: 64,
       height: 64,
       fontSize: 28,
       fill: 0x1a1826,
       textColor: NIGHT.ink,
       onTap: () => {
-        const on = !musicPref();
-        setMusicPref(on);
-        setMusic(on);
-        this.soundBtn?.setLabel(on ? '🔊' : '🔇');
         sting('blip');
+        this.openSettings();
       },
     });
     this.add(this.soundBtn);
+    this.buildSettings();
 
     // Build tag: lets players (and bug reports) confirm which deploy they run.
     this.versionT = makeText(GAME_VERSION, 18, { color: NIGHT.inkSoft });

@@ -201,6 +201,36 @@ function webMark(r: number): Container {
   return (c.addChild(g), c);
 }
 
+function bowMark(r: number, color: number): Container {
+  // Siren: a big soft bow perched on the head.
+  const c = new Container();
+  const g = new Graphics();
+  const cy = -r * 0.82;
+  g.poly([0, cy, -r * 0.52, cy - r * 0.3, -r * 0.52, cy + r * 0.3]).fill(color);
+  g.poly([0, cy, r * 0.52, cy - r * 0.3, r * 0.52, cy + r * 0.3]).fill(color);
+  g.poly([0, cy, -r * 0.4, cy - r * 0.2, -r * 0.4, cy + r * 0.2]).fill(darken(color, 0.18));
+  g.poly([0, cy, r * 0.4, cy - r * 0.2, r * 0.4, cy + r * 0.2]).fill(darken(color, 0.18));
+  g.circle(0, cy, r * 0.14).fill(lighten(color, 0.25));
+  return (c.addChild(g), c);
+}
+
+function nestMark(r: number, color: number): Container {
+  // Nester: a twiggy little nest resting on the head.
+  const c = new Container();
+  const g = new Graphics();
+  const cy = -r * 0.78;
+  g.ellipse(0, cy, r * 0.5, r * 0.24).fill(darken(color, 0.35));
+  g.ellipse(0, cy - r * 0.06, r * 0.4, r * 0.16).fill({ color: 0x140f1e, alpha: 0.8 });
+  for (let i = 0; i < 5; i++) {
+    const a = -0.5 + (i / 4) * (Math.PI + 1);
+    g.moveTo(Math.cos(a) * r * 0.44, cy + Math.sin(a) * r * 0.18)
+      .lineTo(Math.cos(a) * r * 0.62, cy + Math.sin(a) * r * 0.3 - r * 0.08)
+      .stroke({ color: darken(color, 0.2), width: Math.max(2, r * 0.05) });
+  }
+  g.circle(0, cy - r * 0.12, r * 0.1).fill(color); // one round egg peeking out
+  return (c.addChild(g), c);
+}
+
 function trapMark(r: number): Container {
   // Trapper: a toothy jaw-trap badge.
   const c = new Container();
@@ -323,11 +353,12 @@ export const HIDERS: ClassDef[] = [
     role: 'hider',
     name: 'Sprinter',
     emoji: '👟',
-    color: 0x6fc3ff,
+    // Dark navy — so Sprinter, Frost and Ghost stop reading as triplets.
+    color: 0x2f55b8,
     speed: 286,
     blurb: 'Fastest legs alive. Dashes clear.',
     ability: { id: 'dash', name: 'Dash', emoji: '💨', cooldown: 8, blurb: 'Burst of speed.' },
-    accessory: (r) => capMark(r, 0x6fc3ff),
+    accessory: (r) => capMark(r, 0x2f55b8),
   },
   {
     id: 'medic',
@@ -351,7 +382,8 @@ export const HIDERS: ClassDef[] = [
     role: 'hider',
     name: 'Ghost',
     emoji: '👻',
-    color: NIGHT.ghost,
+    // Sheet-white, like a proper ghost.
+    color: 0xf4f2fa,
     speed: 264,
     blurb: 'Fades from sight when it counts.',
     ability: {
@@ -430,6 +462,40 @@ export const HIDERS: ClassDef[] = [
       blurb: 'Freeze the Seeker for a moment.',
     },
     accessory: snowMark,
+  },
+  {
+    id: 'siren',
+    role: 'hider',
+    name: 'Siren',
+    emoji: '🎀',
+    color: 0xffb6d5,
+    speed: 264,
+    blurb: 'Her dazzling flash steals the Seeker’s sight.',
+    ability: {
+      id: 'blind',
+      name: 'Dazzle',
+      emoji: '💥',
+      cooldown: 22,
+      blurb: 'Blind a nearby Seeker — white-out their screen for a moment.',
+    },
+    accessory: (r) => bowMark(r, 0xffb6d5),
+  },
+  {
+    id: 'nester',
+    role: 'hider',
+    name: 'Nester',
+    emoji: '🪺',
+    color: 0xd9b8ff,
+    speed: 262,
+    blurb: 'Weaves pop-up dens to duck into anywhere.',
+    ability: {
+      id: 'nest',
+      name: 'Pop-up Den',
+      emoji: '🛖',
+      cooldown: 18,
+      blurb: 'Conjure a hiding spot where you stand (max 3 — the oldest fades).',
+    },
+    accessory: (r) => nestMark(r, 0xd9b8ff),
   },
 ];
 

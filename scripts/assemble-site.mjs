@@ -11,6 +11,9 @@ rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 
 cpSync('site/index.html', `${out}/index.html`);
+// Android app links (TWA): proves to Android that the Hushfall app and this
+// site are the same publisher, which hides the browser bar in the app.
+cpSync('site/.well-known', `${out}/.well-known`, { recursive: true });
 
 const apps = [
   ['games/hello/dist', 'blob-tap'],

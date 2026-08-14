@@ -35,6 +35,31 @@ export function setMusicPref(on: boolean): void {
   store.set('music', on);
 }
 
+/** Sound effects (stingers) — separate from the ambient music bed. */
+export function sfxPref(): boolean {
+  return store.get<boolean>('sfx', true);
+}
+export function setSfxPref(on: boolean): void {
+  store.set('sfx', on);
+}
+
+/** Proximity voice chat. OFF by default (kid-safe, spec §8.6) — voice only
+ *  ever starts when THIS device opted in, and it asks for the mic then. */
+export function voicePref(): boolean {
+  return store.get<boolean>('voice', false);
+}
+export function setVoicePref(on: boolean): void {
+  store.set('voice', on);
+}
+
+/** Show the in-match screen-record button (hidden by default). */
+export function recordPref(): boolean {
+  return store.get<boolean>('record', false);
+}
+export function setRecordPref(on: boolean): void {
+  store.set('record', on);
+}
+
 // Rejoin support: remember the last room a joiner was in.
 export const LAST_ROOM_KEY = 'lastRoom';
 export function saveLastRoom(code: string): void {

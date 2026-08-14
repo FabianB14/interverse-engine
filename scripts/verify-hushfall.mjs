@@ -517,6 +517,47 @@ for (let i = 0; i < 12 && !rootedSeen; i++) {
   rootedSeen = await pt.evaluate(() => window.__hushfall.rootedCount?.() ?? 0);
 }
 const trapOk = trapLaid >= 1 && rootedSeen >= 1;
+await pt.close();
+
+// NEW HIDERS: the Siren bot Dazzles a Seeker who gets too close — the
+// Seeker's OWN client whites out (blindsTaken counts overlay hits).
+const ps = await phone('host=1&seeker=1&class=warden&name=Bright');
+await ps.waitForFunction(() => window.__hushfall?.scene() === 'lobby', null, { timeout: 12_000 });
+await ps.evaluate(() => window.__hushfall.setBots?.(1));
+await sleep(300);
+await ps.evaluate(() => window.__hushfall.setBotClass?.(0, 'siren'));
+await ps.evaluate(() => window.__hushfall.start());
+await ps.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { timeout: 12_000 });
+await ps.evaluate(() => window.__hushfall.skipHide());
+await ps.waitForFunction(() => window.__hushfall.phase() === 'playing', null, { timeout: 15_000 });
+await sleep(400);
+let blindOk = false;
+for (let i = 0; i < 20 && !blindOk; i++) {
+  const bp = await ps.evaluate(() => window.__hushfall.botPos());
+  if (bp) await ps.evaluate((p) => window.__hushfall.warp(p.x + 110, p.y), bp);
+  await sleep(600);
+  blindOk = (await ps.evaluate(() => window.__hushfall.blindsTaken?.() ?? 0)) >= 1;
+}
+await ps.close();
+
+// …and the Nester (a HIDER host, bot Seeker) conjures a pop-up den right
+// underfoot that conceals like real furniture.
+const pn = await phone('host=1&class=nester&name=Nest');
+await pn.waitForFunction(() => window.__hushfall?.scene() === 'lobby', null, { timeout: 12_000 });
+await pn.evaluate(() => window.__hushfall.setBots?.(1));
+await sleep(300);
+await pn.evaluate(() => window.__hushfall.setSeeker?.('bot0'));
+await pn.evaluate(() => window.__hushfall.start());
+await pn.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { timeout: 12_000 });
+await pn.evaluate(() => window.__hushfall.skipHide());
+await pn.waitForFunction(() => window.__hushfall.phase() === 'playing', null, { timeout: 15_000 });
+await sleep(400);
+await pn.evaluate(() => window.__hushfall.ability()); // den appears underfoot
+await sleep(800);
+const nestCount = await pn.evaluate(() => window.__hushfall.nestCount?.() ?? 0);
+const nestConcealed = await pn.evaluate(() => window.__hushfall.amConcealed?.() ?? false);
+const nestOk = nestCount >= 1 && nestConcealed;
+await pn.close();
 
 await browser.close();
 relay.kill();
@@ -546,6 +587,8 @@ const ok =
   dragRescueOk &&
   weaverOk &&
   trapOk &&
+  blindOk &&
+  nestOk &&
   freezeOk &&
   round2Ok &&
   botOk &&
@@ -610,6 +653,10 @@ console.log(
       trapOk,
       trapLaid,
       rootedSeen,
+      blindOk,
+      nestOk,
+      nestCount,
+      nestConcealed,
       gateOnP2,
       escapedHost,
       phaseHost,
