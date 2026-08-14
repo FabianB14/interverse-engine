@@ -25,7 +25,7 @@ import { NIGHT, setDroneMood, setTerror, sting, updateHeartbeat } from '../theme
 import { accessoryView } from '../accessories.js';
 import { LEVELS, TILE_SIZE, legend, levelRows, painters } from '../map.js';
 import { makeText } from '../text.js';
-import { saveLastRoom, clearLastRoom, recordPref, voicePref } from '../store.js';
+import { addClassXp, saveLastRoom, clearLastRoom, recordPref, voicePref } from '../store.js';
 import { ScreenRecorder, recordingSupported } from '../recorder.js';
 import { ProximityVoice, isVcSignal, voiceSupported, type VcSignal } from '../voice.js';
 import { MenuScene } from './MenuScene.js';
@@ -3569,6 +3569,9 @@ export class MatchScene extends Scene {
       reward = (this.out.has(this.session.id) ? 8 : 15) + (my ? my.lit * 8 + my.res * 10 : 0);
     }
     verium.add(reward);
+    // Class XP: playing levels the class (levels gate its passives).
+    const xpGain = 50 + (iWon ? 50 : 0);
+    addClassXp(classById(this.roster.classes[this.session.id]).id, xpGain);
     sting(iWon ? 'escape' : 'lose');
 
     this.endRoot = new Container();
@@ -3635,7 +3638,7 @@ export class MatchScene extends Scene {
 
     const lv = LEVELS[this.level] ?? LEVELS[0]!;
     const sub = makeText(
-      `${lv.name} — ${this.escaped.size} escaped · ${this.out.size} lost   +${reward} ⬡`,
+      `${lv.name} — ${this.escaped.size} escaped · ${this.out.size} lost   +${reward} ⬡ · +${xpGain} XP`,
       24,
       { color: NIGHT.ink, weight: 'bold', wrapWidth: 660 },
     );

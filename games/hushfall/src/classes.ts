@@ -1051,6 +1051,29 @@ export function upgradesFor(clsId: string): UpgradeDef[] {
   return UPGRADES[clsId] ?? [];
 }
 
+// ---- class levels --------------------------------------------------------
+// Playing a class earns it XP (win or lose). Levels gate the passives:
+// tier 1 unlocks at Lv 2, tier 2 at Lv 3 — you must PLAY a class before
+// you can spend Verium on it.
+
+export function levelFromXp(xp: number): number {
+  if (xp >= 250) return 3 + Math.floor((xp - 250) / 250);
+  if (xp >= 100) return 2;
+  return 1;
+}
+
+/** Total XP needed to reach the NEXT level from this one. */
+export function xpForLevel(level: number): number {
+  if (level <= 1) return 100;
+  if (level === 2) return 250;
+  return 250 + (level - 2) * 250;
+}
+
+/** The class level required before this passive can be bought. */
+export function requiredLevel(up: UpgradeDef): number {
+  return up.cost >= 300 ? 3 : 2;
+}
+
 /** A class's live numbers once the player's owned passives are applied.
  *  Hider speed is HARD-CAPPED below the slowest seeker. */
 export function statsFor(

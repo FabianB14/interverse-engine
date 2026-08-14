@@ -23,6 +23,17 @@ export function savedAcc(): number {
   return store.get<number>('acc', 0);
 }
 
+/** Class XP: playing a class levels it, and levels gate its passives. */
+export function classXp(clsId: string): number {
+  return store.get<Record<string, number>>('classXp', {})[clsId] ?? 0;
+}
+export function addClassXp(clsId: string, n: number): number {
+  const all = store.get<Record<string, number>>('classXp', {});
+  all[clsId] = (all[clsId] ?? 0) + n;
+  store.set('classXp', all);
+  return all[clsId];
+}
+
 /** Passive upgrades bought with Verium (upgrade ids, across all classes). */
 export function ownedUpgrades(): string[] {
   return store.get<string[]>('upgrades', []);

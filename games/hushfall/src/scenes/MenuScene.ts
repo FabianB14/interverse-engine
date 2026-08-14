@@ -5,12 +5,21 @@ import { host, join, listRooms } from '@interverse/net';
 import { UIButton } from '@interverse/ui';
 import { GAME_TAG, resolveRelayUrl } from '../config.js';
 import { GAME_TITLE, GAME_VERSION } from '../game.js';
-import { HIDERS, SEEKERS, statsFor, upgradesFor } from '../classes.js';
+import {
+  HIDERS,
+  SEEKERS,
+  levelFromXp,
+  requiredLevel,
+  statsFor,
+  upgradesFor,
+  xpForLevel,
+} from '../classes.js';
 import type { ClassDef } from '../classes.js';
 import { NIGHT, setMusic, setSfx, sting } from '../theme.js';
 import { makeText, playerName } from '../text.js';
 import {
   addUpgrade,
+  classXp,
   clearLastRoom,
   lastRoom,
   musicPref,
@@ -198,12 +207,13 @@ export class MenuScene extends Scene {
     bg.eventMode = 'static';
     root.addChild(bg);
     const bal = makeText(`⬡ ${verium.balance()}`, 26, { color: NIGHT.ghost, weight: '800' });
-    bal.position.set(W - 70, 40);
+    bal.position.set(W - 160, 44);
     root.addChild(bal);
-    const closeBtn = new UIButton('CLOSE', {
-      width: 200,
-      height: 70,
-      fontSize: 24,
+    // Close lives in the TOP corner — it can never sit on the content.
+    const closeBtn = new UIButton('✕', {
+      width: 64,
+      height: 64,
+      fontSize: 26,
       fill: NIGHT.violet,
       textColor: 0x140f1e,
       onTap: () => {
@@ -211,7 +221,7 @@ export class MenuScene extends Scene {
         root.visible = false;
       },
     });
-    closeBtn.position.set(W / 2, H - 60);
+    closeBtn.position.set(W - 56, 44);
     root.addChild(closeBtn);
 
     const sel = this.classesSel
@@ -257,6 +267,8 @@ export class MenuScene extends Scene {
     // ---- detail page -----------------------------------------------
     const owned = ownedUpgrades();
     const live = statsFor(sel, owned);
+    const xp = classXp(sel.id);
+    const lvl = levelFromXp(xp);
     const backBtn = new UIButton('‹ BACK', {
       width: 150,
       height: 60,
@@ -271,6 +283,12 @@ export class MenuScene extends Scene {
     });
     backBtn.position.set(96, 44);
     root.addChild(backBtn);
+    // Everything below scales to fit short screens, so nothing can ever
+    // slide under the corner buttons.
+    const body = new Container();
+    root.addChild(body);
+    const rootAddChild = root.addChild.bind(root);
+    root.addChild = ((child: Container) => body.addChild(child)) as typeof root.addChild;
     const preview = new Container();
     const char = blobCharacter({ radius: 54, color: sel.color, seed: 9, shadow: false });
     char.body.addChild(sel.accessory(54));
@@ -286,11 +304,18 @@ export class MenuScene extends Scene {
     });
     role.position.set(W / 2, 306);
     root.addChild(role);
+    const lvlLine = makeText(
+      `⭐ Lv ${lvl} · ${xp}/${xpForLevel(lvl)} XP — play this class to level it`,
+      19,
+      { color: NIGHT.lantern, weight: '800' },
+    );
+    lvlLine.position.set(W / 2, 336);
+    root.addChild(lvlLine);
     const blurb = makeText(sel.blurb, 22, { color: NIGHT.inkSoft, weight: 'bold', wrapWidth: 620 });
-    blurb.position.set(W / 2, 344);
+    blurb.position.set(W / 2, 372);
     root.addChild(blurb);
     // Stats: speed bar + durability hearts (LIVE — owned passives applied).
-    const statTop = 396;
+    const statTop = 424;
     const speedLbl = makeText(`🏃 SPEED ${live.speed}`, 22, { color: NIGHT.ink, weight: '800' });
     speedLbl.position.set(W / 2 - 160, statTop);
     root.addChild(speedLbl);
@@ -316,35 +341,44 @@ export class MenuScene extends Scene {
     upgradesFor(sel.id).forEach((up, i) => {
       const y = statTop + 170 + i * 108;
       const has = owned.includes(up.id);
+      const need = requiredLevel(up);
+      const lockedByLvl = !has && lvl < need;
       const txt = makeText(`${up.emoji} ${up.name} — ${up.blurb}`, 20, {
-        color: has ? NIGHT.gate : NIGHT.ink,
+        color: has ? NIGHT.gate : lockedByLvl ? NIGHT.inkSoft : NIGHT.ink,
         weight: 'bold',
         wrapWidth: 440,
       });
       txt.position.set(W / 2 - 90, y);
       root.addChild(txt);
-      const buy = new UIButton(has ? '✓ OWNED' : `BUY ${up.cost}⬡`, {
-        width: 170,
-        height: 64,
-        fontSize: 20,
-        fill: has ? 0x221e34 : NIGHT.gate,
-        textColor: has ? NIGHT.gate : 0x0c1a12,
-        onTap: () => {
-          if (has) return;
-          if (verium.spend(up.cost)) {
-            addUpgrade(up.id);
-            sting('gate');
-          } else {
-            sting('lose');
-          }
-          this.renderClasses();
+      const buy = new UIButton(
+        has ? '✓ OWNED' : lockedByLvl ? `🔒 Lv ${need}` : `BUY ${up.cost}⬡`,
+        {
+          width: 170,
+          height: 64,
+          fontSize: 20,
+          fill: has || lockedByLvl ? 0x221e34 : NIGHT.gate,
+          textColor: has ? NIGHT.gate : lockedByLvl ? NIGHT.inkSoft : 0x0c1a12,
+          onTap: () => {
+            if (has) return;
+            if (lockedByLvl) {
+              sting('lose');
+              return;
+            }
+            if (verium.spend(up.cost)) {
+              addUpgrade(up.id);
+              sting('gate');
+            } else {
+              sting('lose');
+            }
+            this.renderClasses();
+          },
         },
-      });
+      );
       buy.position.set(W / 2 + 240, y);
       root.addChild(buy);
     });
     const note = makeText(
-      'Passives are always-on once owned. Earn ⬡ Verium by playing hunts.',
+      'Play a class to level it — Lv 2 unlocks the first passive, Lv 3 the second.\nPassives are always-on once owned. Earn ⬡ Verium by playing hunts.',
       17,
       {
         color: NIGHT.inkSoft,
@@ -352,8 +386,18 @@ export class MenuScene extends Scene {
         wrapWidth: 640,
       },
     );
-    note.position.set(W / 2, statTop + 396);
+    note.position.set(W / 2, statTop + 404);
     root.addChild(note);
+    // Restore root.addChild and shrink the body if the screen is short —
+    // detail content can never slide under the corner buttons again.
+    root.addChild = rootAddChild;
+    const contentBottom = statTop + 450;
+    const scale = Math.min(1, (H - 100) / contentBottom);
+    if (scale < 1) {
+      body.pivot.set(W / 2, 90);
+      body.position.set(W / 2, 96);
+      body.scale.set(scale);
+    }
   }
 
   private layoutSettings(W: number, H: number): void {

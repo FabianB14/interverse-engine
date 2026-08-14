@@ -142,7 +142,8 @@ export class LobbyScene extends Scene {
       const rx = W * 0.72; // right column centre
       this.veriumChip.position.set(80, 34);
       this.nameBtn?.position.set(96, 82);
-      this.publicBtn?.position.set(96, 134);
+      // Top-right, clear of the room-count line under the code.
+      this.publicBtn?.position.set(W - 110, 40);
       this.codeLabel.position.set(lx, 40);
       this.codeText.position.set(lx, 86);
       this.countText.position.set(lx, 130);
@@ -188,7 +189,8 @@ export class LobbyScene extends Scene {
     const top = 508;
     this.veriumChip.position.set(96, 44);
     this.nameBtn?.position.set(112, 92);
-    this.publicBtn?.position.set(117, 144);
+    // Top-right — it used to sit ON the "N in the room" line under the code.
+    this.publicBtn?.position.set(W - 110, 92);
     this.codeLabel.position.set(W / 2, 52);
     this.codeText.position.set(W / 2, 112);
     this.countText.position.set(W / 2, 170);
