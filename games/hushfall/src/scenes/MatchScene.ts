@@ -360,6 +360,7 @@ export class MatchScene extends Scene {
   private voice: ProximityVoice | null = null;
   private recorder = new ScreenRecorder();
   private recordBtn: UIButton | null = null;
+  private recDot: Graphics | null = null; // pulsing "REC" light while recording
 
   // Lookout's Sense tracking arrow (client-local)
   private senseUntil = 0;
@@ -409,6 +410,7 @@ export class MatchScene extends Scene {
     this.attackBtn?.position.set(W - 118, H - 300);
     this.homeBtn?.position.set(W - 46, 44);
     this.recordBtn?.position.set(W - 46, 118);
+    this.recDot?.position.set(W - 22, 94);
     this.codeHud?.position.set(W / 2, 40);
     this.blindfold?.position.set(W / 2, H / 2);
     this.blindG?.position.set(W / 2, H / 2);
@@ -996,6 +998,13 @@ export class MatchScene extends Scene {
         },
       });
       this.add(this.recordBtn, this.uiLayer);
+      // The classic REC light: a red dot on the button's shoulder that
+      // pulses while a clip is rolling — no guessing whether it's live.
+      this.recDot = new Graphics();
+      this.recDot.circle(0, 0, 8).fill(0xff2d40);
+      this.recDot.circle(0, 0, 8).stroke({ color: 0xffffff, width: 2, alpha: 0.9 });
+      this.recDot.visible = false;
+      this.uiLayer.addChild(this.recDot);
     }
 
     const lvName = LEVELS[this.level]?.name ?? '';
@@ -2053,6 +2062,11 @@ export class MatchScene extends Scene {
       const r = this.remotes.get(id);
       return r ? Math.hypot(r.entity.x - this.me.x, r.entity.y - this.me.y) : null;
     });
+    // REC light: pulse while a clip is rolling.
+    if (this.recDot) {
+      this.recDot.visible = this.recorder.recording;
+      if (this.recDot.visible) this.recDot.alpha = 0.55 + 0.45 * Math.sin(this.t * 6);
+    }
     // Seekers only see a Nester den when right on top of it — the flower
     // patch fades in as they close, so cover reads as scenery from afar.
     if (this.amSeeker) {
