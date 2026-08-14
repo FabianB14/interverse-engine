@@ -217,10 +217,17 @@ const abilityOk = revealAfter > revealBefore && usesP2 >= 1;
 
 // VISION: the Seeker's Third Eye widens their sight for a few seconds.
 const visBefore = await p1.evaluate(() => window.__hushfall.visionActive?.() ?? false);
+const eyeRevealsBefore = await p1.evaluate(() => window.__hushfall.revealSeen?.() ?? 0);
 await p1.evaluate(() => window.__hushfall.ability());
 await sleep(300);
 const visAfter = await p1.evaluate(() => window.__hushfall.visionActive?.() ?? false);
-const visionOk = visBefore === false && visAfter === true;
+// Third Eye now also REVEALS every hider — the Warden must see reveal rings.
+let eyeRevealsAfter = eyeRevealsBefore;
+for (let i = 0; i < 6 && eyeRevealsAfter <= eyeRevealsBefore; i++) {
+  await sleep(300);
+  eyeRevealsAfter = await p1.evaluate(() => window.__hushfall.revealSeen?.() ?? 0);
+}
+const visionOk = visBefore === false && visAfter === true && eyeRevealsAfter > eyeRevealsBefore;
 
 // DOWN: one hit no longer downs a hider — the first strike INJURES (they stay
 // up), the second DOWNS. First move the target into OPEN ground: room centers

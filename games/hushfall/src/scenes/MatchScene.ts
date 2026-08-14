@@ -336,6 +336,8 @@ export class MatchScene extends Scene {
   private snapConv: string[] = [];
   private snapTrail = 0;
   private trailDotAt = 0; // client throttle for trail dot spawning
+  private trailDots: { x: number; y: number; born: number }[] = [];
+  private trailGlow: Graphics | null = null;
 
   // bots (host-simulated)
   private botAtkCd = 0;
@@ -837,7 +839,8 @@ export class MatchScene extends Scene {
 
   /** Howler trail: while it lasts, SEEKERS see fading footprints where every
    *  hider has been — dropped from each snap, throttled so long trails don't
-   *  flood the scene. They sit under the fog: found, not given. */
+   *  flood the scene. They render ABOVE the fog (drawTrailGlow), so a trail
+   *  points the way even when the hider is far across the manor. */
   private dropTrailDots(players: Record<string, { x: number; y: number }>): void {
     if (this.snapTrail <= 0 || !this.amSeeker) return;
     if (this.t - this.trailDotAt < 0.18) return;
@@ -845,16 +848,32 @@ export class MatchScene extends Scene {
     for (const [id, p] of Object.entries(players)) {
       if (this.isSeekerRole(id)) continue;
       if (this.snapDown[id] !== undefined || this.out.has(id) || this.escaped.has(id)) continue;
-      const e = new Entity();
-      e.position.set(p.x, p.y);
-      const g = new Graphics();
-      g.circle(0, 0, 8).fill({ color: NIGHT.lantern, alpha: 0.4 });
-      g.circle(0, 0, 3.5).fill({ color: 0xfff2c8, alpha: 0.8 });
-      e.addChild(g);
-      e.addBehavior(new Tween(e, { alpha: 0 }, TRAIL_DOT_LIFE, { ease: easings.outQuad }));
-      e.addBehavior(new Timer(TRAIL_DOT_LIFE, () => this.remove(e)));
-      this.add(e, this.trapLayer);
+      this.trailDots.push({ x: p.x, y: p.y, born: this.t });
     }
+    if (this.trailDots.length > 500) this.trailDots.splice(0, this.trailDots.length - 500);
+  }
+
+  /** Redraw the trail every frame in screen space, over the fog. */
+  private drawTrailGlow(): void {
+    if (!this.trailGlow) return;
+    const g = this.trailGlow;
+    g.clear();
+    if (!this.trailDots.length) return;
+    const W = this.game.viewWidth;
+    const H = this.game.viewHeight;
+    let alive = 0;
+    for (const d of this.trailDots) {
+      const age = this.t - d.born;
+      if (age >= TRAIL_DOT_LIFE) continue;
+      this.trailDots[alive++] = d;
+      const sx = d.x + this.mapLayer.x;
+      const sy = d.y + this.mapLayer.y;
+      if (sx < -20 || sy < -20 || sx > W + 20 || sy > H + 20) continue;
+      const fade = 1 - age / TRAIL_DOT_LIFE;
+      g.circle(sx, sy, 8).fill({ color: NIGHT.lantern, alpha: 0.35 * fade });
+      g.circle(sx, sy, 3.5).fill({ color: 0xfff2c8, alpha: 0.8 * fade });
+    }
+    this.trailDots.length = alive;
   }
 
   private makeBlob(id: string, isMe: boolean): { entity: Entity; body: Container } {
@@ -911,6 +930,10 @@ export class MatchScene extends Scene {
     // Light pools render ABOVE the fog so lit lanterns glow through it.
     this.lightGlow = new Graphics();
     this.uiLayer.addChild(this.lightGlow);
+    // Howler trail: drawn ABOVE the fog in screen space, so the footprints
+    // glow across the whole screen no matter how far the hider ran.
+    this.trailGlow = new Graphics();
+    this.uiLayer.addChild(this.trailGlow);
     this.terrorVignette = new Graphics();
     this.uiLayer.addChild(this.terrorVignette);
     this.compass = new Graphics();
@@ -1203,6 +1226,20 @@ export class MatchScene extends Scene {
 
   private hostAbility(from: string, id: string, x: number, y: number): void {
     switch (id) {
+      case 'thirdeye': {
+        // Warden: the unblinking eye sees EVERYTHING for a moment — every
+        // living hider, even tucked in furniture or vanished. Rings mark
+        // them for a few seconds (and warn them they've been seen).
+        if (!this.isSeekerRole(from)) return;
+        const pts: { x: number; y: number }[] = [];
+        for (const hid of this.activeHiders()) {
+          if (this.down[hid] !== undefined) continue;
+          const hp = this.hostPositions[hid];
+          if (hp) pts.push({ x: hp.x, y: hp.y });
+        }
+        this.reveal(pts, NIGHT.violet, 5);
+        break;
+      }
       case 'screech': {
         if (!this.isSeekerRole(from)) return;
         // The scream leaves footprints: every hider trails glowing residue
@@ -2182,6 +2219,7 @@ export class MatchScene extends Scene {
       this.fog.scale.set(this.fogBaseScale * next);
     }
     this.drawLightPools();
+    this.drawTrailGlow();
     this.updateBlindfold();
   }
 
@@ -2896,7 +2934,9 @@ export class MatchScene extends Scene {
       // Client-local: widen your own vision for a while.
       this.visionBoostUntil = this.t + VISION_BOOST_SECS;
       sting('lantern');
-      return;
+      // The Warden's eye does more than squint: it PIERCES — the host also
+      // reveals every hider's position (fall through to the host dispatch).
+      if (id === 'flashlight') return;
     }
     // Lookout: the reveal pulses come from the host, but the tracking arrow
     // is client-local — it follows the Seeker live for a while.
