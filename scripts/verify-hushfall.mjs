@@ -159,8 +159,12 @@ const hideCount = await p1.evaluate(() => window.__hushfall.hideCount?.() ?? 0);
 const hp = await p3.evaluate(() => window.__hushfall.hidePos?.(0));
 const hiddenBefore = (await p1.evaluate(() => window.__hushfall.hiddenIds?.() ?? [])).length;
 await p3.evaluate((h) => window.__hushfall.warp(h.x, h.y), hp);
-await sleep(500);
-const hiddenAfter = (await p1.evaluate(() => window.__hushfall.hiddenIds?.() ?? [])).length;
+// p3's 10Hz position stream has to reach the host — retry, don't sample once.
+let hiddenAfter = 0;
+for (let i = 0; i < 8 && hiddenAfter < 1; i++) {
+  await sleep(500);
+  hiddenAfter = (await p1.evaluate(() => window.__hushfall.hiddenIds?.() ?? [])).length;
+}
 await p3.evaluate((p) => window.__hushfall.warp(p.x, p.y), lp); // back onto the lantern
 await sleep(200);
 const hideOk = hideCount >= 4 && hiddenBefore === 0 && hiddenAfter >= 1;
@@ -559,6 +563,67 @@ const nestConcealed = await pn.evaluate(() => window.__hushfall.amConcealed?.() 
 const nestOk = nestCount >= 1 && nestConcealed;
 await pn.close();
 
+// TWIN: the seeker hunts as two — an Echo bot joins at start, and Trade
+// Places swaps your position with it.
+const p2w = await phone('host=1&seeker=1&class=twin&name=Twiny');
+await p2w.waitForFunction(() => window.__hushfall?.scene() === 'lobby', null, { timeout: 12_000 });
+await p2w.evaluate(() => window.__hushfall.setBots?.(1));
+await p2w.evaluate(() => window.__hushfall.start());
+await p2w.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { timeout: 12_000 });
+await p2w.evaluate(() => window.__hushfall.skipHide());
+await p2w.waitForFunction(() => window.__hushfall.phase() === 'playing', null, { timeout: 15_000 });
+const twinSeekers = await p2w.evaluate(() => window.__hushfall.seekerCount?.() ?? 0);
+await sleep(4000); // let the echo wander off the shared spawn
+const posBefore = await p2w.evaluate(() => window.__hushfall.myPos());
+await p2w.evaluate(() => window.__hushfall.ability()); // Trade Places
+await sleep(600);
+const posAfter = await p2w.evaluate(() => window.__hushfall.myPos());
+const swapDist = Math.hypot(posAfter.x - posBefore.x, posAfter.y - posBefore.y);
+const twinOk = twinSeekers === 2 && swapDist > 200;
+await p2w.close();
+
+// WRAITH: at the hunt's opening one bot hider turns to the dark side, and
+// Cloak hides the Wraith from every hider's sight.
+const pv = await phone('host=1&seeker=1&class=wraith&name=Wisp');
+await pv.waitForFunction(() => window.__hushfall?.scene() === 'lobby', null, { timeout: 12_000 });
+await pv.evaluate(() => window.__hushfall.setBots?.(2));
+await pv.evaluate(() => window.__hushfall.start());
+await pv.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { timeout: 12_000 });
+await pv.evaluate(() => window.__hushfall.skipHide());
+await pv.waitForFunction(() => window.__hushfall.phase() === 'playing', null, { timeout: 15_000 });
+let wraithConverted = 0;
+for (let i = 0; i < 10 && wraithConverted < 1; i++) {
+  await sleep(500);
+  wraithConverted = await pv.evaluate(() => window.__hushfall.convertedCount?.() ?? 0);
+}
+const wraithSeekers = await pv.evaluate(() => window.__hushfall.seekerCount?.() ?? 0);
+let cloaked = false;
+for (let i = 0; i < 6 && !cloaked; i++) {
+  await pv.evaluate(() => window.__hushfall.ability()); // Cloak
+  await sleep(800);
+  cloaked = await pv.evaluate(() => window.__hushfall.amCloaked?.() ?? false);
+}
+const wraithOk = wraithConverted >= 1 && wraithSeekers >= 2 && cloaked;
+await pv.close();
+
+// HOWLER rework: Screech starts the glowing hider TRAIL window.
+const ph = await phone('host=1&seeker=1&class=howler&name=Howl');
+await ph.waitForFunction(() => window.__hushfall?.scene() === 'lobby', null, { timeout: 12_000 });
+await ph.evaluate(() => window.__hushfall.setBots?.(1));
+await ph.evaluate(() => window.__hushfall.start());
+await ph.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { timeout: 12_000 });
+await ph.evaluate(() => window.__hushfall.skipHide());
+await ph.waitForFunction(() => window.__hushfall.phase() === 'playing', null, { timeout: 15_000 });
+await sleep(300);
+let trailLeft = 0;
+for (let i = 0; i < 8 && trailLeft <= 3; i++) {
+  await ph.evaluate(() => window.__hushfall.ability()); // Screech
+  await sleep(800);
+  trailLeft = await ph.evaluate(() => window.__hushfall.trailLeft?.() ?? 0);
+}
+const trailOk = trailLeft > 3;
+await ph.close();
+
 await browser.close();
 relay.kill();
 
@@ -589,6 +654,9 @@ const ok =
   trapOk &&
   blindOk &&
   nestOk &&
+  twinOk &&
+  wraithOk &&
+  trailOk &&
   freezeOk &&
   round2Ok &&
   botOk &&
@@ -657,6 +725,15 @@ console.log(
       nestOk,
       nestCount,
       nestConcealed,
+      twinOk,
+      twinSeekers,
+      swapDist,
+      wraithOk,
+      wraithConverted,
+      wraithSeekers,
+      cloaked,
+      trailOk,
+      trailLeft,
       gateOnP2,
       escapedHost,
       phaseHost,

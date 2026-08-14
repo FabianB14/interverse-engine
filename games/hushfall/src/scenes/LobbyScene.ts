@@ -761,6 +761,10 @@ export class LobbyScene extends Scene {
       this.add(btn);
       this.classBtns.push(btn);
     }
+    // Rebuilding buttons re-adds them on TOP of the stage — if the wardrobe
+    // overlay is open (rotation re-grids mid-shopping), lift it back above
+    // so class buttons never cover the cosmetics.
+    if (this.wardRoot?.visible) this.stage.addChild(this.wardRoot);
   }
 
   private pickClass(id: string, silent = false): void {
@@ -823,6 +827,20 @@ export class LobbyScene extends Scene {
     }
     for (const id of this.roster.order) {
       this.roster.classes[id] ??= defaultClassFor(this.roster.roles[id] ?? 'hider');
+    }
+    // The Twin hunts as TWO: a bot echo joins the seeker side for this hunt.
+    // Its 'bot' prefix drops it straight into the bot sim, and riding the
+    // shared roster means every client renders it with zero extra plumbing.
+    this.roster.order = this.roster.order.filter((id) => id !== 'botecho');
+    delete this.roster.roles['botecho'];
+    delete this.roster.classes['botecho'];
+    delete this.roster.names['botecho'];
+    const seekCls = this.roster.seekerId ? this.roster.classes[this.roster.seekerId] : undefined;
+    if (seekCls === 'twin') {
+      this.roster.order.push('botecho');
+      this.roster.names['botecho'] = 'Echo';
+      this.roster.roles['botecho'] = 'seeker';
+      this.roster.classes['botecho'] = 'twin';
     }
     // Fresh lantern scatter every hunt — same walls, new lamp spots.
     this.roster.salt = Math.floor(Math.random() * 0x7fffffff);
@@ -964,8 +982,14 @@ export class LobbyScene extends Scene {
           : '🩸 BE THE SEEKER',
     );
     for (const old of this.rosterRow.removeChildren()) old.destroy({ children: true });
+    // A full room can't fit one long row (8 chips = 812 units — it used to
+    // spill under the class panel). Wrap into rows of 4 and shrink a touch
+    // when crowded so everyone stays visible.
     const gap = 116;
-    const total = (n - 1) * gap;
+    const cols = Math.min(4, Math.max(1, n));
+    const rowH = 124;
+    const rows = Math.ceil(n / cols);
+    this.rosterRow.scale.set(n > 4 ? 0.75 : 1);
     this.roster.order.forEach((id, i) => {
       const cls = classById(this.roster.classes[id]);
       const isSeeker = this.roster.roles[id] === 'seeker';
@@ -980,7 +1004,9 @@ export class LobbyScene extends Scene {
       char.body.addChild(cls.accessory(32));
       char.body.addChild(accessoryView(this.roster.accs?.[id], 32));
       chip.addBehavior(new Wobble({ target: char.body, amount: 0.05, speed: 2 + i * 0.2 }));
-      chip.position.set(-total / 2 + i * gap, 0);
+      const row = Math.floor(i / cols);
+      const inRow = Math.min(cols, n - row * cols);
+      chip.position.set((i - row * cols - (inRow - 1) / 2) * gap, (row - (rows - 1) / 2) * rowH);
       const nm = makeText(this.roster.names[id] ?? '?', 18, { color: NIGHT.ink, weight: 'bold' });
       nm.position.set(0, 52);
       chip.addChild(nm);

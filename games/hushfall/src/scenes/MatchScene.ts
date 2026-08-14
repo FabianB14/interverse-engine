@@ -102,6 +102,20 @@ const BLIND_SECONDS = 2.6;
 // the next one folds her oldest den away. A Seeker strike smashes a den for
 // good (unlike furniture, which recovers).
 const NEST_MAX = 3;
+// Wraith: cloaks from every hider's sight, and at the hunt's opening drags
+// one random BOT hider over to the dark side (humans stay human).
+const CLOAK_SECONDS = 4;
+// Seekers only spot a Nester den when they're practically in the petals.
+const NEST_SEE_FULL = 130;
+const NEST_SEE_FADE = 220;
+// Howler rework: Screech makes every hider leave a glowing trail on the
+// ground that only seekers can see — footprints in the dark.
+const TRAIL_SECONDS = 7;
+const TRAIL_DOT_LIFE = 3.2;
+// Medic's Mend now reaches across the room.
+const MEND_RANGE = 520;
+// Lookout's Sense: besides the reveal, an arrow TRACKS the Seeker live.
+const SENSE_ARROW_SECS = 8;
 const BOT_FLEE_DIST = 250;
 const BOT_ATTACK_EVERY = 1.2;
 
@@ -149,7 +163,8 @@ interface Fx {
     | 'dragged'
     | 'hatch'
     | 'blind'
-    | 'nest';
+    | 'nest'
+    | 'convert';
   x: number;
   y: number;
   id?: string;
@@ -182,6 +197,10 @@ interface Snap {
   hatch: boolean;
   /** Nester's conjured hiding spots (oldest first). */
   nests: { x: number; y: number }[];
+  /** Hiders the Wraith turned to the dark side (now seekers). */
+  conv: string[];
+  /** Howler trail seconds remaining (seekers see hider footprints). */
+  trail: number;
 }
 /** What each player DID this hunt — shown on the end screen and paid out. */
 interface Deeds {
@@ -290,6 +309,8 @@ export class MatchScene extends Scene {
   private hatchOpen = false;
   private traps: { x: number; y: number }[] = [];
   private nests: { x: number; y: number }[] = [];
+  private converted: string[] = []; // hiders the Wraith turned (host truth)
+  private trailUntil = 0; // Howler trail active until this game-time
   private decoys: { x: number; y: number; until: number }[] = [];
   private phase = 'hiding';
   private hideLeft = HIDE_PHASE_SECONDS;
@@ -312,6 +333,9 @@ export class MatchScene extends Scene {
   private snapSlowed = new Set<string>();
   private snapHatch = false;
   private snapNests: { x: number; y: number }[] = [];
+  private snapConv: string[] = [];
+  private snapTrail = 0;
+  private trailDotAt = 0; // client throttle for trail dot spawning
 
   // bots (host-simulated)
   private botAtkCd = 0;
@@ -334,6 +358,10 @@ export class MatchScene extends Scene {
   private voice: ProximityVoice | null = null;
   private recorder = new ScreenRecorder();
   private recordBtn: UIButton | null = null;
+
+  // Lookout's Sense tracking arrow (client-local)
+  private senseUntil = 0;
+  private senseArrowG: Graphics | null = null;
 
   // local ability
   private cooldownLeft = 0;
@@ -728,8 +756,10 @@ export class MatchScene extends Scene {
     list.forEach((tr, i) => this.trapViews[i]?.position.set(tr.x, tr.y));
   }
 
-  /** Nester's pop-up dens — visible to EVERYONE (they're real cover), and
-   *  tappable like any hiding spot for hiders. */
+  /** Nester's pop-up dens — drawn as innocent flower patches. Hiders see
+   *  them plainly (real cover, tappable like furniture); SEEKERS don't see
+   *  them at all unless they're practically standing in the petals (the
+   *  per-frame alpha lives in onUpdate). */
   private syncNests(list: { x: number; y: number }[]): void {
     const changed =
       list.length !== this.snapNests.length ||
@@ -739,12 +769,23 @@ export class MatchScene extends Scene {
     while (this.nestViews.length > list.length) this.nestViews.pop()?.destroy();
     while (this.nestViews.length < list.length) {
       const g = new Graphics();
-      // A conjured blanket-den: soft violet tent with a shadowed doorway.
-      g.poly([-44, 30, 0, -46, 44, 30]).fill(0x4a3866);
-      g.poly([-44, 30, 0, -46, 44, 30]).stroke({ color: 0xd9b8ff, width: 3, alpha: 0.8 });
-      g.poly([-16, 30, 0, -6, 16, 30]).fill({ color: 0x120c1e, alpha: 0.92 });
-      g.circle(0, -46, 6).fill(0xd9b8ff);
-      g.circle(0, -46, 12).stroke({ color: 0xd9b8ff, width: 2, alpha: 0.4 });
+      // A patch of moon-flowers: grassy tuft, lavender blossoms, one pink.
+      g.ellipse(0, 14, 42, 20).fill({ color: NIGHT.leafDark, alpha: 0.9 });
+      g.ellipse(0, 10, 34, 15).fill({ color: NIGHT.leaf, alpha: 0.85 });
+      const blooms: [number, number, number, number][] = [
+        [-22, 2, 8, 0xd9b8ff],
+        [14, -6, 9, 0xd9b8ff],
+        [-2, 12, 7, 0xffb6d5],
+        [26, 10, 7, 0xd9b8ff],
+        [-12, -10, 6, 0xcfa8ff],
+      ];
+      for (const [bx, by, br, col] of blooms) {
+        for (let pt = 0; pt < 5; pt++) {
+          const a = (pt / 5) * Math.PI * 2;
+          g.circle(bx + Math.cos(a) * br * 0.8, by + Math.sin(a) * br * 0.8, br * 0.55).fill(col);
+        }
+        g.circle(bx, by, br * 0.4).fill(NIGHT.lantern);
+      }
       if (!this.amSeeker) {
         g.eventMode = 'static';
         g.cursor = 'pointer';
@@ -754,11 +795,66 @@ export class MatchScene extends Scene {
           const n = this.snapNests[i];
           if (n) this.tapHide({ x: n.x, y: n.y });
         });
+      } else {
+        g.alpha = 0; // invisible to seekers until they're on top of it
       }
       this.trapLayer.addChild(g);
       this.nestViews.push(g);
     }
     list.forEach((n, i) => this.nestViews[i]?.position.set(n.x, n.y));
+  }
+
+  /** The Wraith turned these hiders — flip their role locally, rebuild their
+   *  blob as a seeker, and refresh the party panel. Idempotent per id. */
+  private applyConversions(conv: string[]): void {
+    let changed = false;
+    for (const id of conv) {
+      if (this.snapConv.includes(id)) continue; // processed ids, NOT role —
+      // on the host the role flipped in the sim already, but the blob
+      // rebuild and party refresh still have to happen exactly once.
+      this.snapConv.push(id);
+      this.roster.roles[id] = 'seeker';
+      changed = true;
+      const r = this.remotes.get(id);
+      if (r) {
+        // Read the position BEFORE destroying — a removed entity's transform
+        // is gone.
+        const keepX = r.entity.x;
+        const keepY = r.entity.y;
+        this.remove(r.entity);
+        this.remotes.delete(id);
+        this.spawnRemote(id); // rebuilt with the seeker look
+        const back = this.remotes.get(id);
+        if (back) {
+          back.entity.position.set(keepX, keepY);
+          back.targetX = r.targetX;
+          back.targetY = r.targetY;
+        }
+      }
+    }
+    if (changed) this.buildParty();
+  }
+
+  /** Howler trail: while it lasts, SEEKERS see fading footprints where every
+   *  hider has been — dropped from each snap, throttled so long trails don't
+   *  flood the scene. They sit under the fog: found, not given. */
+  private dropTrailDots(players: Record<string, { x: number; y: number }>): void {
+    if (this.snapTrail <= 0 || !this.amSeeker) return;
+    if (this.t - this.trailDotAt < 0.18) return;
+    this.trailDotAt = this.t;
+    for (const [id, p] of Object.entries(players)) {
+      if (this.isSeekerRole(id)) continue;
+      if (this.snapDown[id] !== undefined || this.out.has(id) || this.escaped.has(id)) continue;
+      const e = new Entity();
+      e.position.set(p.x, p.y);
+      const g = new Graphics();
+      g.circle(0, 0, 8).fill({ color: NIGHT.lantern, alpha: 0.4 });
+      g.circle(0, 0, 3.5).fill({ color: 0xfff2c8, alpha: 0.8 });
+      e.addChild(g);
+      e.addBehavior(new Tween(e, { alpha: 0 }, TRAIL_DOT_LIFE, { ease: easings.outQuad }));
+      e.addBehavior(new Timer(TRAIL_DOT_LIFE, () => this.remove(e)));
+      this.add(e, this.trapLayer);
+    }
   }
 
   private makeBlob(id: string, isMe: boolean): { entity: Entity; body: Container } {
@@ -1017,6 +1113,9 @@ export class MatchScene extends Scene {
     this.snapTpCd = s.tp ?? 0;
     this.snapSlowed = new Set(s.slowed ?? []);
     this.snapHatch = s.hatch ?? false;
+    this.snapTrail = s.trail ?? 0;
+    this.applyConversions(s.conv ?? []);
+    this.dropTrailDots(s.players);
     this.syncTraps(s.traps ?? []);
     this.syncNests(s.nests ?? []);
     this.escaped = new Set(s.esc);
@@ -1030,7 +1129,7 @@ export class MatchScene extends Scene {
   // ---------------------------------------------------------- host sim
 
   private hostAttack(seekerId: string): void {
-    if (seekerId !== this.seekerId || this.phase !== 'playing') return;
+    if (!this.isSeekerRole(seekerId) || this.phase !== 'playing') return;
     const sp = this.hostPositions[seekerId];
     if (!sp) return;
     let target: string | null = null;
@@ -1105,7 +1204,10 @@ export class MatchScene extends Scene {
   private hostAbility(from: string, id: string, x: number, y: number): void {
     switch (id) {
       case 'screech': {
-        if (from !== this.seekerId) return;
+        if (!this.isSeekerRole(from)) return;
+        // The scream leaves footprints: every hider trails glowing residue
+        // on the ground for a while — visible only to seekers.
+        this.trailUntil = this.t + TRAIL_SECONDS;
         const pts = this.visibleHiderPoints();
         this.reveal(pts, NIGHT.blood, 4);
         this.broadcastFx({ type: 'fx', kind: 'screech', x, y });
@@ -1113,7 +1215,7 @@ export class MatchScene extends Scene {
       }
       case 'web': {
         // Weaver: a ranged bolt that SLOWS the nearest visible hider.
-        if (from !== this.seekerId) return;
+        if (!this.isSeekerRole(from)) return;
         let tid: string | null = null;
         let bd = WEB_RANGE;
         for (const hid of this.activeHiders()) {
@@ -1145,8 +1247,10 @@ export class MatchScene extends Scene {
       }
       case 'sense': {
         const pts = this.lanternPts.filter((_, i) => (this.lant[i] ?? 0) < 1);
-        const sp = this.hostPositions[this.seekerId];
-        if (sp) pts.push({ x: sp.x, y: sp.y });
+        for (const sid of this.seekerIds()) {
+          const sp = this.hostPositions[sid];
+          if (sp) pts.push({ x: sp.x, y: sp.y });
+        }
         this.reveal(pts, NIGHT.lantern, 6);
         break;
       }
@@ -1155,17 +1259,17 @@ export class MatchScene extends Scene {
         this.broadcastFx({ type: 'fx', kind: 'snare', x, y });
         break;
       case 'blind': {
-        // Siren's Dazzle: white-out the Seeker's screen — if she's close
-        // enough. The fx carries the Seeker's id; only that client blanks.
-        if (from === this.seekerId) return;
-        const sp = this.hostPositions[this.seekerId];
-        if (sp && Math.hypot(sp.x - x, sp.y - y) < BLIND_RANGE) {
+        // Siren's Dazzle: white-out the NEAREST Seeker's screen — if she's
+        // close enough. The fx carries that Seeker's id; only they blank.
+        if (this.isSeekerRole(from)) return;
+        const near = this.nearestSeeker(x, y);
+        if (near && near.d < BLIND_RANGE) {
           // A blinded bot Seeker forgets what it was doing.
-          if (this.seekerId.startsWith('bot')) {
-            this.botPaths.delete(this.seekerId);
-            this.botCd[this.seekerId] = Math.max(this.botCd[this.seekerId] ?? 0, this.t + BLIND_SECONDS);
+          if (near.id.startsWith('bot')) {
+            this.botPaths.delete(near.id);
+            this.botCd[near.id] = Math.max(this.botCd[near.id] ?? 0, this.t + BLIND_SECONDS);
           }
-          this.broadcastFx({ type: 'fx', kind: 'blind', x: sp.x, y: sp.y, id: this.seekerId });
+          this.broadcastFx({ type: 'fx', kind: 'blind', x: near.p.x, y: near.p.y, id: near.id });
         } else {
           // Out of range — the flash fizzles at the Siren.
           this.broadcastFx({ type: 'fx', kind: 'blind', x, y });
@@ -1175,17 +1279,19 @@ export class MatchScene extends Scene {
       case 'nest': {
         // Nester's Pop-up Den: a conjured hiding spot right where she stands.
         // Over the cap, her OLDEST den folds away (anyone inside loses cover).
-        if (from === this.seekerId) return;
+        if (this.isSeekerRole(from)) return;
         this.nests.push({ x, y });
         if (this.nests.length > NEST_MAX) this.nests.shift();
         this.broadcastFx({ type: 'fx', kind: 'nest', x, y });
         break;
       }
       case 'freeze': {
-        // Ice Snap: the Seeker is frozen in place for a beat — buy an escape.
-        this.rootUntil[this.seekerId] = this.t + FREEZE_SECONDS;
-        const sp = this.hostPositions[this.seekerId];
-        if (sp) this.broadcastFx({ type: 'fx', kind: 'freeze', x: sp.x, y: sp.y, id: this.seekerId });
+        // Ice Snap: the NEAREST Seeker is frozen for a beat — buy an escape.
+        const near = this.nearestSeeker(x, y);
+        if (near) {
+          this.rootUntil[near.id] = this.t + FREEZE_SECONDS;
+          this.broadcastFx({ type: 'fx', kind: 'freeze', x: near.p.x, y: near.p.y, id: near.id });
+        }
         break;
       }
       case 'vanish':
@@ -1208,17 +1314,43 @@ export class MatchScene extends Scene {
           }
         });
         if (li >= 0) {
+          // One surge finishes the lantern outright — the Engineer's whole
+          // job is objectives, so the button should feel like it.
           const before = this.lant[li] ?? 0;
-          this.lant[li] = Math.min(1, before + 0.5);
-          if (before < 1 && this.lant[li]! >= 1) this.deed(from).lit++;
+          this.lant[li] = 1;
+          if (before < 1) this.deed(from).lit++;
           const p = this.lanternPts[li]!;
           this.broadcastFx({ type: 'fx', kind: 'lantern', x: p.x, y: p.y });
         }
         break;
       }
+      case 'swap': {
+        // Twin: trade places with your echo — appear where they least expect.
+        if (!this.isSeekerRole(from)) return;
+        const other = this.seekerIds().find((sid) => sid !== from);
+        const mine = this.hostPositions[from];
+        const theirs = other ? this.hostPositions[other] : undefined;
+        if (!other || !mine || !theirs) return;
+        const mx = mine.x;
+        const my = mine.y;
+        this.hostPositions[from] = { x: theirs.x, y: theirs.y };
+        this.hostPositions[other] = { x: mx, y: my };
+        this.botPaths.delete(other); // the echo re-plans from its new spot
+        // Both ends flash; each HUMAN in the swap warps via the fx tx/ty.
+        this.broadcastFx({ type: 'fx', kind: 'teleport', x: mx, y: my, id: from, tx: theirs.x, ty: theirs.y });
+        this.broadcastFx({ type: 'fx', kind: 'teleport', x: theirs.x, y: theirs.y, id: other, tx: mx, ty: my });
+        break;
+      }
+      case 'cloak': {
+        // Wraith: fade from every hider's sight for a few seconds.
+        if (!this.isSeekerRole(from)) return;
+        this.vanishUntil[from] = this.t + CLOAK_SECONDS;
+        this.broadcastFx({ type: 'fx', kind: 'poof', x, y, id: from });
+        break;
+      }
       case 'mend': {
         let tid: string | null = null;
-        let bd = 200;
+        let bd = MEND_RANGE; // a medic shouldn't have to hug the body
         for (const did of Object.keys(this.down)) {
           const p = this.hostPositions[did];
           if (!p) continue;
@@ -1244,6 +1376,28 @@ export class MatchScene extends Scene {
     return this.roster.order.filter(
       (id) => this.roster.roles[id] !== 'seeker' && !this.escaped.has(id) && !this.out.has(id),
     );
+  }
+
+  /** More than one blob can hunt now (Twin's echo, Wraith conversions). */
+  private isSeekerRole(id: string): boolean {
+    return this.roster.roles[id] === 'seeker';
+  }
+
+  private seekerIds(): string[] {
+    return this.roster.order.filter((id) => this.isSeekerRole(id));
+  }
+
+  /** Host: the seeker closest to (x, y) — for abilities that target "the
+   *  Seeker" now that there can be several. */
+  private nearestSeeker(x: number, y: number): { id: string; p: { x: number; y: number }; d: number } | null {
+    let best: { id: string; p: { x: number; y: number }; d: number } | null = null;
+    for (const sid of this.seekerIds()) {
+      const p = this.hostPositions[sid];
+      if (!p) continue;
+      const d = Math.hypot(p.x - x, p.y - y);
+      if (!best || d < best.d) best = { id: sid, p, d };
+    }
+    return best;
   }
 
   /** Host: a random walkable tile far from (fx,fy) — where the dark drops a
@@ -1320,6 +1474,22 @@ export class MatchScene extends Scene {
         this.phase = 'playing';
         const sp = this.hostPositions[this.seekerId];
         this.broadcastFx({ type: 'fx', kind: 'release', x: sp?.x ?? 0, y: sp?.y ?? 0 });
+        // Wraith's opening curse: one random BOT hider is dragged to the
+        // dark side (humans stay human) — suddenly the hunt has two hunters.
+        const wraith = this.seekerIds().some((sid) => classById(this.roster.classes[sid]).id === 'wraith');
+        if (wraith) {
+          const pool = this.activeHiders().filter((id) => id.startsWith('bot') && this.down[id] === undefined);
+          const pick = pool[Math.floor(Math.random() * pool.length)];
+          if (pick) {
+            this.converted.push(pick);
+            this.roster.roles[pick] = 'seeker';
+            this.hurt.delete(pick);
+            delete this.healProg[pick];
+            this.botPaths.delete(pick);
+            const pp = this.hostPositions[pick];
+            if (pp) this.broadcastFx({ type: 'fx', kind: 'convert', x: pp.x, y: pp.y, id: pick });
+          }
+        }
       }
       return;
     }
@@ -1334,8 +1504,8 @@ export class MatchScene extends Scene {
         // Bots wander through room centres constantly — they only ride to
         // ESCAPE (seeker close), never burn the shared cooldown idly.
         if (id.startsWith('bot')) {
-          const sp = this.hostPositions[this.seekerId];
-          if (!sp || Math.hypot(sp.x - p.x, sp.y - p.y) > BOT_FLEE_DIST) continue;
+          const near = this.nearestSeeker(p.x, p.y);
+          if (!near || near.d > BOT_FLEE_DIST) continue;
         }
         for (let i = 0; i < this.teleportPts.length; i++) {
           const pad = this.teleportPts[i]!;
@@ -1503,7 +1673,6 @@ export class MatchScene extends Scene {
    *  bot only needs to steer; standing on a lantern lights it like anyone. */
   private hostSimBots(dt: number): void {
     this.botAtkCd = Math.max(0, this.botAtkCd - dt);
-    const seekerPos = this.hostPositions[this.seekerId];
     for (const id of this.roster.order) {
       if (!id.startsWith('bot')) continue;
       if (this.escaped.has(id) || this.out.has(id)) continue;
@@ -1534,7 +1703,9 @@ export class MatchScene extends Scene {
           const hp = this.hostPositions[hid];
           if (!hp) continue;
           const d = Math.hypot(hp.x - p.x, hp.y - p.y);
-          if (this.isConcealed(hid) && d > SEARCH_RADIUS) continue;
+          // While the Howler's trail glows, the footprints lead bot seekers
+          // even to tucked-away prey.
+          if (this.isConcealed(hid) && d > SEARCH_RADIUS && this.t >= this.trailUntil) continue;
           if (d < best) {
             best = d;
             tgt = hp;
@@ -1597,6 +1768,9 @@ export class MatchScene extends Scene {
         }
       } else {
         if (this.down[id] !== undefined) continue; // downed — wait for a rescue
+        // With Twin echoes and Wraith converts about, danger is whichever
+        // seeker is CLOSEST — not just the primary.
+        const seekerPos = this.nearestSeeker(p.x, p.y)?.p;
         // A stable per-bot index so each bot prefers different spots and they
         // fan out instead of all chasing the single nearest objective.
         const bi = bi0;
@@ -1842,6 +2016,48 @@ export class MatchScene extends Scene {
       const r = this.remotes.get(id);
       return r ? Math.hypot(r.entity.x - this.me.x, r.entity.y - this.me.y) : null;
     });
+    // Seekers only see a Nester den when right on top of it — the flower
+    // patch fades in as they close, so cover reads as scenery from afar.
+    if (this.amSeeker) {
+      this.nestViews.forEach((g, i) => {
+        const n = this.snapNests[i];
+        if (!n) return;
+        const d = Math.hypot(n.x - this.me.x, n.y - this.me.y);
+        g.alpha = sightAlpha(d, NEST_SEE_FULL, NEST_SEE_FADE);
+      });
+    }
+    // Lookout's Sense arrow: circles my blob, pointing at the nearest Seeker.
+    if (this.t < this.senseUntil) {
+      if (!this.senseArrowG) {
+        this.senseArrowG = new Graphics();
+        this.me.addChild(this.senseArrowG);
+      }
+      let sp: { x: number; y: number } | null = null;
+      let bd = Infinity;
+      for (const [id, r] of this.remotes) {
+        if (!this.isSeekerRole(id)) continue;
+        const d = Math.hypot(r.entity.x - this.me.x, r.entity.y - this.me.y);
+        if (d < bd) {
+          bd = d;
+          sp = { x: r.entity.x, y: r.entity.y };
+        }
+      }
+      this.senseArrowG.clear();
+      if (sp) {
+        const a = Math.atan2(sp.y - this.me.y, sp.x - this.me.x);
+        const tipX = Math.cos(a) * 82;
+        const tipY = Math.sin(a) * 82;
+        this.senseArrowG
+          .poly([
+            tipX, tipY,
+            Math.cos(a + 2.6) * 26 + Math.cos(a) * 56, Math.sin(a + 2.6) * 26 + Math.sin(a) * 56,
+            Math.cos(a - 2.6) * 26 + Math.cos(a) * 56, Math.sin(a - 2.6) * 26 + Math.sin(a) * 56,
+          ])
+          .fill({ color: NIGHT.blood, alpha: 0.5 + 0.4 * Math.abs(Math.sin(this.t * 5)) });
+      }
+    } else if (this.senseArrowG) {
+      this.senseArrowG.clear();
+    }
     const myCls = classById(this.roster.classes[this.session.id]);
 
     if (this.session.isHost) {
@@ -2121,9 +2337,11 @@ export class MatchScene extends Scene {
     if (this.amSeeker && !isSeeker && this.snapHidden.has(id) && dist > SEARCH_RADIUS) distAlpha = 0;
     // Ease toward the target so corner reveals don't strobe.
     r.entity.alpha += (distAlpha - r.entity.alpha) * Math.min(1, dt * 10);
-    // Vanish (Ghost) hides fully from the Seeker.
+    // Vanish (Ghost) hides fully from the Seeker — and a cloaked Wraith
+    // (Seeker) hides fully from every hider.
     let alpha = 1;
     if (this.amSeeker && !isSeeker && this.snapVanished.has(id)) alpha = 0;
+    if (!this.amSeeker && isSeeker && this.snapVanished.has(id)) alpha = 0;
     r.body.alpha = downed ? 0.4 : alpha;
     r.mark.clear();
     if (downed) {
@@ -2178,6 +2396,8 @@ export class MatchScene extends Scene {
       traps: this.traps.map((tr) => ({ x: tr.x, y: tr.y })),
       hatch: this.hatchOpen,
       nests: this.nests.map((n) => ({ x: n.x, y: n.y })),
+      conv: [...this.converted],
+      trail: Math.max(0, this.trailUntil - this.t),
     };
     this.session.broadcast(snap);
     // Host mirrors its own snap-derived view.
@@ -2195,6 +2415,9 @@ export class MatchScene extends Scene {
     this.snapTpCd = Math.max(0, this.tpReadyAt - this.t);
     this.snapSlowed = new Set(snap.slowed);
     this.snapHatch = this.hatchOpen;
+    this.snapTrail = snap.trail;
+    this.applyConversions(snap.conv);
+    this.dropTrailDots(snap.players);
     this.syncTraps(snap.traps);
     this.syncNests(snap.nests);
     this.syncDecoys(snap.decoys);
@@ -2347,11 +2570,13 @@ export class MatchScene extends Scene {
       updateHeartbeat(dt);
       return;
     }
-    const sp = this.hostPositions[this.seekerId] ?? this.remotes.get(this.seekerId)?.entity;
+    // Terror tracks the CLOSEST hunter — echoes and converts count too.
     let level = 0;
-    if (sp) {
+    for (const sid of this.seekerIds()) {
+      const sp = this.hostPositions[sid] ?? this.remotes.get(sid)?.entity;
+      if (!sp) continue;
       const d = Math.hypot((sp.x ?? 0) - this.me.x, (sp.y ?? 0) - this.me.y);
-      level = Math.max(0, Math.min(1, (620 - d) / 500));
+      level = Math.max(level, Math.min(1, (620 - d) / 500));
     }
     setTerror(level);
     this.terrorVignette.alpha = level * 0.5;
@@ -2503,6 +2728,20 @@ export class MatchScene extends Scene {
         g.circle(0, 0, 26).stroke({ color: 0xd9b8ff, width: 3, alpha: 0.5 });
         sting('lantern');
         life = 0.5;
+        break;
+      case 'convert':
+        // The Wraith's curse takes someone — dark tendrils close around them.
+        g.circle(0, 0, 46).fill({ color: 0x1a1030, alpha: 0.7 });
+        g.circle(0, 0, 46).stroke({ color: 0xb7ff5e, width: 5, alpha: 0.9 });
+        for (let i = 0; i < 7; i++) {
+          const a = (i / 7) * Math.PI * 2;
+          g.moveTo(Math.cos(a) * 18, Math.sin(a) * 18)
+            .lineTo(Math.cos(a + 0.5) * 58, Math.sin(a + 0.5) * 58)
+            .stroke({ color: 0x2a1a44, width: 4, alpha: 0.9 });
+        }
+        sting('lose');
+        this.camera?.shake(10, 0.35);
+        life = 0.9;
         break;
       case 'web': {
         // Web Bolt: strand from the Weaver to the webbed hider.
@@ -2659,6 +2898,9 @@ export class MatchScene extends Scene {
       sting('lantern');
       return;
     }
+    // Lookout: the reveal pulses come from the host, but the tracking arrow
+    // is client-local — it follows the Seeker live for a while.
+    if (id === 'sense') this.senseUntil = this.t + SENSE_ARROW_SECS;
     if (this.session.isHost) this.hostAbility(this.session.id, id, this.me.x, this.me.y);
     else this.session.send({ type: 'ability', id, x: this.me.x, y: this.me.y });
   }
@@ -2960,6 +3202,10 @@ export class MatchScene extends Scene {
       nestPos: (i: number) => this.snapNests[i] ?? null,
       blindsTaken: () => this.blindsTaken,
       amBlinded: () => this.blindLeft > 0,
+      seekerCount: () => this.seekerIds().length,
+      convertedCount: () => this.snapConv.length,
+      amCloaked: () => this.snapVanished.has(this.session.id),
+      trailLeft: () => this.snapTrail,
       forceDownsTaken: (n: number) => {
         if (!this.session.isHost) return;
         for (const id of this.activeHiders()) this.downsTaken[id] = n;

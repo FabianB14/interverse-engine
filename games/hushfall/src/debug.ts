@@ -98,6 +98,10 @@ export interface HushfallDebug {
   amBlinded?: () => boolean;
   setBotClass?: (i: number, cls: string) => void;
   setSeeker?: (id: string) => void;
+  seekerCount?: () => number;
+  convertedCount?: () => number;
+  amCloaked?: () => boolean;
+  trailLeft?: () => number;
   forceDownsTaken?: (n: number) => void;
   setPublic?: (on: boolean) => void;
   isPublic?: () => boolean;

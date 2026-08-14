@@ -231,6 +231,29 @@ function nestMark(r: number, color: number): Container {
   return (c.addChild(g), c);
 }
 
+function twinMark(r: number): Container {
+  // Twin: two mirrored crescent moons above the head.
+  const c = new Container();
+  const g = new Graphics();
+  const cy = -r * 0.95;
+  g.circle(-r * 0.26, cy, r * 0.26).fill(NIGHT.bone);
+  g.circle(-r * 0.14, cy - r * 0.06, r * 0.22).fill(0x2a2036);
+  g.circle(r * 0.26, cy, r * 0.26).fill(NIGHT.bone);
+  g.circle(r * 0.14, cy - r * 0.06, r * 0.22).fill(0x2a2036);
+  return (c.addChild(g), c);
+}
+
+function wraithMark(r: number): Container {
+  // Wraith: a tattered hood of shadow with two pinprick eyes.
+  const c = new Container();
+  const g = new Graphics();
+  g.poly([-r * 0.6, -r * 0.4, 0, -r * 1.3, r * 0.6, -r * 0.4, r * 0.4, -r * 0.52, r * 0.2, -r * 0.42, 0, -r * 0.56, -r * 0.2, -r * 0.42, -r * 0.4, -r * 0.52])
+    .fill({ color: 0x1a1030, alpha: 0.95 });
+  g.circle(-r * 0.16, -r * 0.78, r * 0.06).fill(0xb7ff5e);
+  g.circle(r * 0.16, -r * 0.78, r * 0.06).fill(0xb7ff5e);
+  return (c.addChild(g), c);
+}
+
 function trapMark(r: number): Container {
   // Trapper: a toothy jaw-trap badge.
   const c = new Container();
@@ -272,8 +295,8 @@ export const SEEKERS: ClassDef[] = [
       id: 'screech',
       name: 'Screech',
       emoji: '📢',
-      cooldown: 13,
-      blurb: 'Reveal all hiders for a moment.',
+      cooldown: 16,
+      blurb: 'Every hider leaves a glowing TRAIL on the ground for a while.',
     },
     accessory: wolfEars,
   },
@@ -328,6 +351,40 @@ export const SEEKERS: ClassDef[] = [
     },
     accessory: trapMark,
   },
+  {
+    id: 'twin',
+    role: 'seeker',
+    name: 'Twin',
+    emoji: '🌗',
+    color: 0x9a86c8,
+    speed: 288,
+    blurb: 'Hunts as TWO — you and your echo.',
+    ability: {
+      id: 'swap',
+      name: 'Trade Places',
+      emoji: '🔁',
+      cooldown: 14,
+      blurb: 'Swap positions with your echo — be where they least expect.',
+    },
+    accessory: twinMark,
+  },
+  {
+    id: 'wraith',
+    role: 'seeker',
+    name: 'Wraith',
+    emoji: '🌫️',
+    color: 0x4a5a3a,
+    speed: 285,
+    blurb: 'Turns one hider to the dark; walks unseen.',
+    ability: {
+      id: 'cloak',
+      name: 'Cloak',
+      emoji: '🫥',
+      cooldown: 15,
+      blurb: 'Vanish from every hider’s sight for a few seconds.',
+    },
+    accessory: wraithMark,
+  },
 ];
 
 export const HIDERS: ClassDef[] = [
@@ -373,7 +430,7 @@ export const HIDERS: ClassDef[] = [
       name: 'Mend',
       emoji: '➕',
       cooldown: 16,
-      blurb: 'Instantly lift a downed ally.',
+      blurb: 'Instantly lift a downed ally — even from across the room.',
     },
     accessory: (r) => crossMark(r, 0x8affc1),
   },
@@ -424,8 +481,8 @@ export const HIDERS: ClassDef[] = [
       id: 'overcharge',
       name: 'Overcharge',
       emoji: '⚡',
-      cooldown: 16,
-      blurb: 'Jump the nearest lantern ahead.',
+      cooldown: 24,
+      blurb: 'Fully light the nearest lantern in one surge.',
     },
     accessory: wrenchMark,
   },
@@ -434,15 +491,16 @@ export const HIDERS: ClassDef[] = [
     role: 'hider',
     name: 'Lookout',
     emoji: '🦉',
-    color: 0xb98cff,
+    // Owl-feather orange — used to be a near-twin of Trickster's violet.
+    color: 0xff9e64,
     speed: 264,
-    blurb: 'Senses lanterns and the Seeker.',
+    blurb: 'Senses lanterns and tracks the Seeker.',
     ability: {
       id: 'sense',
       name: 'Sense',
       emoji: '👀',
       cooldown: 13,
-      blurb: 'Reveal lanterns + Seeker to you.',
+      blurb: 'Reveal lanterns + an arrow that TRACKS the Seeker for a while.',
     },
     accessory: owlMark,
   },
