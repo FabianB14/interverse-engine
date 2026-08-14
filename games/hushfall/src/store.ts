@@ -23,9 +23,21 @@ export function savedAcc(): number {
   return store.get<number>('acc', 0);
 }
 
+/** Passive upgrades bought with Verium (upgrade ids, across all classes). */
+export function ownedUpgrades(): string[] {
+  return store.get<string[]>('upgrades', []);
+}
+export function addUpgrade(id: string): void {
+  const owned = ownedUpgrades();
+  if (!owned.includes(id)) store.set('upgrades', [...owned, id]);
+}
+
 /** Preferred class per role — remembered between matches. */
 export function savedClass(role: 'seeker' | 'hider'): string {
-  return store.get<string>(role === 'seeker' ? 'seekerClass' : 'hiderClass', role === 'seeker' ? 'stalker' : 'scout');
+  return store.get<string>(
+    role === 'seeker' ? 'seekerClass' : 'hiderClass',
+    role === 'seeker' ? 'stalker' : 'scout',
+  );
 }
 
 export function musicPref(): boolean {

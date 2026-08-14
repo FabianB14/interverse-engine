@@ -58,7 +58,10 @@ export class JoinScene extends Scene {
     this.keyBtns.forEach((btn, i) => {
       const row = Math.floor(i / perRow);
       const col = i % perRow;
-      btn.position.set(keysCx - rowW / 2 + KEY_W / 2 + col * (KEY_W + KEY_GAP), keysTop + row * (KEY_H + KEY_GAP));
+      btn.position.set(
+        keysCx - rowW / 2 + KEY_W / 2 + col * (KEY_W + KEY_GAP),
+        keysTop + row * (KEY_H + KEY_GAP),
+      );
     });
     this.back.position.set(landscape ? codeCx : W / 2, H - (landscape ? 90 : 110));
   }
@@ -144,7 +147,10 @@ export class JoinScene extends Scene {
     this.status.style.fill = NIGHT.inkSoft;
     this.status.text = 'joining…';
     try {
-      const session = await join(this.code, savedName() ?? playerName(), { url: relayUrl, game: GAME_TAG });
+      const session = await join(this.code, savedName() ?? playerName(), {
+        url: relayUrl,
+        game: GAME_TAG,
+      });
       this.game.scenes.replace(new LobbyScene(session));
     } catch (err) {
       this.busy = false;

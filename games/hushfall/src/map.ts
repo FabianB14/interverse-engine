@@ -28,7 +28,7 @@ const CH: Record<number, string> = {
 };
 
 function lcg(seed: number): () => number {
-  let s = (seed >>> 0) || 1;
+  let s = seed >>> 0 || 1;
   return () => {
     s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
     return s / 4294967296;
@@ -58,11 +58,56 @@ export interface LevelDef {
 }
 
 export const LEVELS: LevelDef[] = [
-  { name: 'Hollow Manor', blurb: 'A cramped, boarded-up house.', seed: 91027, w: 54, h: 46, min: 9, lanterns: 6, teleporters: 2 },
-  { name: 'Ashen Asylum', blurb: 'Long wards and cold cells.', seed: 40213, w: 64, h: 50, min: 8, lanterns: 7, teleporters: 3 },
-  { name: 'The Cellars', blurb: 'Twisting stone vaults below.', seed: 13001, w: 56, h: 60, min: 6, lanterns: 7, teleporters: 3 },
-  { name: 'Grand Estate', blurb: 'A sprawling manor of wings.', seed: 52020, w: 72, h: 56, min: 6, lanterns: 8, teleporters: 3 },
-  { name: 'Blackwood Keep', blurb: 'A fortress of endless halls.', seed: 77345, w: 84, h: 66, min: 7, lanterns: 10, teleporters: 4 },
+  {
+    name: 'Hollow Manor',
+    blurb: 'A cramped, boarded-up house.',
+    seed: 91027,
+    w: 54,
+    h: 46,
+    min: 9,
+    lanterns: 6,
+    teleporters: 2,
+  },
+  {
+    name: 'Ashen Asylum',
+    blurb: 'Long wards and cold cells.',
+    seed: 40213,
+    w: 64,
+    h: 50,
+    min: 8,
+    lanterns: 7,
+    teleporters: 3,
+  },
+  {
+    name: 'The Cellars',
+    blurb: 'Twisting stone vaults below.',
+    seed: 13001,
+    w: 56,
+    h: 60,
+    min: 6,
+    lanterns: 7,
+    teleporters: 3,
+  },
+  {
+    name: 'Grand Estate',
+    blurb: 'A sprawling manor of wings.',
+    seed: 52020,
+    w: 72,
+    h: 56,
+    min: 6,
+    lanterns: 8,
+    teleporters: 3,
+  },
+  {
+    name: 'Blackwood Keep',
+    blurb: 'A fortress of endless halls.',
+    seed: 77345,
+    w: 84,
+    h: 66,
+    min: 7,
+    lanterns: 10,
+    teleporters: 4,
+  },
 ];
 
 /** `salt` re-rolls the LANTERN scatter for a fresh hunt (0 = the fixed
@@ -138,7 +183,10 @@ export function generateBuilding(level: LevelDef = LEVELS[0]!, salt = 0): string
     if (vertical) {
       const cut = MIN + Math.floor(rng() * (region.w - MIN * 2));
       const l = split({ x: region.x, y: region.y, w: cut, h: region.h }, depth + 1);
-      const r = split({ x: region.x + cut, y: region.y, w: region.w - cut, h: region.h }, depth + 1);
+      const r = split(
+        { x: region.x + cut, y: region.y, w: region.w - cut, h: region.h },
+        depth + 1,
+      );
       link(l, r);
       return rng() < 0.5 ? l : r;
     }
@@ -151,7 +199,8 @@ export function generateBuilding(level: LevelDef = LEVELS[0]!, salt = 0): string
   split({ x: 1, y: 1, w: W - 2, h: H - 2 }, 0);
 
   const near = (x: number, y: number): boolean => {
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (corridor.has(`${x + dx},${y + dy}`)) return true;
+    for (let dy = -1; dy <= 1; dy++)
+      for (let dx = -1; dx <= 1; dx++) if (corridor.has(`${x + dx},${y + dy}`)) return true;
     return false;
   };
   const free = (x: number, y: number): boolean =>
@@ -197,9 +246,17 @@ export function generateBuilding(level: LevelDef = LEVELS[0]!, salt = 0): string
     for (let tries = 0; tries < 40 && placed < want; tries++) {
       const edge = Math.floor(rng() * 4);
       const x =
-        edge === 0 ? room.x + 1 : edge === 1 ? room.x + room.w - 2 : room.x + 1 + Math.floor(rng() * (room.w - 2));
+        edge === 0
+          ? room.x + 1
+          : edge === 1
+            ? room.x + room.w - 2
+            : room.x + 1 + Math.floor(rng() * (room.w - 2));
       const y =
-        edge === 2 ? room.y + 1 : edge === 3 ? room.y + room.h - 2 : room.y + 1 + Math.floor(rng() * (room.h - 2));
+        edge === 2
+          ? room.y + 1
+          : edge === 3
+            ? room.y + room.h - 2
+            : room.y + 1 + Math.floor(rng() * (room.h - 2));
       if (farFromHides(x, y) && stampFree(x, y, 'h')) {
         hidesPlaced.push([x, y]);
         placed++;
@@ -216,7 +273,9 @@ export function generateBuilding(level: LevelDef = LEVELS[0]!, salt = 0): string
   const gateRoom = byY[0]!;
   const spawnRoom = byY[byY.length - 1]!;
   const seekerRoom = [...sorted].sort(
-    (a, b) => Math.hypot(center(a)[0] - cx, center(a)[1] - cy) - Math.hypot(center(b)[0] - cx, center(b)[1] - cy),
+    (a, b) =>
+      Math.hypot(center(a)[0] - cx, center(a)[1] - cy) -
+      Math.hypot(center(b)[0] - cx, center(b)[1] - cy),
   )[0]!;
   const stampCenter = (room: Rect, ch: string): void => {
     const [x, y] = center(room);
@@ -232,7 +291,7 @@ export function generateBuilding(level: LevelDef = LEVELS[0]!, salt = 0): string
   // but WHERE the lamps hang re-rolls with the match salt: a random first
   // room, then each next lamp as far from the ones already hung as the
   // manor allows — spread wide, never twice the same.
-  const lrng = lcg(((seed ^ Math.imul(salt, 2654435761)) >>> 0) || 7);
+  const lrng = lcg((seed ^ Math.imul(salt, 2654435761)) >>> 0 || 7);
   const roomDist = (a: Rect, b: Rect): number => {
     const [ax, ay] = center(a);
     const [bx, by] = center(b);
@@ -298,10 +357,12 @@ export function generateBuilding(level: LevelDef = LEVELS[0]!, salt = 0): string
     for (const room of tpPool) {
       if (chosen.includes(room)) continue;
       const [x, y] = center(room);
-      const score = Math.min(...chosen.map((c) => {
-        const [cx2, cy2] = center(c);
-        return Math.hypot(x - cx2, y - cy2);
-      }));
+      const score = Math.min(
+        ...chosen.map((c) => {
+          const [cx2, cy2] = center(c);
+          return Math.hypot(x - cx2, y - cy2);
+        }),
+      );
       if (score > bestScore) {
         bestScore = score;
         bestRoom = room;
@@ -312,7 +373,15 @@ export function generateBuilding(level: LevelDef = LEVELS[0]!, salt = 0): string
   }
   for (const room of chosen) {
     const [tx, ty] = center(room);
-    for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [2, 0], [0, 2]] as const) {
+    for (const [dx, dy] of [
+      [0, 0],
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+      [2, 0],
+      [0, 2],
+    ] as const) {
       const ch = rows[ty + dy]?.[tx + dx];
       if (ch === ',' || ch === '.') {
         stamp(tx + dx, ty + dy, 'T');
@@ -327,10 +396,20 @@ export function generateBuilding(level: LevelDef = LEVELS[0]!, salt = 0): string
   const [gx0, gy0] = center(gateRoom);
   const hatchRoom = [...(rest.length ? rest : sorted)].sort(
     (a, b) =>
-      Math.hypot(center(b)[0] - gx0, center(b)[1] - gy0) - Math.hypot(center(a)[0] - gx0, center(a)[1] - gy0),
+      Math.hypot(center(b)[0] - gx0, center(b)[1] - gy0) -
+      Math.hypot(center(a)[0] - gx0, center(a)[1] - gy0),
   )[0]!;
   const [hx, hy] = center(hatchRoom);
-  for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [2, 0], [0, 2], [-2, 0]] as const) {
+  for (const [dx, dy] of [
+    [0, 0],
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+    [2, 0],
+    [0, 2],
+    [-2, 0],
+  ] as const) {
     const ch = rows[hy + dy]?.[hx + dx];
     if (ch === ',' || ch === '.') {
       stamp(hx + dx, hy + dy, 'X');
@@ -347,7 +426,8 @@ export const arenaRows: readonly string[] = generateBuilding();
 export const painters: Record<number, TilePainter> = {
   [TILE.FLOOR]: (g, x, y, s, rng) => {
     g.rect(x, y, s, s).fill(rng() > 0.5 ? NIGHT.ground : NIGHT.groundAlt);
-    if (rng() > 0.8) g.rect(x + 6, y + 6, s - 12, s - 12).stroke({ color: 0x000000, alpha: 0.2, width: 1 });
+    if (rng() > 0.8)
+      g.rect(x + 6, y + 6, s - 12, s - 12).stroke({ color: 0x000000, alpha: 0.2, width: 1 });
   },
   [TILE.CARPET]: (g, x, y, s, rng) => {
     const base = rng() > 0.5 ? 0x241f30 : 0x201b2a;
@@ -360,7 +440,10 @@ export const painters: Record<number, TilePainter> = {
     // brick courses
     g.rect(x, y + s / 2 - 1, s, 2).fill({ color: 0x05040c, alpha: 0.9 });
     g.rect(x + (rng() > 0.5 ? s / 2 : 0) - 1, y, 2, s / 2).fill({ color: 0x05040c, alpha: 0.9 });
-    g.rect(x + (rng() > 0.5 ? s / 2 : 0) - 1, y + s / 2, 2, s / 2).fill({ color: 0x05040c, alpha: 0.9 });
+    g.rect(x + (rng() > 0.5 ? s / 2 : 0) - 1, y + s / 2, 2, s / 2).fill({
+      color: 0x05040c,
+      alpha: 0.9,
+    });
     g.rect(x + 2, y + 2, s - 4, s / 2 - 3).fill({ color: 0x14121f, alpha: 0.5 });
   },
   [TILE.CRATE]: (g, x, y, s, rng) => {
@@ -369,6 +452,10 @@ export const painters: Record<number, TilePainter> = {
     const woodTop = rng() > 0.5 ? 0x4a3826 : 0x433322;
     g.roundRect(x + m, y + m, s - m * 2, s - m * 2, 4).fill(woodTop);
     g.roundRect(x + m, y + m, s - m * 2, s - m * 2, 4).stroke({ color: 0x241a10, width: 3 });
-    g.moveTo(x + m, y + m).lineTo(x + s - m, y + s - m).moveTo(x + s - m, y + m).lineTo(x + m, y + s - m).stroke({ color: 0x241a10, width: 2, alpha: 0.7 });
+    g.moveTo(x + m, y + m)
+      .lineTo(x + s - m, y + s - m)
+      .moveTo(x + s - m, y + m)
+      .lineTo(x + m, y + s - m)
+      .stroke({ color: 0x241a10, width: 2, alpha: 0.7 });
   },
 };

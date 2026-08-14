@@ -100,6 +100,12 @@ export interface HushfallDebug {
   setSeeker?: (id: string) => void;
   setLocked?: (on: boolean) => void;
   myLocked?: () => boolean;
+  cloneCount?: () => number;
+  dummyCount?: () => number;
+  wallCount?: () => number;
+  sprint?: () => void;
+  sprinting?: () => boolean;
+  amSeeker?: () => boolean;
   seekerCount?: () => number;
   convertedCount?: () => number;
   amCloaked?: () => boolean;

@@ -88,7 +88,13 @@ export class ProximityVoice {
           const peer = this.makePeer(from);
           const offer = await peer.pc.createOffer();
           await peer.pc.setLocalDescription(offer);
-          this.sendSignal({ type: 'vc', vto: from, vfrom: this.myId, sub: 'offer', sdp: offer.sdp ?? '' });
+          this.sendSignal({
+            type: 'vc',
+            vto: from,
+            vfrom: this.myId,
+            sub: 'offer',
+            sdp: offer.sdp ?? '',
+          });
         }
         break;
       }
@@ -99,7 +105,13 @@ export class ProximityVoice {
         await this.flushIce(peer);
         const answer = await peer.pc.createAnswer();
         await peer.pc.setLocalDescription(answer);
-        this.sendSignal({ type: 'vc', vto: from, vfrom: this.myId, sub: 'answer', sdp: answer.sdp ?? '' });
+        this.sendSignal({
+          type: 'vc',
+          vto: from,
+          vfrom: this.myId,
+          sub: 'answer',
+          sdp: answer.sdp ?? '',
+        });
         break;
       }
       case 'answer': {
@@ -149,7 +161,13 @@ export class ProximityVoice {
     };
     pc.onicecandidate = (e) => {
       if (e.candidate) {
-        this.sendSignal({ type: 'vc', vto: id, vfrom: this.myId, sub: 'ice', cand: e.candidate.toJSON() });
+        this.sendSignal({
+          type: 'vc',
+          vto: id,
+          vfrom: this.myId,
+          sub: 'ice',
+          cand: e.candidate.toJSON(),
+        });
       }
     };
     pc.onconnectionstatechange = () => {
@@ -178,7 +196,8 @@ export class ProximityVoice {
       const d = dist(id);
       let vol = 0;
       if (d !== null) {
-        vol = d <= VOICE_FULL ? 1 : d >= VOICE_FADE ? 0 : (VOICE_FADE - d) / (VOICE_FADE - VOICE_FULL);
+        vol =
+          d <= VOICE_FULL ? 1 : d >= VOICE_FADE ? 0 : (VOICE_FADE - d) / (VOICE_FADE - VOICE_FULL);
       }
       peer.audio.volume = vol;
     }

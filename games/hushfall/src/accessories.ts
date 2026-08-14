@@ -71,7 +71,11 @@ export const ACCESSORIES: AccessoryDef[] = [
     name: 'Halo',
     emoji: '😇',
     draw: (r) =>
-      wrap(g().ellipse(0, -r * 1.15, r * 0.5, r * 0.16).stroke({ color: 0xffe9a8, width: Math.max(3, r * 0.1) })),
+      wrap(
+        g()
+          .ellipse(0, -r * 1.15, r * 0.5, r * 0.16)
+          .stroke({ color: 0xffe9a8, width: Math.max(3, r * 0.1) }),
+      ),
   },
   {
     id: 'top',
@@ -98,8 +102,20 @@ export const ACCESSORIES: AccessoryDef[] = [
       wrap(
         g()
           .poly([
-            -r * 0.5, -r * 0.7, -r * 0.5, -r * 1.15, -r * 0.25, -r * 0.9, 0, -r * 1.2, r * 0.25, -r * 0.9,
-            r * 0.5, -r * 1.15, r * 0.5, -r * 0.7,
+            -r * 0.5,
+            -r * 0.7,
+            -r * 0.5,
+            -r * 1.15,
+            -r * 0.25,
+            -r * 0.9,
+            0,
+            -r * 1.2,
+            r * 0.25,
+            -r * 0.9,
+            r * 0.5,
+            -r * 1.15,
+            r * 0.5,
+            -r * 0.7,
           ])
           .fill(NIGHT.lantern),
       ),
@@ -179,7 +195,11 @@ export const ACCESSORIES: AccessoryDef[] = [
       const gr = g();
       for (let i = 0; i < 5; i++) {
         const a = (i / 5) * Math.PI * 2;
-        gr.circle(Math.cos(a) * r * 0.16 - r * 0.4, Math.sin(a) * r * 0.16 - r * 0.95, r * 0.1).fill(NIGHT.violet);
+        gr.circle(
+          Math.cos(a) * r * 0.16 - r * 0.4,
+          Math.sin(a) * r * 0.16 - r * 0.95,
+          r * 0.1,
+        ).fill(NIGHT.violet);
       }
       gr.circle(-r * 0.4, -r * 0.95, r * 0.09).fill(NIGHT.lantern);
       c.addChild(gr);
@@ -233,7 +253,9 @@ export const ACCESSORIES: AccessoryDef[] = [
       const c = new Container();
       const gr = g();
       const sy = -r * 1.15;
-      gr.moveTo(r * 0.45, sy - r * 0.35).lineTo(r * 0.45, sy).stroke({ color: 0x8a86a0, width: Math.max(2, r * 0.04) });
+      gr.moveTo(r * 0.45, sy - r * 0.35)
+        .lineTo(r * 0.45, sy)
+        .stroke({ color: 0x8a86a0, width: Math.max(2, r * 0.04) });
       gr.circle(r * 0.45, sy + r * 0.08, r * 0.11).fill(0x1a1526);
       gr.circle(r * 0.45, sy - r * 0.04, r * 0.07).fill(0x1a1526);
       for (const s of [-1, 1]) {
@@ -297,7 +319,16 @@ export const ACCESSORIES: AccessoryDef[] = [
     draw: (r) =>
       wrap(
         g()
-          .poly([-r * 0.12, -r * 1.02, -r * 0.55, -r * 1.25, -r * 0.4, -r * 1.02, -r * 0.55, -r * 0.9])
+          .poly([
+            -r * 0.12,
+            -r * 1.02,
+            -r * 0.55,
+            -r * 1.25,
+            -r * 0.4,
+            -r * 1.02,
+            -r * 0.55,
+            -r * 0.9,
+          ])
           .fill(0x241a38)
           .poly([r * 0.12, -r * 1.02, r * 0.55, -r * 1.25, r * 0.4, -r * 1.02, r * 0.55, -r * 0.9])
           .fill(0x241a38)
@@ -361,7 +392,11 @@ export const ACCESSORIES: AccessoryDef[] = [
     draw: (r) => {
       const c = new Container();
       const gr = g();
-      gr.ellipse(0, -r * 1.12, r * 0.55, r * 0.18).stroke({ color: NIGHT.lantern, width: Math.max(2, r * 0.04), alpha: 0.4 });
+      gr.ellipse(0, -r * 1.12, r * 0.55, r * 0.18).stroke({
+        color: NIGHT.lantern,
+        width: Math.max(2, r * 0.04),
+        alpha: 0.4,
+      });
       for (let i = 0; i < 6; i++) {
         const a = (i / 6) * Math.PI * 2;
         const x = Math.cos(a) * r * 0.55;
@@ -382,13 +417,37 @@ export const ACCESSORIES: AccessoryDef[] = [
       wrap(
         g()
           .poly([
-            -r * 0.52, -r * 0.66, -r * 0.52, -r * 1.2, -r * 0.26, -r * 0.88, 0, -r * 1.3, r * 0.26, -r * 0.88,
-            r * 0.52, -r * 1.2, r * 0.52, -r * 0.66,
+            -r * 0.52,
+            -r * 0.66,
+            -r * 0.52,
+            -r * 1.2,
+            -r * 0.26,
+            -r * 0.88,
+            0,
+            -r * 1.3,
+            r * 0.26,
+            -r * 0.88,
+            r * 0.52,
+            -r * 1.2,
+            r * 0.52,
+            -r * 0.66,
           ])
           .fill(0x1c1826)
           .poly([
-            -r * 0.52, -r * 0.66, -r * 0.52, -r * 1.2, -r * 0.26, -r * 0.88, 0, -r * 1.3, r * 0.26, -r * 0.88,
-            r * 0.52, -r * 1.2, r * 0.52, -r * 0.66,
+            -r * 0.52,
+            -r * 0.66,
+            -r * 0.52,
+            -r * 1.2,
+            -r * 0.26,
+            -r * 0.88,
+            0,
+            -r * 1.3,
+            r * 0.26,
+            -r * 0.88,
+            r * 0.52,
+            -r * 1.2,
+            r * 0.52,
+            -r * 0.66,
           ])
           .stroke({ color: NIGHT.violet, width: Math.max(2, r * 0.05) })
           .circle(0, -r * 1.02, r * 0.08)
@@ -401,7 +460,9 @@ export const ACCESSORIES: AccessoryDef[] = [
   },
 ];
 
-export const FREE_ACCESSORIES: number[] = ACCESSORIES.map((a, i) => (a.price ? -1 : i)).filter((i) => i >= 0);
+export const FREE_ACCESSORIES: number[] = ACCESSORIES.map((a, i) => (a.price ? -1 : i)).filter(
+  (i) => i >= 0,
+);
 
 /** Draw the accessory at index over a blob of `radius`. */
 export function accessoryView(index: number | undefined, radius: number): Container {

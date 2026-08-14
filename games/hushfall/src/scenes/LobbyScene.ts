@@ -16,7 +16,7 @@ import type { ClassDef, Role } from '../classes.js';
 import { ACCESSORIES, FREE_ACCESSORIES, accessoryView } from '../accessories.js';
 import { NIGHT, sting } from '../theme.js';
 import { makeText } from '../text.js';
-import { cleanName, savedClass, store } from '../store.js';
+import { cleanName, ownedUpgrades, savedClass, store } from '../store.js';
 import { LEVELS } from '../map.js';
 import { MatchScene } from './MatchScene.js';
 import { MenuScene } from './MenuScene.js';
@@ -31,6 +31,8 @@ export interface RosterState {
   ready?: Record<string, boolean>;
   /** Who hit SELECT: a locked player's hider class is theirs alone. */
   locked?: Record<string, boolean>;
+  /** Owned passive upgrade ids per player — the match sim reads these. */
+  ups?: Record<string, string[]>;
   seekerId?: string | null;
   level?: number;
   /** Match salt: re-rolls the lantern scatter. Host picks it at START so
@@ -46,6 +48,7 @@ type LobbyMsg =
   | { type: 'volunteer' }
   | { type: 'ready'; ready: boolean }
   | { type: 'lock'; on: boolean }
+  | { type: 'ups'; ids: string[] }
   | { type: 'start'; roster: RosterState }
   | { type: 'inprogress' }
   | { type: 'hello' };
@@ -255,6 +258,7 @@ export class LobbyScene extends Scene {
       this.roster.roles[p.id] = 'hider';
     }
     this.roster.classes[session.id] = savedClass('hider');
+    (this.roster.ups ??= {})[session.id] = ownedUpgrades();
     (this.roster.accs ??= {})[session.id] = store.get<number>('acc', 0);
     this.classRole = 'hider';
     if (session.isHost) {
@@ -546,6 +550,8 @@ export class LobbyScene extends Scene {
             if (msg.acc !== undefined) (this.roster.accs ??= {})[from] = msg.acc;
           } else if (msg?.type === 'lock') {
             this.applyLock(from, !!msg.on);
+          } else if (msg?.type === 'ups') {
+            (this.roster.ups ??= {})[from] = (msg.ids ?? []).map(String).slice(0, 64);
           } else if (msg?.type === 'acc') {
             (this.roster.accs ??= {})[from] = msg.acc;
           } else if (msg?.type === 'name') {
@@ -581,6 +587,7 @@ export class LobbyScene extends Scene {
               accs: msg.accs ?? {},
               ready: msg.ready ?? {},
               locked: msg.locked ?? {},
+              ups: msg.ups ?? {},
               seekerId: msg.seekerId ?? null,
               level: msg.level ?? 0,
             };
@@ -603,6 +610,7 @@ export class LobbyScene extends Scene {
     this.unsub.push(
       session.onClose((reason) => {
         if (!this.live) return;
+        console.error('[hushfall] session closed in lobby:', reason, '(room', session.code, ')');
         this.statusText.text = `Disconnected: ${reason} — returning to menu…`;
         const back = new Entity();
         back.addBehavior(
@@ -615,7 +623,11 @@ export class LobbyScene extends Scene {
       }),
     );
 
-    if (!session.isHost) session.send({ type: 'hello' });
+    if (!session.isHost) {
+      session.send({ type: 'hello' });
+      // Announce owned passives so the host sim applies them in the match.
+      session.send({ type: 'ups', ids: ownedUpgrades() });
+    }
   }
 
   private enterLateJoin(): void {
@@ -996,20 +1008,8 @@ export class LobbyScene extends Scene {
       }
       claimed.add(cls);
     }
-    // The Twin hunts as TWO: a bot echo joins the seeker side for this hunt.
-    // Its 'bot' prefix drops it straight into the bot sim, and riding the
-    // shared roster means every client renders it with zero extra plumbing.
-    this.roster.order = this.roster.order.filter((id) => id !== 'botecho');
-    delete this.roster.roles['botecho'];
-    delete this.roster.classes['botecho'];
-    delete this.roster.names['botecho'];
-    const seekCls = this.roster.seekerId ? this.roster.classes[this.roster.seekerId] : undefined;
-    if (seekCls === 'twin') {
-      this.roster.order.push('botecho');
-      this.roster.names['botecho'] = 'Echo';
-      this.roster.roles['botecho'] = 'seeker';
-      this.roster.classes['botecho'] = 'twin';
-    }
+    // (The Twin's old bot echo is gone — its double is now the placeable
+    // DUMMY, handled entirely inside the match.)
     // Fresh lantern scatter every hunt — same walls, new lamp spots.
     this.roster.salt = Math.floor(Math.random() * 0x7fffffff);
     this.live = false;

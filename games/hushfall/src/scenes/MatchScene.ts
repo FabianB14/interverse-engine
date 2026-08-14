@@ -20,7 +20,7 @@ import {
 import type { TileMapData } from '@interverse/engine';
 import type { Session } from '@interverse/net';
 import { UIButton } from '@interverse/ui';
-import { classById } from '../classes.js';
+import { classById, statsFor } from '../classes.js';
 import { NIGHT, setDroneMood, setTerror, sting, updateHeartbeat } from '../theme.js';
 import { accessoryView } from '../accessories.js';
 import { LEVELS, TILE_SIZE, legend, levelRows, painters } from '../map.js';
@@ -109,6 +109,22 @@ const CLOAK_SECONDS = 4;
 // the petals, basically. A patch a room away is just darkness to them.
 const NEST_SEE_FULL = 70;
 const NEST_SEE_FADE = 120;
+// Every hider can SPRINT: a short burst on its own cooldown. Escape tool,
+// not a stat — natural speeds still never beat a seeker's.
+const SPRINT_SECS = 1.1;
+const SPRINT_MUL = 1.45;
+const SPRINT_CD = 7;
+// Sprinter's Split: clone bots that scatter, pop on a hit, or expire.
+const CLONE_SECONDS = 8;
+// Twin's dummy: whispers to its owner when hiders wander near.
+const DUMMY_ALERT = 300;
+const DUMMY_PING_EVERY = 3;
+// Builder's Barricade: a wall only SEEKERS collide with.
+const WALL_SECONDS = 6;
+const WALL_RADIUS = 55;
+// Kaiju's Atomic Blast: seekers in range are hurled away.
+const BLAST_RADIUS = 380;
+const BLAST_PUSH = 340;
 // Howler rework: Screech makes every hider leave a glowing trail on the
 // ground that only seekers can see — footprints in the dark.
 const TRAIL_SECONDS = 7;
@@ -165,7 +181,11 @@ interface Fx {
     | 'hatch'
     | 'blind'
     | 'nest'
-    | 'convert';
+    | 'convert'
+    | 'wall'
+    | 'blast'
+    | 'dummy'
+    | 'dummyping';
   x: number;
   y: number;
   id?: string;
@@ -202,6 +222,12 @@ interface Snap {
   conv: string[];
   /** Howler trail seconds remaining (seekers see hider footprints). */
   trail: number;
+  /** Sprinter clone bots on the loose. */
+  cl: { x: number; y: number }[];
+  /** Twin dummies standing in the dark. */
+  dm: { x: number; y: number }[];
+  /** Builder walls (block SEEKERS only). */
+  wl: { x: number; y: number }[];
 }
 /** What each player DID this hunt — shown on the end screen and paid out. */
 interface Deeds {
@@ -308,10 +334,15 @@ export class MatchScene extends Scene {
   private rootUntil: Record<string, number> = {};
   private slowUntil: Record<string, number> = {};
   private hatchOpen = false;
-  private traps: { x: number; y: number }[] = [];
+  private traps: { x: number; y: number; s?: number }[] = [];
   private nests: { x: number; y: number }[] = [];
   private converted: string[] = []; // hiders the Wraith turned (host truth)
   private trailUntil = 0; // Howler trail active until this game-time
+  private hits: Record<string, number> = {}; // damage taken toward next DOWN
+  private clones: { x: number; y: number; ang: number; until: number }[] = [];
+  private dummies: Record<string, { x: number; y: number }> = {}; // twin doubles
+  private dummyPingAt: Record<string, number> = {};
+  private walls: { x: number; y: number; until: number }[] = [];
   private decoys: { x: number; y: number; until: number }[] = [];
   private phase = 'hiding';
   private hideLeft = HIDE_PHASE_SECONDS;
@@ -336,6 +367,12 @@ export class MatchScene extends Scene {
   private snapNests: { x: number; y: number }[] = [];
   private snapConv: string[] = [];
   private snapTrail = 0;
+  private snapClones: { x: number; y: number }[] = [];
+  private snapDums: { x: number; y: number }[] = [];
+  private snapWalls: { x: number; y: number }[] = [];
+  private cloneViews: Container[] = [];
+  private dumViews: Container[] = [];
+  private wallViews: Graphics[] = [];
   private trailDotAt = 0; // client throttle for trail dot spawning
   private trailDots: { x: number; y: number; born: number }[] = [];
   private trailGlow: Graphics | null = null;
@@ -366,6 +403,11 @@ export class MatchScene extends Scene {
   // Lookout's Sense tracking arrow (client-local)
   private senseUntil = 0;
   private senseArrowG: Graphics | null = null;
+
+  // Universal hider sprint (client-local burst)
+  private sprintBtn: UIButton | null = null;
+  private sprintUntil = 0;
+  private sprintCdLeft = 0;
 
   // local ability
   private cooldownLeft = 0;
@@ -408,6 +450,7 @@ export class MatchScene extends Scene {
   private layoutUi(W: number, H: number): void {
     this.joystick?.position.set(160, H - 180);
     this.abilityBtn?.position.set(W - 118, H - 130);
+    this.sprintBtn?.position.set(W - 252, H - 112);
     this.attackBtn?.position.set(W - 118, H - 300);
     this.homeBtn?.position.set(W - 46, 44);
     this.recordBtn?.position.set(W - 46, 118);
@@ -446,16 +489,23 @@ export class MatchScene extends Scene {
     this.spawn = { x: spawnObj.x, y: spawnObj.y };
     this.seekerSpawn = { x: seekObj.x, y: seekObj.y };
     this.gatePt = { x: gateObj.x, y: gateObj.y };
-    this.lanternPts = this.map.objects.filter((o) => o.name === 'lantern').map((o) => ({ x: o.x, y: o.y }));
-    this.hidePts = this.map.objects.filter((o) => o.name === 'hide').map((o) => ({ x: o.x, y: o.y }));
-    this.teleportPts = this.map.objects.filter((o) => o.name === 'teleport').map((o) => ({ x: o.x, y: o.y }));
+    this.lanternPts = this.map.objects
+      .filter((o) => o.name === 'lantern')
+      .map((o) => ({ x: o.x, y: o.y }));
+    this.hidePts = this.map.objects
+      .filter((o) => o.name === 'hide')
+      .map((o) => ({ x: o.x, y: o.y }));
+    this.teleportPts = this.map.objects
+      .filter((o) => o.name === 'teleport')
+      .map((o) => ({ x: o.x, y: o.y }));
     const hatchObj = this.map.objects.find((o) => o.name === 'hatch');
     this.hatchPt = hatchObj ? { x: hatchObj.x, y: hatchObj.y } : { ...this.gatePt };
     this.lant = this.lanternPts.map(() => 0);
     this.snapLant = this.lanternPts.map(() => 0);
     this.bustedUntil = this.hidePts.map(() => 0);
     this.needed = Math.max(1, this.lanternPts.length - 1);
-    this.dawnAt = HIDE_PHASE_SECONDS + DAWN_BASE_SECONDS + Math.max(0, this.lanternPts.length - 5) * 30;
+    this.dawnAt =
+      HIDE_PHASE_SECONDS + DAWN_BASE_SECONDS + Math.max(0, this.lanternPts.length - 5) * 30;
 
     this.drawObjectives();
 
@@ -503,6 +553,7 @@ export class MatchScene extends Scene {
       }),
       session.onPlayerLeave((id) => {
         if (!this.live) return;
+        console.warn('[hushfall] player left mid-match:', id, this.roster.names[id] ?? '');
         const r = this.remotes.get(id);
         if (r) {
           this.remove(r.entity);
@@ -512,6 +563,13 @@ export class MatchScene extends Scene {
       }),
       session.onClose((reason) => {
         if (!this.live) return;
+        console.error(
+          '[hushfall] session closed mid-match:',
+          reason,
+          '(room',
+          this.session.code,
+          ')',
+        );
         this.roleHud.text = `disconnected: ${reason}`;
         const back = new Entity();
         back.addBehavior(
@@ -691,11 +749,14 @@ export class MatchScene extends Scene {
     });
     this.gateView.clear();
     const open = this.snapGate;
-    this.gateView.roundRect(-60, -18, 120, 36, 8).fill(open ? { color: NIGHT.gate, alpha: 0.28 } : { color: 0x14121e, alpha: 0.6 });
+    this.gateView
+      .roundRect(-60, -18, 120, 36, 8)
+      .fill(open ? { color: NIGHT.gate, alpha: 0.28 } : { color: 0x14121e, alpha: 0.6 });
     for (let i = -1; i <= 1; i++) {
       this.gateView.roundRect(i * 40 - 6, -40, 12, 80, 4).fill(open ? NIGHT.gate : 0x3a3550);
     }
-    if (open) this.gateView.circle(0, 0, GATE_RADIUS).stroke({ color: NIGHT.gate, alpha: 0.3, width: 3 });
+    if (open)
+      this.gateView.circle(0, 0, GATE_RADIUS).stroke({ color: NIGHT.gate, alpha: 0.3, width: 3 });
     // Teleporter pads: humming violet runes when ready; dark with a filling
     // recharge arc while the SHARED cooldown ticks down.
     const tpReady = this.snapTpCd <= 0;
@@ -707,7 +768,10 @@ export class MatchScene extends Scene {
       g.circle(0, 0, 18).stroke({ color: col, width: 2, alpha: tpReady ? 0.6 : 0.35 });
       for (let i = 0; i < 4; i++) {
         const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
-        g.circle(Math.cos(a) * 24, Math.sin(a) * 24, 3.5).fill({ color: col, alpha: tpReady ? 0.9 : 0.5 });
+        g.circle(Math.cos(a) * 24, Math.sin(a) * 24, 3.5).fill({
+          color: col,
+          alpha: tpReady ? 0.9 : 0.5,
+        });
       }
       if (!tpReady) {
         const frac = 1 - Math.min(1, this.snapTpCd / TELEPORT_CD);
@@ -725,7 +789,9 @@ export class MatchScene extends Scene {
       const hg = this.hatchView;
       hg.clear();
       const open2 = this.snapHatch;
-      hg.roundRect(-44, -32, 88, 64, 10).fill(open2 ? { color: 0x0a1410, alpha: 0.9 } : { color: 0x1c1826, alpha: 0.9 });
+      hg.roundRect(-44, -32, 88, 64, 10).fill(
+        open2 ? { color: 0x0a1410, alpha: 0.9 } : { color: 0x1c1826, alpha: 0.9 },
+      );
       hg.roundRect(-44, -32, 88, 64, 10).stroke({ color: open2 ? NIGHT.gate : 0x3a3550, width: 4 });
       if (open2) {
         hg.ellipse(0, 0, 26, 16).fill({ color: 0x000000, alpha: 0.85 });
@@ -748,9 +814,12 @@ export class MatchScene extends Scene {
       for (let i = 0; i < teeth; i++) {
         const a = (i / teeth) * Math.PI * 2;
         g.poly([
-          Math.cos(a) * 26, Math.sin(a) * 26,
-          Math.cos(a + 0.18) * 26, Math.sin(a + 0.18) * 26,
-          Math.cos(a + 0.09) * 12, Math.sin(a + 0.09) * 12,
+          Math.cos(a) * 26,
+          Math.sin(a) * 26,
+          Math.cos(a + 0.18) * 26,
+          Math.sin(a + 0.18) * 26,
+          Math.cos(a + 0.09) * 12,
+          Math.sin(a + 0.09) * 12,
         ]).fill(0xbfc6d0);
       }
       g.circle(0, 0, 26).stroke({ color: 0x8a6a3b, width: 3 });
@@ -879,6 +948,70 @@ export class MatchScene extends Scene {
     this.trailDots.length = alive;
   }
 
+  /** Sprinter clones: navy lookalikes with the cap — no name, no tell. */
+  private syncClones(list: { x: number; y: number }[]): void {
+    this.snapClones = list;
+    while (this.cloneViews.length > list.length) this.cloneViews.pop()?.destroy({ children: true });
+    while (this.cloneViews.length < list.length) {
+      const cls = classById('sprinter');
+      const c = new Container();
+      const char = blobCharacter({
+        radius: 30,
+        color: cls.color,
+        seed: 40 + this.cloneViews.length,
+        shadow: false,
+      });
+      char.body.addChild(cls.accessory(30));
+      c.addChild(char.view);
+      this.mapLayer.addChild(c);
+      this.cloneViews.push(c);
+    }
+    list.forEach((cl, i) => this.cloneViews[i]?.position.set(cl.x, cl.y));
+  }
+
+  /** Twin dummies: a full-size double of the Twin, standing too still. */
+  private syncDums(list: { x: number; y: number }[]): void {
+    this.snapDums = list;
+    while (this.dumViews.length > list.length) this.dumViews.pop()?.destroy({ children: true });
+    while (this.dumViews.length < list.length) {
+      const cls = classById('twin');
+      const c = new Container();
+      const char = blobCharacter({
+        radius: 40,
+        color: cls.color,
+        seed: 60 + this.dumViews.length,
+        shadow: false,
+      });
+      char.body.addChild(cls.accessory(40));
+      c.addChild(char.view);
+      this.mapLayer.addChild(c);
+      this.dumViews.push(c);
+    }
+    list.forEach((d, i) => this.dumViews[i]?.position.set(d.x, d.y));
+  }
+
+  /** Builder walls: a mound of conjured stone — everyone sees it, only
+   *  SEEKERS bounce off (their movement code owns the collision). */
+  private syncWalls(list: { x: number; y: number }[]): void {
+    this.snapWalls = list;
+    while (this.wallViews.length > list.length) this.wallViews.pop()?.destroy();
+    while (this.wallViews.length < list.length) {
+      const g = new Graphics();
+      for (let i = 0; i < 7; i++) {
+        const a = (i / 7) * Math.PI * 2;
+        const rr = WALL_RADIUS * (0.55 + (i % 3) * 0.14);
+        g.circle(Math.cos(a) * rr * 0.6, Math.sin(a) * rr * 0.6 - 8, 22 + (i % 3) * 6).fill(
+          i % 2 ? 0x6b6455 : 0x555044,
+        );
+      }
+      g.circle(0, -14, 24).fill(0x7a7263);
+      g.ellipse(0, 26, WALL_RADIUS, 16).fill({ color: 0x000000, alpha: 0.35 });
+      this.trapLayer.addChild(g);
+      this.wallViews.push(g);
+    }
+    list.forEach((w, i) => this.wallViews[i]?.position.set(w.x, w.y));
+  }
+
   private makeBlob(id: string, isMe: boolean): { entity: Entity; body: Container } {
     const cls = classById(this.roster.classes[id]);
     const isSeeker = this.roster.roles[id] === 'seeker';
@@ -911,7 +1044,13 @@ export class MatchScene extends Scene {
     const mark = new Graphics();
     made.entity.addChild(mark);
     this.add(made.entity, this.mapLayer);
-    this.remotes.set(id, { entity: made.entity, body: made.body, targetX: base.x, targetY: base.y, mark });
+    this.remotes.set(id, {
+      entity: made.entity,
+      body: made.body,
+      targetX: base.x,
+      targetY: base.y,
+      mark,
+    });
     // hostPositions is host-sim state. Joiners must NOT seed it — a stale
     // entry would shadow the live remote entity for terror/seeker tracking.
     if (this.session.isHost) this.hostPositions[id] = { x: base.x, y: base.y };
@@ -955,6 +1094,19 @@ export class MatchScene extends Scene {
       onTap: () => this.tryAbility(),
     });
     this.add(this.abilityBtn, this.uiLayer);
+
+    if (!this.amSeeker) {
+      // EVERY hider can sprint — a short burst on its own cooldown.
+      this.sprintBtn = new UIButton('🏃', {
+        width: 104,
+        height: 104,
+        fontSize: 44,
+        fill: 0x2a3a4a,
+        textColor: NIGHT.ink,
+        onTap: () => this.trySprint(),
+      });
+      this.add(this.sprintBtn, this.uiLayer);
+    }
 
     if (this.amSeeker) {
       this.attackBtn = new UIButton('🩸', {
@@ -1009,7 +1161,10 @@ export class MatchScene extends Scene {
     }
 
     const lvName = LEVELS[this.level]?.name ?? '';
-    this.codeHud = makeText(`${this.session.code} · ${lvName}`, 24, { color: NIGHT.inkSoft, weight: 'bold' });
+    this.codeHud = makeText(`${this.session.code} · ${lvName}`, 24, {
+      color: NIGHT.inkSoft,
+      weight: 'bold',
+    });
     this.uiLayer.addChild(this.codeHud);
     this.hud = makeText('', 24, { color: NIGHT.lantern, weight: '800' });
     this.hud.anchor.set(0, 0.5);
@@ -1042,12 +1197,18 @@ export class MatchScene extends Scene {
       const curtain = new Graphics();
       curtain.rect(-4000, -4000, 8000, 8000).fill({ color: 0x05040a, alpha: 0.96 });
       this.blindfold.addChild(curtain);
-      const line1 = makeText('🙈 Eyes shut — count with me', 34, { color: NIGHT.blood, weight: '800' });
+      const line1 = makeText('🙈 Eyes shut — count with me', 34, {
+        color: NIGHT.blood,
+        weight: '800',
+      });
       line1.position.set(0, -90);
       this.blindfold.addChild(line1);
       this.blindfoldNum = makeText(`${HIDE_PHASE_SECONDS}`, 120, { color: NIGHT.ink });
       this.blindfold.addChild(this.blindfoldNum);
-      const line2 = makeText('they are scattering into the dark…', 22, { color: NIGHT.inkSoft, weight: 'bold' });
+      const line2 = makeText('they are scattering into the dark…', 22, {
+        color: NIGHT.inkSoft,
+        weight: 'bold',
+      });
       line2.position.set(0, 96);
       this.blindfold.addChild(line2);
       this.blindfold.visible = false;
@@ -1072,7 +1233,10 @@ export class MatchScene extends Scene {
       const dot = new Graphics();
       dot.position.set(8, 8);
       row.addChild(dot);
-      const label = makeText(this.roster.names[id] ?? '?', 16, { color: NIGHT.ink, weight: 'bold' });
+      const label = makeText(this.roster.names[id] ?? '?', 16, {
+        color: NIGHT.ink,
+        weight: 'bold',
+      });
       label.anchor.set(0, 0.5);
       label.position.set(26, 8);
       row.addChild(label);
@@ -1149,6 +1313,9 @@ export class MatchScene extends Scene {
     this.snapTrail = s.trail ?? 0;
     this.applyConversions(s.conv ?? []);
     this.dropTrailDots(s.players);
+    this.syncClones(s.cl ?? []);
+    this.syncDums(s.dm ?? []);
+    this.syncWalls(s.wl ?? []);
     this.syncTraps(s.traps ?? []);
     this.syncNests(s.nests ?? []);
     this.escaped = new Set(s.esc);
@@ -1180,6 +1347,22 @@ export class MatchScene extends Scene {
         target = id;
       }
     }
+    // A Sprinter clone soaks the swing if it's the closest thing in reach.
+    let cloneHit = -1;
+    let cloneBest = best;
+    this.clones.forEach((c, i) => {
+      const d = Math.hypot(c.x - sp.x, c.y - sp.y);
+      if (d < cloneBest) {
+        cloneBest = d;
+        cloneHit = i;
+      }
+    });
+    if (cloneHit >= 0) {
+      const c = this.clones.splice(cloneHit, 1)[0]!;
+      this.broadcastFx({ type: 'fx', kind: 'attack', x: sp.x, y: sp.y, tx: c.x, ty: c.y });
+      this.broadcastFx({ type: 'fx', kind: 'poof', x: c.x, y: c.y });
+      return;
+    }
     // The swing FX auto-aims: it sweeps TOWARD the victim (tx/ty). With
     // nobody in range it plays as an all-around whiff instead.
     const tp0 = target ? this.hostPositions[target] : undefined;
@@ -1207,11 +1390,13 @@ export class MatchScene extends Scene {
         return;
       }
       this.deed(seekerId).down++;
-      if (this.hurt.has(target)) {
-        // Second strike — down. Each down spends a life; on the LAST one the
-        // dark DRAGS the body to a random far corner instead of leaving a
-        // camp-able corpse: allies can still find and save them (the down
-        // arrows point the way), but the bleed-out clock is their only mercy.
+      // Durability: each class takes a different number of hits to go DOWN
+      // (Medic and the tanks shrug off more). The final hit downs them; on
+      // the LAST life the dark DRAGS the body to a random far corner
+      // instead of leaving a camp-able corpse.
+      this.hits[target] = (this.hits[target] ?? 0) + 1;
+      if (this.hits[target]! >= this.statsOf(target).hp) {
+        this.hits[target] = 0;
         this.hurt.delete(target);
         delete this.healProg[target];
         this.downsTaken[target] = (this.downsTaken[target] ?? 0) + 1;
@@ -1221,7 +1406,15 @@ export class MatchScene extends Scene {
           const spot = this.randomFarSpot(p.x, p.y);
           this.hostPositions[target] = { ...spot };
           this.botPaths.delete(target);
-          this.broadcastFx({ type: 'fx', kind: 'dragged', x: p.x, y: p.y, id: target, tx: spot.x, ty: spot.y });
+          this.broadcastFx({
+            type: 'fx',
+            kind: 'dragged',
+            x: p.x,
+            y: p.y,
+            id: target,
+            tx: spot.x,
+            ty: spot.y,
+          });
         } else {
           this.broadcastFx({ type: 'fx', kind: 'down', x: p.x, y: p.y, id: target });
         }
@@ -1247,14 +1440,14 @@ export class MatchScene extends Scene {
           const hp = this.hostPositions[hid];
           if (hp) pts.push({ x: hp.x, y: hp.y });
         }
-        this.reveal(pts, NIGHT.violet, 5);
+        this.reveal(pts, NIGHT.violet, 5 * this.statsOf(from).powMul);
         break;
       }
       case 'screech': {
         if (!this.isSeekerRole(from)) return;
         // The scream leaves footprints: every hider trails glowing residue
         // on the ground for a while — visible only to seekers.
-        this.trailUntil = this.t + TRAIL_SECONDS;
+        this.trailUntil = this.t + TRAIL_SECONDS * this.statsOf(from).powMul;
         const pts = this.visibleHiderPoints();
         this.reveal(pts, NIGHT.blood, 4);
         this.broadcastFx({ type: 'fx', kind: 'screech', x, y });
@@ -1264,7 +1457,7 @@ export class MatchScene extends Scene {
         // Weaver: a ranged bolt that SLOWS the nearest visible hider.
         if (!this.isSeekerRole(from)) return;
         let tid: string | null = null;
-        let bd = WEB_RANGE;
+        let bd = WEB_RANGE * this.statsOf(from).powMul;
         for (const hid of this.activeHiders()) {
           if (this.down[hid] !== undefined) continue;
           if ((this.vanishUntil[hid] ?? 0) > this.t) continue;
@@ -1302,7 +1495,7 @@ export class MatchScene extends Scene {
         break;
       }
       case 'snare':
-        this.traps.push({ x, y });
+        this.traps.push({ x, y, s: SNARE_SECONDS * this.statsOf(from).powMul });
         this.broadcastFx({ type: 'fx', kind: 'snare', x, y });
         break;
       case 'blind': {
@@ -1310,7 +1503,7 @@ export class MatchScene extends Scene {
         // close enough. The fx carries that Seeker's id; only they blank.
         if (this.isSeekerRole(from)) return;
         const near = this.nearestSeeker(x, y);
-        if (near && near.d < BLIND_RANGE) {
+        if (near && near.d < BLIND_RANGE * this.statsOf(from).powMul) {
           // A blinded bot Seeker forgets what it was doing.
           if (near.id.startsWith('bot')) {
             this.botPaths.delete(near.id);
@@ -1328,7 +1521,8 @@ export class MatchScene extends Scene {
         // Over the cap, her OLDEST den folds away (anyone inside loses cover).
         if (this.isSeekerRole(from)) return;
         this.nests.push({ x, y });
-        if (this.nests.length > NEST_MAX) this.nests.shift();
+        const cap = NEST_MAX + (this.statsOf(from).powMul >= 1.3 ? 1 : 0);
+        while (this.nests.length > cap) this.nests.shift();
         this.broadcastFx({ type: 'fx', kind: 'nest', x, y });
         break;
       }
@@ -1336,17 +1530,17 @@ export class MatchScene extends Scene {
         // Ice Snap: the NEAREST Seeker is frozen for a beat — buy an escape.
         const near = this.nearestSeeker(x, y);
         if (near) {
-          this.rootUntil[near.id] = this.t + FREEZE_SECONDS;
+          this.rootUntil[near.id] = this.t + FREEZE_SECONDS * this.statsOf(from).powMul;
           this.broadcastFx({ type: 'fx', kind: 'freeze', x: near.p.x, y: near.p.y, id: near.id });
         }
         break;
       }
       case 'vanish':
-        this.vanishUntil[from] = this.t + VANISH_SECONDS;
+        this.vanishUntil[from] = this.t + VANISH_SECONDS * this.statsOf(from).powMul;
         this.broadcastFx({ type: 'fx', kind: 'poof', x, y, id: from });
         break;
       case 'decoy':
-        this.decoys.push({ x, y, until: this.t + DECOY_SECONDS });
+        this.decoys.push({ x, y, until: this.t + DECOY_SECONDS * this.statsOf(from).powMul });
         this.broadcastFx({ type: 'fx', kind: 'decoy', x, y });
         break;
       case 'overcharge': {
@@ -1371,33 +1565,108 @@ export class MatchScene extends Scene {
         }
         break;
       }
-      case 'swap': {
-        // Twin: trade places with your echo — appear where they least expect.
+      case 'dummy': {
+        // Twin: first press PLANTS a perfect double where you stand; the
+        // next press TRADES PLACES with it (the dummy keeps your old spot).
         if (!this.isSeekerRole(from)) return;
-        const other = this.seekerIds().find((sid) => sid !== from);
-        const mine = this.hostPositions[from];
-        const theirs = other ? this.hostPositions[other] : undefined;
-        if (!other || !mine || !theirs) return;
-        const mx = mine.x;
-        const my = mine.y;
-        this.hostPositions[from] = { x: theirs.x, y: theirs.y };
-        this.hostPositions[other] = { x: mx, y: my };
-        this.botPaths.delete(other); // the echo re-plans from its new spot
-        // Both ends flash; each HUMAN in the swap warps via the fx tx/ty.
-        this.broadcastFx({ type: 'fx', kind: 'teleport', x: mx, y: my, id: from, tx: theirs.x, ty: theirs.y });
-        this.broadcastFx({ type: 'fx', kind: 'teleport', x: theirs.x, y: theirs.y, id: other, tx: mx, ty: my });
+        const d = this.dummies[from];
+        if (!d) {
+          this.dummies[from] = { x, y };
+          this.broadcastFx({ type: 'fx', kind: 'dummy', x, y });
+        } else {
+          const mine = this.hostPositions[from];
+          if (!mine) return;
+          const mx = mine.x;
+          const my = mine.y;
+          this.hostPositions[from] = { x: d.x, y: d.y };
+          this.broadcastFx({
+            type: 'fx',
+            kind: 'teleport',
+            x: mx,
+            y: my,
+            id: from,
+            tx: d.x,
+            ty: d.y,
+          });
+          d.x = mx;
+          d.y = my;
+          this.broadcastFx({ type: 'fx', kind: 'dummy', x: mx, y: my });
+        }
         break;
       }
       case 'cloak': {
         // Wraith: fade from every hider's sight for a few seconds.
         if (!this.isSeekerRole(from)) return;
-        this.vanishUntil[from] = this.t + CLOAK_SECONDS;
+        this.vanishUntil[from] = this.t + CLOAK_SECONDS * this.statsOf(from).powMul;
         this.broadcastFx({ type: 'fx', kind: 'poof', x, y, id: from });
         break;
       }
+      case 'clones': {
+        // Sprinter: split into clone bots that scatter — they pop when hit.
+        if (this.isSeekerRole(from)) return;
+        const count = this.statsOf(from).powMul >= 1.5 ? 3 : 2;
+        for (let i = 0; i < count; i++) {
+          const ang = Math.random() * Math.PI * 2;
+          this.clones.push({ x, y, ang, until: this.t + CLONE_SECONDS });
+        }
+        this.broadcastFx({ type: 'fx', kind: 'poof', x, y });
+        break;
+      }
+      case 'wall': {
+        // Builder: a barricade only the SEEKER collides with.
+        if (this.isSeekerRole(from)) return;
+        this.walls.push({ x, y, until: this.t + WALL_SECONDS * this.statsOf(from).powMul });
+        this.broadcastFx({ type: 'fx', kind: 'wall', x, y });
+        break;
+      }
+      case 'blast': {
+        // Kaiju: a shockwave that HURLS every seeker in range away.
+        if (this.isSeekerRole(from)) return;
+        const radius = BLAST_RADIUS * this.statsOf(from).powMul;
+        for (const sid of this.seekerIds()) {
+          const sp2 = this.hostPositions[sid];
+          if (!sp2) continue;
+          const d = Math.hypot(sp2.x - x, sp2.y - y);
+          if (d >= radius) continue;
+          const ang = Math.atan2(sp2.y - y, sp2.x - x);
+          // Walk the push in steps so walls stop it honestly.
+          let px = sp2.x;
+          let py = sp2.y;
+          for (let s = 0; s < 16; s++) {
+            const m = moveWithCollision(
+              this.map,
+              px,
+              py,
+              18,
+              14,
+              Math.cos(ang) * (BLAST_PUSH / 16),
+              Math.sin(ang) * (BLAST_PUSH / 16),
+            );
+            px = m.x;
+            py = m.y;
+          }
+          this.hostPositions[sid] = { x: px, y: py };
+          this.rootUntil[sid] = Math.max(this.rootUntil[sid] ?? 0, this.t + 0.5);
+          this.botPaths.delete(sid);
+          this.broadcastFx({
+            type: 'fx',
+            kind: 'blast',
+            x: sp2.x,
+            y: sp2.y,
+            id: sid,
+            tx: px,
+            ty: py,
+          });
+        }
+        this.broadcastFx({ type: 'fx', kind: 'blast', x, y });
+        break;
+      }
       case 'mend': {
+        // Medic: a healing beam. Priority one is LIFTING a downed ally;
+        // with nobody down, it fully HEALS the most-wounded ally in range.
+        const range = MEND_RANGE * this.statsOf(from).powMul;
         let tid: string | null = null;
-        let bd = MEND_RANGE; // a medic shouldn't have to hug the body
+        let bd = range;
         for (const did of Object.keys(this.down)) {
           const p = this.hostPositions[did];
           if (!p) continue;
@@ -1410,9 +1679,31 @@ export class MatchScene extends Scene {
         if (tid) {
           delete this.down[tid];
           this.reviveProg[tid] = 0;
+          this.hits[tid] = 0;
           this.deed(from).res++;
           const p = this.hostPositions[tid]!;
-          this.broadcastFx({ type: 'fx', kind: 'rescue', x: p.x, y: p.y, id: tid });
+          this.broadcastFx({ type: 'fx', kind: 'rescue', x: p.x, y: p.y, id: tid, tx: x, ty: y });
+          break;
+        }
+        let hid2: string | null = null;
+        let worst = 0;
+        for (const hid of this.activeHiders()) {
+          if (hid === from || this.down[hid] !== undefined) continue;
+          const hp2 = this.hostPositions[hid];
+          if (!hp2 || Math.hypot(hp2.x - x, hp2.y - y) >= range) continue;
+          const dmg = this.hits[hid] ?? 0;
+          if (dmg > worst) {
+            worst = dmg;
+            hid2 = hid;
+          }
+        }
+        if (hid2) {
+          this.hits[hid2] = 0;
+          this.hurt.delete(hid2);
+          delete this.healProg[hid2];
+          this.deed(from).res++;
+          const p = this.hostPositions[hid2]!;
+          this.broadcastFx({ type: 'fx', kind: 'heal', x: p.x, y: p.y, id: hid2, tx: x, ty: y });
         }
         break;
       }
@@ -1425,9 +1716,14 @@ export class MatchScene extends Scene {
     );
   }
 
-  /** More than one blob can hunt now (Twin's echo, Wraith conversions). */
+  /** More than one blob can hunt now (Wraith conversions). */
   private isSeekerRole(id: string): boolean {
     return this.roster.roles[id] === 'seeker';
+  }
+
+  /** A player's live numbers: class base + their owned Verium passives. */
+  private statsOf(id: string): { speed: number; hp: number; cdMul: number; powMul: number } {
+    return statsFor(classById(this.roster.classes[id]), this.roster.ups?.[id] ?? []);
   }
 
   private seekerIds(): string[] {
@@ -1436,7 +1732,10 @@ export class MatchScene extends Scene {
 
   /** Host: the seeker closest to (x, y) — for abilities that target "the
    *  Seeker" now that there can be several. */
-  private nearestSeeker(x: number, y: number): { id: string; p: { x: number; y: number }; d: number } | null {
+  private nearestSeeker(
+    x: number,
+    y: number,
+  ): { id: string; p: { x: number; y: number }; d: number } | null {
     let best: { id: string; p: { x: number; y: number }; d: number } | null = null;
     for (const sid of this.seekerIds()) {
       const p = this.hostPositions[sid];
@@ -1478,7 +1777,8 @@ export class MatchScene extends Scene {
   private hideSpotAt(x: number, y: number): number {
     for (let i = 0; i < this.hidePts.length; i++) {
       const b = this.hidePts[i]!;
-      if (Math.hypot(b.x - x, b.y - y) < HIDE_RADIUS && (this.bustedUntil[i] ?? 0) <= this.t) return i;
+      if (Math.hypot(b.x - x, b.y - y) < HIDE_RADIUS && (this.bustedUntil[i] ?? 0) <= this.t)
+        return i;
     }
     return -1;
   }
@@ -1503,7 +1803,8 @@ export class MatchScene extends Scene {
   private amConcealedLocal(): boolean {
     return (
       this.hidePts.some(
-        (b, i) => !this.snapBusted.has(i) && Math.hypot(b.x - this.me.x, b.y - this.me.y) < HIDE_RADIUS,
+        (b, i) =>
+          !this.snapBusted.has(i) && Math.hypot(b.x - this.me.x, b.y - this.me.y) < HIDE_RADIUS,
       ) || this.snapNests.some((n) => Math.hypot(n.x - this.me.x, n.y - this.me.y) < HIDE_RADIUS)
     );
   }
@@ -1523,9 +1824,14 @@ export class MatchScene extends Scene {
         this.broadcastFx({ type: 'fx', kind: 'release', x: sp?.x ?? 0, y: sp?.y ?? 0 });
         // Wraith's opening curse: one random BOT hider is dragged to the
         // dark side (humans stay human) — suddenly the hunt has two hunters.
-        const wraith = this.seekerIds().some((sid) => classById(this.roster.classes[sid]).id === 'wraith');
+        const wraith = this.seekerIds().some(
+          (sid) => classById(this.roster.classes[sid]).id === 'wraith',
+        );
         if (wraith) {
-          const pool = this.activeHiders().filter((id) => id.startsWith('bot') && this.down[id] === undefined);
+          // Humans make far better thralls — bots are the LAST resort.
+          const alive = this.activeHiders().filter((id) => this.down[id] === undefined);
+          const humans = alive.filter((id) => !id.startsWith('bot'));
+          const pool = humans.length ? humans : alive.filter((id) => id.startsWith('bot'));
           const pick = pool[Math.floor(Math.random() * pool.length)];
           if (pick) {
             this.converted.push(pick);
@@ -1541,6 +1847,49 @@ export class MatchScene extends Scene {
       return;
     }
     const active = this.activeHiders();
+    // Sprinter clones scatter like panicked prey; expired ones pop quietly.
+    for (let i = this.clones.length - 1; i >= 0; i--) {
+      const c = this.clones[i]!;
+      if (c.until <= this.t) {
+        this.clones.splice(i, 1);
+        this.broadcastFx({ type: 'fx', kind: 'poof', x: c.x, y: c.y });
+        continue;
+      }
+      const near = this.nearestSeeker(c.x, c.y);
+      if (near && near.d < 420) {
+        c.ang = Math.atan2(c.y - near.p.y, c.x - near.p.x) + (Math.random() - 0.5) * 0.4;
+      }
+      const step = 260 * dt;
+      const m = moveWithCollision(
+        this.map,
+        c.x,
+        c.y,
+        16,
+        14,
+        Math.cos(c.ang) * step,
+        Math.sin(c.ang) * step,
+      );
+      if (Math.hypot(m.x - c.x, m.y - c.y) < step * 0.3) c.ang += 1.2 + Math.random(); // wall — bounce off
+      c.x = m.x;
+      c.y = m.y;
+    }
+    // Twin dummies whisper to their owner when hiders wander near.
+    for (const [owner, d] of Object.entries(this.dummies)) {
+      const alert = DUMMY_ALERT * this.statsOf(owner).powMul;
+      const nearHider = active.some((id) => {
+        if (this.down[id] !== undefined) return false;
+        const p = this.hostPositions[id];
+        return !!p && Math.hypot(p.x - d.x, p.y - d.y) < alert;
+      });
+      if (nearHider && this.t >= (this.dummyPingAt[owner] ?? 0)) {
+        this.dummyPingAt[owner] = this.t + DUMMY_PING_EVERY;
+        this.broadcastFx({ type: 'fx', kind: 'dummyping', x: d.x, y: d.y, id: owner });
+      }
+    }
+    // Builder walls crumble on their own clock.
+    for (let i = this.walls.length - 1; i >= 0; i--) {
+      if (this.walls[i]!.until <= this.t) this.walls.splice(i, 1);
+    }
     // Teleporters: a standing hider on a ready pad rides to the twin pad.
     // ONE shared cooldown — the first ride locks the pair for everyone.
     if (this.teleportPts.length >= 2 && this.t >= this.tpReadyAt) {
@@ -1562,8 +1911,19 @@ export class MatchScene extends Scene {
           // the instant the cooldown ends.
           let lx = dest.x + 90;
           let ly = dest.y;
-          for (const [dx, dy] of [[90, 0], [-90, 0], [0, 90], [0, -90]] as const) {
-            if (!solidAt(this.map, Math.floor((dest.x + dx) / TILE_SIZE), Math.floor((dest.y + dy) / TILE_SIZE))) {
+          for (const [dx, dy] of [
+            [90, 0],
+            [-90, 0],
+            [0, 90],
+            [0, -90],
+          ] as const) {
+            if (
+              !solidAt(
+                this.map,
+                Math.floor((dest.x + dx) / TILE_SIZE),
+                Math.floor((dest.y + dy) / TILE_SIZE),
+              )
+            ) {
               lx = dest.x + dx;
               ly = dest.y + dy;
               break;
@@ -1572,7 +1932,15 @@ export class MatchScene extends Scene {
           this.hostPositions[id] = { x: lx, y: ly };
           this.botPaths.delete(id); // a teleported bot re-plans from the far side
           this.tpReadyAt = this.t + TELEPORT_CD;
-          this.broadcastFx({ type: 'fx', kind: 'teleport', x: pad.x, y: pad.y, id, tx: lx, ty: ly });
+          this.broadcastFx({
+            type: 'fx',
+            kind: 'teleport',
+            x: pad.x,
+            y: pad.y,
+            id,
+            tx: lx,
+            ty: ly,
+          });
           break outer;
         }
       }
@@ -1622,7 +1990,7 @@ export class MatchScene extends Scene {
       for (let i = this.traps.length - 1; i >= 0; i--) {
         const tr = this.traps[i]!;
         if (Math.hypot(tr.x - p.x, tr.y - p.y) < SNARE_RADIUS) {
-          this.rootUntil[id] = this.t + SNARE_SECONDS;
+          this.rootUntil[id] = this.t + (tr.s ?? SNARE_SECONDS);
           this.traps.splice(i, 1);
           this.broadcastFx({ type: 'fx', kind: 'snare', x: p.x, y: p.y, id });
         }
@@ -1639,7 +2007,8 @@ export class MatchScene extends Scene {
         if (!hp) continue;
         if (Math.hypot(hp.x - dp.x, hp.y - dp.y) < REVIVE_RADIUS) {
           const cls = classById(this.roster.classes[hid]);
-          this.reviveProg[did] = (this.reviveProg[did] ?? 0) + (dt * (cls.id === 'medic' ? 2 : 1)) / REVIVE_SECONDS;
+          this.reviveProg[did] =
+            (this.reviveProg[did] ?? 0) + (dt * (cls.id === 'medic' ? 2 : 1)) / REVIVE_SECONDS;
           helper = true;
         }
       }
@@ -1668,6 +2037,7 @@ export class MatchScene extends Scene {
         this.healProg[id] = (this.healProg[id] ?? 0) + dt / HEAL_SECONDS;
         if (this.healProg[id]! >= 1) {
           this.hurt.delete(id);
+          this.hits[id] = 0; // fully patched — all durability back
           delete this.healProg[id];
           const p = this.hostPositions[id];
           if (p) this.broadcastFx({ type: 'fx', kind: 'heal', x: p.x, y: p.y, id });
@@ -1769,7 +2139,12 @@ export class MatchScene extends Scene {
           gx = tgt.x;
           gy = tgt.y;
           // Lunge (Stalker): burst forward when prey is just out of reach.
-          if (cls.ability.id === 'lunge' && best > 200 && best < 450 && this.t >= (this.botCd[id] ?? 0)) {
+          if (
+            cls.ability.id === 'lunge' &&
+            best > 200 &&
+            best < 450 &&
+            this.t >= (this.botCd[id] ?? 0)
+          ) {
             this.botCd[id] = this.t + cls.ability.cooldown;
             this.botBoost[id] = this.t + 0.5;
           }
@@ -1934,6 +2309,19 @@ export class MatchScene extends Scene {
         p.x = moved.x;
         p.y = moved.y;
       }
+      // Builder walls stop SEEKER bots the same as human seekers.
+      if (isSeeker) {
+        for (const w of this.walls) {
+          const dx = p.x - w.x;
+          const dy = p.y - w.y;
+          const d = Math.hypot(dx, dy);
+          if (d < WALL_RADIUS + 16 && d > 0.01) {
+            const push = (WALL_RADIUS + 16 - d) / d;
+            p.x += dx * push;
+            p.y += dy * push;
+          }
+        }
+      }
     }
   }
 
@@ -1962,9 +2350,15 @@ export class MatchScene extends Scene {
     } else if (ability === 'decoy' && seekerDist < BOT_FLEE_DIST) {
       fire();
       this.hostAbility(id, 'decoy', p.x, p.y);
-    } else if (ability === 'dash' && seekerDist < BOT_FLEE_DIST) {
+    } else if (ability === 'clones' && seekerDist < BOT_FLEE_DIST) {
       fire();
-      this.botBoost[id] = this.t + 1.1;
+      this.hostAbility(id, 'clones', p.x, p.y);
+    } else if (ability === 'wall' && seekerDist < 220) {
+      fire();
+      this.hostAbility(id, 'wall', p.x, p.y);
+    } else if (ability === 'blast' && seekerDist < 200) {
+      fire();
+      this.hostAbility(id, 'blast', p.x, p.y);
     } else if (ability === 'blind' && seekerDist < 300) {
       // Siren bot: dazzle the closing Seeker and slip away in the white-out.
       fire();
@@ -2051,6 +2445,8 @@ export class MatchScene extends Scene {
     this.t += dt;
     this.cooldownLeft = Math.max(0, this.cooldownLeft - dt);
     this.attackCd = Math.max(0, this.attackCd - dt);
+    this.sprintCdLeft = Math.max(0, this.sprintCdLeft - dt);
+    if (this.sprintBtn) this.sprintBtn.alpha = this.sprintCdLeft > 0 ? 0.4 : 1;
     // Dazzled: the white-out holds, then thins as sight returns.
     if (this.blindG) {
       this.blindLeft = Math.max(0, this.blindLeft - dt);
@@ -2101,24 +2497,27 @@ export class MatchScene extends Scene {
         const tipY = Math.sin(a) * 82;
         this.senseArrowG
           .poly([
-            tipX, tipY,
-            Math.cos(a + 2.6) * 26 + Math.cos(a) * 56, Math.sin(a + 2.6) * 26 + Math.sin(a) * 56,
-            Math.cos(a - 2.6) * 26 + Math.cos(a) * 56, Math.sin(a - 2.6) * 26 + Math.sin(a) * 56,
+            tipX,
+            tipY,
+            Math.cos(a + 2.6) * 26 + Math.cos(a) * 56,
+            Math.sin(a + 2.6) * 26 + Math.sin(a) * 56,
+            Math.cos(a - 2.6) * 26 + Math.cos(a) * 56,
+            Math.sin(a - 2.6) * 26 + Math.sin(a) * 56,
           ])
           .fill({ color: NIGHT.blood, alpha: 0.5 + 0.4 * Math.abs(Math.sin(this.t * 5)) });
       }
     } else if (this.senseArrowG) {
       this.senseArrowG.clear();
     }
-    const myCls = classById(this.roster.classes[this.session.id]);
-
     if (this.session.isHost) {
       this.hostSim(dt);
       this.hostSimBots(dt);
     }
 
-    const iAmDown = this.snapDown[this.session.id] !== undefined || this.down[this.session.id] !== undefined;
-    const iAmRooted = this.snapRooted.has(this.session.id) || (this.rootUntil[this.session.id] ?? 0) > this.t;
+    const iAmDown =
+      this.snapDown[this.session.id] !== undefined || this.down[this.session.id] !== undefined;
+    const iAmRooted =
+      this.snapRooted.has(this.session.id) || (this.rootUntil[this.session.id] ?? 0) > this.t;
     const iAmOut = this.out.has(this.session.id);
     const iAmEscaped = this.escaped.has(this.session.id);
     // During the hide phase the SEEKER stands counting (eyes shut) while the
@@ -2134,13 +2533,23 @@ export class MatchScene extends Scene {
     const jy = frozen ? 0 : this.joystick.value.y;
     // Webbed? You crawl until the strands snap.
     const slowMul = this.snapSlowed.has(this.session.id) ? WEB_SLOW : 1;
-    const speed = myCls.speed * this.boostFactor * slowMul;
+    // Natural speed comes from class stats (+ passives); SPRINT is a burst.
+    const sprintMul = !this.amSeeker && this.t < this.sprintUntil ? SPRINT_MUL : 1;
+    const speed = this.statsOf(this.session.id).speed * this.boostFactor * slowMul * sprintMul;
     let sx = 1;
     let sy = 1;
     if (Math.hypot(jx, jy) > 0.12) {
       // Any manual input cancels an auto-walk into a hiding spot.
       this.hideTarget = null;
-      const moved = moveWithCollision(this.map, this.me.x, this.me.y, 18, 14, jx * speed * dt, jy * speed * dt);
+      const moved = moveWithCollision(
+        this.map,
+        this.me.x,
+        this.me.y,
+        18,
+        14,
+        jx * speed * dt,
+        jy * speed * dt,
+      );
       this.me.position.set(moved.x, moved.y);
       this.walk += dt * 11;
       const s = Math.sin(this.walk) * 0.07;
@@ -2153,7 +2562,15 @@ export class MatchScene extends Scene {
       const d = Math.hypot(dx, dy);
       if (d > 6) {
         const step = Math.min(d, speed * dt);
-        const moved = moveWithCollision(this.map, this.me.x, this.me.y, 18, 14, (dx / d) * step, (dy / d) * step);
+        const moved = moveWithCollision(
+          this.map,
+          this.me.x,
+          this.me.y,
+          18,
+          14,
+          (dx / d) * step,
+          (dy / d) * step,
+        );
         // Wall in the way and no progress → abandon the auto-walk.
         if (Math.hypot(moved.x - this.me.x, moved.y - this.me.y) < 0.4) this.hideTarget = null;
         this.me.position.set(moved.x, moved.y);
@@ -2163,6 +2580,18 @@ export class MatchScene extends Scene {
         sy = 1 - s;
       } else {
         this.hideTarget = null;
+      }
+    }
+    // Builder walls: only SEEKERS collide — hiders slip right through.
+    if (this.amSeeker) {
+      for (const w of this.snapWalls) {
+        const dx = this.me.x - w.x;
+        const dy = this.me.y - w.y;
+        const d = Math.hypot(dx, dy);
+        if (d < WALL_RADIUS + 18 && d > 0.01) {
+          const push = (WALL_RADIUS + 18 - d) / d;
+          this.me.position.set(this.me.x + dx * push, this.me.y + dy * push);
+        }
       }
     }
     // Hidden self: tuck in noticeably (shrink + fade) while inside a spot.
@@ -2298,7 +2727,8 @@ export class MatchScene extends Scene {
     const pool = (wx: number, wy: number, color: number, k: number): void => {
       const sx = wx + this.mapLayer.x;
       const sy = wy + this.mapLayer.y;
-      if (sx < -LIGHT_FADE || sy < -LIGHT_FADE || sx > W + LIGHT_FADE || sy > H + LIGHT_FADE) return;
+      if (sx < -LIGHT_FADE || sy < -LIGHT_FADE || sx > W + LIGHT_FADE || sy > H + LIGHT_FADE)
+        return;
       g.circle(sx, sy, LIGHT_FADE * k).fill({ color, alpha: 0.09 });
       g.circle(sx, sy, LIGHT_FULL * k).fill({ color, alpha: 0.11 });
       g.circle(sx, sy, LIGHT_FULL * 0.55 * k).fill({ color, alpha: 0.13 });
@@ -2331,7 +2761,11 @@ export class MatchScene extends Scene {
     const g = this.compass;
     g.clear();
     if (this.amSeeker || this.phase !== 'playing' || this.spectating) return;
-    if (this.snapDown[this.session.id] !== undefined || this.out.has(this.session.id) || this.escaped.has(this.session.id))
+    if (
+      this.snapDown[this.session.id] !== undefined ||
+      this.out.has(this.session.id) ||
+      this.escaped.has(this.session.id)
+    )
       return;
     let target: { x: number; y: number } | null = null;
     let color: number = NIGHT.lantern;
@@ -2340,7 +2774,9 @@ export class MatchScene extends Scene {
       if (this.snapGate) exits.push(this.gatePt);
       if (this.snapHatch) exits.push(this.hatchPt);
       target = exits.sort(
-        (a, b) => Math.hypot(a.x - this.me.x, a.y - this.me.y) - Math.hypot(b.x - this.me.x, b.y - this.me.y),
+        (a, b) =>
+          Math.hypot(a.x - this.me.x, a.y - this.me.y) -
+          Math.hypot(b.x - this.me.x, b.y - this.me.y),
       )[0]!;
       color = NIGHT.gate;
     } else {
@@ -2361,8 +2797,7 @@ export class MatchScene extends Scene {
     const ang = Math.atan2(t2.y - this.me.y, t2.x - this.me.x);
     const px = this.me.x + this.mapLayer.x + Math.cos(ang) * 120;
     const py = this.me.y + this.mapLayer.y + Math.sin(ang) * 120;
-    g.poly([14, 0, -9, -9, -9, 9])
-      .fill({ color, alpha: 0.55 });
+    g.poly([14, 0, -9, -9, -9, 9]).fill({ color, alpha: 0.55 });
     g.position.set(px, py);
     g.rotation = ang;
   }
@@ -2387,7 +2822,8 @@ export class MatchScene extends Scene {
     if (distAlpha > 0 && this.losBlocked(eye.x, eye.y, r.entity.x, r.entity.y)) distAlpha = 0;
     // A hider in a hiding spot is invisible to the Seeker until searched — the
     // Seeker must step within SEARCH_RADIUS of them to reveal them.
-    if (this.amSeeker && !isSeeker && this.snapHidden.has(id) && dist > SEARCH_RADIUS) distAlpha = 0;
+    if (this.amSeeker && !isSeeker && this.snapHidden.has(id) && dist > SEARCH_RADIUS)
+      distAlpha = 0;
     // Ease toward the target so corner reveals don't strobe.
     r.entity.alpha += (distAlpha - r.entity.alpha) * Math.min(1, dt * 10);
     // Vanish (Ghost) hides fully from the Seeker — and a cloaked Wraith
@@ -2400,17 +2836,32 @@ export class MatchScene extends Scene {
     if (downed) {
       // downed marker + revive ring so allies can find them
       r.mark.circle(0, 0, 26).stroke({ color: NIGHT.blood, width: 4, alpha: 0.9 });
-      r.mark.moveTo(-10, -10).lineTo(10, 10).moveTo(10, -10).lineTo(-10, 10).stroke({ color: NIGHT.blood, width: 4 });
+      r.mark
+        .moveTo(-10, -10)
+        .lineTo(10, 10)
+        .moveTo(10, -10)
+        .lineTo(-10, 10)
+        .stroke({ color: NIGHT.blood, width: 4 });
     } else if (!isSeeker && this.snapHurt.has(id)) {
       // injured marker — a red gash so both allies and the Seeker can tell
       // this one is one hit from going down.
-      r.mark.arc(0, -34, 12, Math.PI * 0.15, Math.PI * 0.85).stroke({ color: NIGHT.blood, width: 4, alpha: 0.9 });
-      r.mark.moveTo(-5, -30).lineTo(5, -38).moveTo(-5, -38).lineTo(5, -30).stroke({ color: NIGHT.blood, width: 3, alpha: 0.85 });
+      r.mark
+        .arc(0, -34, 12, Math.PI * 0.15, Math.PI * 0.85)
+        .stroke({ color: NIGHT.blood, width: 4, alpha: 0.9 });
+      r.mark
+        .moveTo(-5, -30)
+        .lineTo(5, -38)
+        .moveTo(-5, -38)
+        .lineTo(5, -30)
+        .stroke({ color: NIGHT.blood, width: 3, alpha: 0.85 });
     }
     if (!isSeeker && this.snapSlowed.has(id)) {
       // webbed — sticky strands wrap the blob
       for (let i = 0; i < 3; i++) {
-        r.mark.moveTo(-26, -14 + i * 12).lineTo(26, -18 + i * 12).stroke({ color: 0xd8d4e8, width: 2.5, alpha: 0.8 });
+        r.mark
+          .moveTo(-26, -14 + i * 12)
+          .lineTo(26, -18 + i * 12)
+          .stroke({ color: 0xd8d4e8, width: 2.5, alpha: 0.8 });
       }
     }
   }
@@ -2419,7 +2870,9 @@ export class MatchScene extends Scene {
     const players: Record<string, { x: number; y: number }> = {};
     for (const [id, p] of Object.entries(this.hostPositions)) players[id] = { x: p.x, y: p.y };
     const hidden = this.activeHiders().filter((id) => this.isConcealed(id));
-    const vanished = Object.keys(this.vanishUntil).filter((id) => (this.vanishUntil[id] ?? 0) > this.t);
+    const vanished = Object.keys(this.vanishUntil).filter(
+      (id) => (this.vanishUntil[id] ?? 0) > this.t,
+    );
     const rooted = Object.keys(this.rootUntil).filter((id) => (this.rootUntil[id] ?? 0) > this.t);
     const hurt = [...this.hurt];
     const busted: number[] = [];
@@ -2451,6 +2904,9 @@ export class MatchScene extends Scene {
       nests: this.nests.map((n) => ({ x: n.x, y: n.y })),
       conv: [...this.converted],
       trail: Math.max(0, this.trailUntil - this.t),
+      cl: this.clones.map((c) => ({ x: c.x, y: c.y })),
+      dm: Object.values(this.dummies).map((d) => ({ x: d.x, y: d.y })),
+      wl: this.walls.map((w) => ({ x: w.x, y: w.y })),
     };
     this.session.broadcast(snap);
     // Host mirrors its own snap-derived view.
@@ -2471,6 +2927,9 @@ export class MatchScene extends Scene {
     this.snapTrail = snap.trail;
     this.applyConversions(snap.conv);
     this.dropTrailDots(snap.players);
+    this.syncClones(snap.cl);
+    this.syncDums(snap.dm);
+    this.syncWalls(snap.wl);
     this.syncTraps(snap.traps);
     this.syncNests(snap.nests);
     this.syncDecoys(snap.decoys);
@@ -2518,7 +2977,9 @@ export class MatchScene extends Scene {
           : '💀 DOWNED — hold on, someone can save you';
         this.roleHud.style.fill = NIGHT.blood;
       } else if (iAmHurt) {
-        this.roleHud.text = iAmHidden ? '🩹 Patching up — stay hidden…' : '🩸 Injured — one more hit downs you. Hide to heal';
+        this.roleHud.text = iAmHidden
+          ? '🩹 Patching up — stay hidden…'
+          : '🩸 Injured — one more hit downs you. Hide to heal';
         this.roleHud.style.fill = NIGHT.blood;
       } else if (iAmHidden) {
         this.roleHud.text = '🫥 Hidden — stay still, the Seeker must search you out';
@@ -2544,7 +3005,8 @@ export class MatchScene extends Scene {
       // Injured: a red pip; if patching up while hidden, a green bar fills over it.
       this.myBar.rect(-26, 0, 52, 6).fill({ color: 0x000000, alpha: 0.4 });
       this.myBar.rect(-26, 0, 26, 6).fill(NIGHT.blood);
-      if (this.healEst > 0) this.myBar.rect(-26, 0, 52 * (this.healEst / HEAL_SECONDS), 6).fill(NIGHT.gate);
+      if (this.healEst > 0)
+        this.myBar.rect(-26, 0, 52 * (this.healEst / HEAL_SECONDS), 6).fill(NIGHT.gate);
     }
     this.abilityBtn.alpha = this.cooldownLeft > 0 ? 0.4 : 1;
     if (this.attackBtn) this.attackBtn.alpha = this.attackCd > 0 ? 0.4 : 1;
@@ -2554,7 +3016,15 @@ export class MatchScene extends Scene {
       const esc = this.escaped.has(id);
       const gone = this.out.has(id);
       const injured = this.snapHurt.has(id);
-      const color = esc ? NIGHT.gate : gone ? 0x556070 : downed ? NIGHT.blood : injured ? 0xd98a8a : NIGHT.ghost;
+      const color = esc
+        ? NIGHT.gate
+        : gone
+          ? 0x556070
+          : downed
+            ? NIGHT.blood
+            : injured
+              ? 0xd98a8a
+              : NIGHT.ghost;
       row.dot.clear();
       row.dot.circle(0, 0, 8).fill(color);
       const suffix = esc ? ' ✓escaped' : gone ? ' ✗out' : downed ? ' 💀' : injured ? ' 🩸' : '';
@@ -2659,7 +3129,11 @@ export class MatchScene extends Scene {
     for (const p of points) {
       const e = new Entity();
       e.position.set(p.x, p.y);
-      const g = new Graphics().circle(0, 0, 40).stroke({ color, width: 6, alpha: 0.9 }).circle(0, 0, 8).fill(color);
+      const g = new Graphics()
+        .circle(0, 0, 40)
+        .stroke({ color, width: 6, alpha: 0.9 })
+        .circle(0, 0, 8)
+        .fill(color);
       e.addChild(g);
       e.addBehavior(new Wobble({ target: e, amount: 0.14, speed: 4 }));
       e.addBehavior(new Timer(secs, () => this.remove(e)));
@@ -2677,8 +3151,16 @@ export class MatchScene extends Scene {
       case 'attack':
         if (fx.tx !== undefined && fx.ty !== undefined) {
           // A landed swing sweeps toward its victim.
-          g.arc(0, 0, ATTACK_RANGE * 0.8, -1.1, 1.1).stroke({ color: NIGHT.blood, width: 14, alpha: 0.85 });
-          g.arc(0, 0, ATTACK_RANGE * 0.55, -0.9, 0.9).stroke({ color: 0xff8fa8, width: 8, alpha: 0.7 });
+          g.arc(0, 0, ATTACK_RANGE * 0.8, -1.1, 1.1).stroke({
+            color: NIGHT.blood,
+            width: 14,
+            alpha: 0.85,
+          });
+          g.arc(0, 0, ATTACK_RANGE * 0.55, -0.9, 0.9).stroke({
+            color: 0xff8fa8,
+            width: 8,
+            alpha: 0.7,
+          });
           e.rotation = Math.atan2(fx.ty - fx.y, fx.tx - fx.x);
         } else {
           // A whiff spins all the way around — swung at shadows.
@@ -2706,15 +3188,29 @@ export class MatchScene extends Scene {
         life = 0.35;
         break;
       case 'heal':
+        // Medic beam: a green thread from the healer (tx/ty) to the healed.
+        if (fx.tx !== undefined && fx.ty !== undefined) {
+          g.moveTo(fx.tx - fx.x, fx.ty - fx.y)
+            .lineTo(0, 0)
+            .stroke({ color: NIGHT.gate, width: 4, alpha: 0.85 });
+        }
         g.circle(0, 0, 34).stroke({ color: NIGHT.gate, width: 6, alpha: 0.85 });
-        g.roundRect(-4, -14, 8, 28, 3).fill(NIGHT.gate).roundRect(-14, -4, 28, 8, 3).fill(NIGHT.gate);
+        g.roundRect(-4, -14, 8, 28, 3)
+          .fill(NIGHT.gate)
+          .roundRect(-14, -4, 28, 8, 3)
+          .fill(NIGHT.gate);
         sting('rescue');
-        life = 0.5;
+        life = 0.7;
         break;
       case 'rescue':
+        if (fx.tx !== undefined && fx.ty !== undefined) {
+          g.moveTo(fx.tx - fx.x, fx.ty - fx.y)
+            .lineTo(0, 0)
+            .stroke({ color: NIGHT.gate, width: 4, alpha: 0.85 });
+        }
         g.circle(0, 0, 44).stroke({ color: NIGHT.gate, width: 8, alpha: 0.9 });
         sting('rescue');
-        life = 0.5;
+        life = 0.7;
         break;
       case 'lantern':
         g.circle(0, -26, 46).fill({ color: NIGHT.lantern, alpha: 0.35 });
@@ -2738,7 +3234,9 @@ export class MatchScene extends Scene {
       case 'snare':
         for (let i = 0; i < 8; i++) {
           const a = (i / 8) * Math.PI * 2;
-          g.moveTo(0, 0).lineTo(Math.cos(a) * SNARE_RADIUS, Math.sin(a) * SNARE_RADIUS).stroke({ color: NIGHT.violet, width: 3, alpha: 0.7 });
+          g.moveTo(0, 0)
+            .lineTo(Math.cos(a) * SNARE_RADIUS, Math.sin(a) * SNARE_RADIUS)
+            .stroke({ color: NIGHT.violet, width: 3, alpha: 0.7 });
         }
         life = fx.id ? 0.4 : DECOY_SECONDS; // a laid trap lingers faintly
         break;
@@ -2782,8 +3280,76 @@ export class MatchScene extends Scene {
         sting('lantern');
         life = 0.5;
         break;
+      case 'wall':
+        // Stone bursts from the floor.
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * Math.PI * 2;
+          g.circle(Math.cos(a) * WALL_RADIUS * 0.8, Math.sin(a) * WALL_RADIUS * 0.8, 7).fill(
+            0x8a8272,
+          );
+        }
+        g.circle(0, 0, WALL_RADIUS).stroke({ color: 0x8a8272, width: 6, alpha: 0.8 });
+        sting('down');
+        this.camera?.shake(6, 0.2);
+        life = 0.5;
+        break;
+      case 'blast': {
+        // Atomic shockwave — and the HURLED seeker warps via tx/ty.
+        if (fx.id === this.session.id && fx.tx !== undefined && fx.ty !== undefined) {
+          this.me.position.set(fx.tx, fx.ty);
+          this.hideTarget = null;
+        }
+        g.circle(0, 0, 120).stroke({ color: 0x8fe07a, width: 14, alpha: 0.9 });
+        g.circle(0, 0, 70).stroke({ color: 0xd6ffc8, width: 8, alpha: 0.7 });
+        g.circle(0, 0, 30).fill({ color: 0x8fe07a, alpha: 0.5 });
+        sting('gate');
+        this.camera?.shake(16, 0.45);
+        life = 0.7;
+        break;
+      }
+      case 'dummy':
+        // A double shimmers into place.
+        g.circle(0, 0, 46).stroke({ color: 0x9a86c8, width: 6, alpha: 0.9 });
+        g.circle(0, 0, 24).stroke({ color: 0x9a86c8, width: 3, alpha: 0.5 });
+        sting('blip');
+        life = 0.5;
+        break;
+      case 'dummyping':
+        // Only the Twin hears the whisper.
+        if (fx.id === this.session.id) {
+          this.roleHud.text = '🪞 something stirs near your dummy…';
+          this.roleHud.style.fill = NIGHT.violet;
+          sting('blip');
+          g.circle(0, 0, 40).stroke({ color: 0x9a86c8, width: 4, alpha: 0.8 });
+          life = 0.8;
+        } else {
+          life = 0.01; // nothing to see for anyone else
+        }
+        break;
       case 'convert':
         // The Wraith's curse takes someone — dark tendrils close around them.
+        if (fx.id === this.session.id && !this.amSeeker) {
+          // The dark claimed ME: flip to the seeker side mid-hunt.
+          this.amSeeker = true;
+          this.roleHudBase = '🌫️ The dark claimed you — HUNT the survivors';
+          this.roleHud.text = this.roleHudBase;
+          this.roleHud.style.fill = NIGHT.blood;
+          this.hideTarget = null;
+          if (this.sprintBtn) this.sprintBtn.visible = false;
+          if (this.abilityBtn) this.abilityBtn.visible = false;
+          if (!this.attackBtn) {
+            this.attackBtn = new UIButton('🩸', {
+              width: 120,
+              height: 120,
+              fontSize: 52,
+              fill: NIGHT.blood,
+              textColor: 0xffffff,
+              onTap: () => this.tryAttack(),
+            });
+            this.add(this.attackBtn, this.uiLayer);
+            this.layoutUi(this.game.viewWidth, this.game.viewHeight);
+          }
+        }
         g.circle(0, 0, 46).fill({ color: 0x1a1030, alpha: 0.7 });
         g.circle(0, 0, 46).stroke({ color: 0xb7ff5e, width: 5, alpha: 0.9 });
         for (let i = 0; i < 7; i++) {
@@ -2799,12 +3365,17 @@ export class MatchScene extends Scene {
       case 'web': {
         // Web Bolt: strand from the Weaver to the webbed hider.
         if (fx.tx !== undefined && fx.ty !== undefined) {
-          g.moveTo(fx.tx - fx.x, fx.ty - fx.y).lineTo(0, 0).stroke({ color: 0xd8d4e8, width: 4, alpha: 0.8 });
+          g.moveTo(fx.tx - fx.x, fx.ty - fx.y)
+            .lineTo(0, 0)
+            .stroke({ color: 0xd8d4e8, width: 4, alpha: 0.8 });
         }
-        for (const rr of [12, 22, 32]) g.circle(0, 0, rr).stroke({ color: 0xd8d4e8, width: 2.5, alpha: 0.8 });
+        for (const rr of [12, 22, 32])
+          g.circle(0, 0, rr).stroke({ color: 0xd8d4e8, width: 2.5, alpha: 0.8 });
         for (let i = 0; i < 6; i++) {
           const a = (i / 6) * Math.PI * 2;
-          g.moveTo(0, 0).lineTo(Math.cos(a) * 32, Math.sin(a) * 32).stroke({ color: 0xd8d4e8, width: 2, alpha: 0.7 });
+          g.moveTo(0, 0)
+            .lineTo(Math.cos(a) * 32, Math.sin(a) * 32)
+            .stroke({ color: 0xd8d4e8, width: 2, alpha: 0.7 });
         }
         sting('blip');
         life = 0.7;
@@ -2875,9 +3446,12 @@ export class MatchScene extends Scene {
         for (let i = 0; i < 6; i++) {
           const a = (i / 6) * Math.PI * 2;
           g.poly([
-            Math.cos(a) * 40, Math.sin(a) * 40,
-            Math.cos(a + 0.18) * 62, Math.sin(a + 0.18) * 62,
-            Math.cos(a - 0.18) * 62, Math.sin(a - 0.18) * 62,
+            Math.cos(a) * 40,
+            Math.sin(a) * 40,
+            Math.cos(a + 0.18) * 62,
+            Math.sin(a + 0.18) * 62,
+            Math.cos(a - 0.18) * 62,
+            Math.sin(a - 0.18) * 62,
           ]).fill({ color: NIGHT.ghost, alpha: 0.7 });
         }
         sting('lantern');
@@ -2929,6 +3503,16 @@ export class MatchScene extends Scene {
     sting('blip');
   }
 
+  /** Universal hider sprint: a short burst, own cooldown, no class needed. */
+  private trySprint(): void {
+    if (this.amSeeker || this.sprintCdLeft > 0) return;
+    if (this.snapDown[this.session.id] !== undefined || this.out.has(this.session.id)) return;
+    if (this.phase !== 'playing' && this.phase !== 'hiding') return;
+    this.sprintUntil = this.t + SPRINT_SECS;
+    this.sprintCdLeft = SPRINT_CD;
+    sting('blip');
+  }
+
   private tryAbility(): void {
     // Hiders may burn abilities while scattering; the counting Seeker may not.
     const okPhase = this.phase === 'playing' || (this.phase === 'hiding' && !this.amSeeker);
@@ -2936,18 +3520,18 @@ export class MatchScene extends Scene {
     const cls = classById(this.roster.classes[this.session.id]);
     const iAmDown = this.snapDown[this.session.id] !== undefined;
     if (iAmDown) return;
-    this.cooldownLeft = cls.ability.cooldown;
+    this.cooldownLeft = cls.ability.cooldown * this.statsOf(this.session.id).cdMul;
     this.abilityUses += 1;
     sting('blip');
     const id = cls.ability.id;
-    if (id === 'dash' || id === 'lunge') {
-      this.boostUntil = this.t + (id === 'lunge' ? 0.5 : 1.1);
-      this.boostFactor = id === 'lunge' ? 2.6 : 1.8;
+    if (id === 'lunge') {
+      this.boostUntil = this.t + 0.5;
+      this.boostFactor = 2.6;
       return;
     }
     if (id === 'flashlight' || id === 'thirdeye') {
       // Client-local: widen your own vision for a while.
-      this.visionBoostUntil = this.t + VISION_BOOST_SECS;
+      this.visionBoostUntil = this.t + VISION_BOOST_SECS * this.statsOf(this.session.id).powMul;
       sting('lantern');
       // The Warden's eye does more than squint: it PIERCES — the host also
       // reveals every hider's position (fall through to the host dispatch).
@@ -2955,7 +3539,8 @@ export class MatchScene extends Scene {
     }
     // Lookout: the reveal pulses come from the host, but the tracking arrow
     // is client-local — it follows the Seeker live for a while.
-    if (id === 'sense') this.senseUntil = this.t + SENSE_ARROW_SECS;
+    if (id === 'sense')
+      this.senseUntil = this.t + SENSE_ARROW_SECS * this.statsOf(this.session.id).powMul;
     if (this.session.isHost) this.hostAbility(this.session.id, id, this.me.x, this.me.y);
     else this.session.send({ type: 'ability', id, x: this.me.x, y: this.me.y });
   }
@@ -2991,7 +3576,13 @@ export class MatchScene extends Scene {
     bg.eventMode = 'static';
     this.endRoot.addChild(bg);
     const title = makeText(
-      this.amSeeker ? (hidersWin ? 'THEY ESCAPED' : 'HUNT SUCCESSFUL') : hidersWin ? 'YOU SURVIVED' : 'THE DARK WINS',
+      this.amSeeker
+        ? hidersWin
+          ? 'THEY ESCAPED'
+          : 'HUNT SUCCESSFUL'
+        : hidersWin
+          ? 'YOU SURVIVED'
+          : 'THE DARK WINS',
       56,
       { color: iWon ? NIGHT.gate : NIGHT.blood },
     );
@@ -3022,7 +3613,13 @@ export class MatchScene extends Scene {
       for (const id of this.roster.order.slice(0, 8)) {
         const d = stats[id] ?? { lit: 0, res: 0, down: 0 };
         const isSeeker = this.roster.roles[id] === 'seeker';
-        const fate = isSeeker ? '' : this.escaped.has(id) ? ' · ✓ escaped' : this.out.has(id) ? ' · ✗ lost' : '';
+        const fate = isSeeker
+          ? ''
+          : this.escaped.has(id)
+            ? ' · ✓ escaped'
+            : this.out.has(id)
+              ? ' · ✗ lost'
+              : '';
         const line = isSeeker
           ? `🩸 ${this.roster.names[id] ?? '?'} — ${d.down} strikes`
           : `${this.roster.names[id] ?? '?'} — 🕯️${d.lit} 💚${d.res}${fate}`;
@@ -3213,7 +3810,12 @@ export class MatchScene extends Scene {
         // blocked, sight between two open neighbours must be clear.
         for (let r = 1; r < this.map.height - 1; r++) {
           for (let c = 2; c < this.map.width - 2; c++) {
-            if (!solidAt(this.map, c, r) || solidAt(this.map, c - 1, r) || solidAt(this.map, c + 1, r)) continue;
+            if (
+              !solidAt(this.map, c, r) ||
+              solidAt(this.map, c - 1, r) ||
+              solidAt(this.map, c + 1, r)
+            )
+              continue;
             const y = r * TILE_SIZE + TILE_SIZE / 2;
             const ax = (c - 1) * TILE_SIZE + TILE_SIZE / 2;
             const bx = (c + 1) * TILE_SIZE + TILE_SIZE / 2;
@@ -3245,8 +3847,7 @@ export class MatchScene extends Scene {
       hiddenIds: () => this.activeHiders().filter((id) => this.isConcealed(id)),
       tpCount: () => this.teleportPts.length,
       tpPos: (i: number) => this.teleportPts[i] ?? null,
-      tpCd: () =>
-        this.session.isHost ? Math.max(0, this.tpReadyAt - this.t) : this.snapTpCd,
+      tpCd: () => (this.session.isHost ? Math.max(0, this.tpReadyAt - this.t) : this.snapTpCd),
       hatchOpen: () => this.snapHatch,
       hatchPos: () => ({ ...this.hatchPt }),
       slowedCount: () => this.snapSlowed.size,
@@ -3261,6 +3862,12 @@ export class MatchScene extends Scene {
       convertedCount: () => this.snapConv.length,
       amCloaked: () => this.snapVanished.has(this.session.id),
       trailLeft: () => this.snapTrail,
+      cloneCount: () => this.snapClones.length,
+      dummyCount: () => this.snapDums.length,
+      wallCount: () => this.snapWalls.length,
+      sprint: () => this.trySprint(),
+      sprinting: () => this.t < this.sprintUntil,
+      amSeeker: () => this.amSeeker,
       forceDownsTaken: (n: number) => {
         if (!this.session.isHost) return;
         for (const id of this.activeHiders()) this.downsTaken[id] = n;

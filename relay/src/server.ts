@@ -101,7 +101,19 @@ function roomRoster(room: Room): { id: string; name: string; isHost: boolean }[]
   ];
 }
 
+/** Structured one-line JSON logs — greppable in the Render dashboard
+ *  (Logs tab) so "who got disconnected, when, and why" has an answer. */
+function logEvent(evt: string, fields: Record<string, unknown>): void {
+  console.log(JSON.stringify({ evt, at: new Date().toISOString(), ...fields }));
+}
+
 function closeRoom(room: Room, reason: string): void {
+  logEvent('room-closed', {
+    room: room.code,
+    game: room.game,
+    reason,
+    players: room.players.size,
+  });
   rooms.delete(room.code);
   if (room.friendCode) presence.delete(room.friendCode);
   for (const p of room.players.values()) {
@@ -418,8 +430,20 @@ wss.on('connection', (ws: WebSocket & { missedPongs?: number }) => {
     }
   });
 
-  ws.on('close', () => {
+  ws.on('close', (code, reasonBuf) => {
     if (!me || !room) return;
+    logEvent('disconnect', {
+      room: room.code,
+      game: room.game,
+      id: me.id,
+      name: me.name,
+      isHost: me.isHost,
+      code,
+      reason: String(reasonBuf ?? ''),
+      timedOut:
+        (ws as WebSocket & { missedPongs?: number }).missedPongs !== undefined &&
+        ((ws as WebSocket & { missedPongs?: number }).missedPongs ?? 0) > MAX_MISSED_PONGS,
+    });
     if (me.isHost) {
       // Host migration is v2 (spec §5.2) — for now the room ends.
       closeRoom(room, 'host disconnected');
@@ -443,6 +467,7 @@ const heartbeat = setInterval(() => {
   for (const ws of wss.clients as Set<WebSocket & { missedPongs?: number }>) {
     ws.missedPongs = (ws.missedPongs ?? 0) + 1;
     if (ws.missedPongs > MAX_MISSED_PONGS) {
+      logEvent('heartbeat-timeout', { missed: ws.missedPongs });
       ws.terminate();
       continue;
     }

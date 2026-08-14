@@ -43,7 +43,9 @@ let heartRate = 0; // 0 = calm .. 1 = seeker on top of you
 
 function ensure(): void {
   if (ctx) return;
-  const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  const AC =
+    window.AudioContext ??
+    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
   if (!AC) return;
   ctx = new AC();
   master = ctx.createGain();
@@ -60,15 +62,55 @@ interface DroneMood {
 }
 const MOODS: readonly DroneMood[] = [
   // Hollow Manor — the classic warm A drone (root/fifth/octave).
-  { name: 'manor', notes: [[55, -6, 0.5], [82.4, 5, 0.5], [110, 0, 0.4]], trem: 0.08 },
+  {
+    name: 'manor',
+    notes: [
+      [55, -6, 0.5],
+      [82.4, 5, 0.5],
+      [110, 0, 0.4],
+    ],
+    trem: 0.08,
+  },
   // Ashen Asylum — hollow fifths a step up, with a nervous flicker.
-  { name: 'asylum', notes: [[73.4, -4, 0.45], [110, 3, 0.4], [146.8, -2, 0.28]], trem: 0.16 },
+  {
+    name: 'asylum',
+    notes: [
+      [73.4, -4, 0.45],
+      [110, 3, 0.4],
+      [146.8, -2, 0.28],
+    ],
+    trem: 0.16,
+  },
   // The Cellars — a sub-bass E rubbed against F: slow, oppressive beating.
-  { name: 'cellars', notes: [[41.2, -3, 0.6], [43.7, 4, 0.35], [82.4, 0, 0.25]], trem: 0.05 },
+  {
+    name: 'cellars',
+    notes: [
+      [41.2, -3, 0.6],
+      [43.7, 4, 0.35],
+      [82.4, 0, 0.25],
+    ],
+    trem: 0.05,
+  },
   // Grand Estate — a stately C-minor sigh, almost music.
-  { name: 'estate', notes: [[65.4, -4, 0.45], [98, 2, 0.4], [155.6, -3, 0.24]], trem: 0.06 },
+  {
+    name: 'estate',
+    notes: [
+      [65.4, -4, 0.45],
+      [98, 2, 0.4],
+      [155.6, -3, 0.24],
+    ],
+    trem: 0.06,
+  },
   // Blackwood Keep — a tritone under the floorboards, pulsing faster.
-  { name: 'keep', notes: [[49, -5, 0.5], [69.3, 4, 0.45], [98, -6, 0.3]], trem: 0.22 },
+  {
+    name: 'keep',
+    notes: [
+      [49, -5, 0.5],
+      [69.3, 4, 0.45],
+      [98, -6, 0.3],
+    ],
+    trem: 0.22,
+  },
 ];
 let moodIdx = 0;
 let droneNodes: OscillatorNode[] = [];
@@ -195,7 +237,14 @@ export function sting(kind: Sting): void {
   const now = ctx.currentTime;
   const g = ctx.createGain();
   g.connect(master);
-  const tone = (type: OscillatorType, f0: number, f1: number, dur: number, vol: number, at = 0): void => {
+  const tone = (
+    type: OscillatorType,
+    f0: number,
+    f1: number,
+    dur: number,
+    vol: number,
+    at = 0,
+  ): void => {
     if (!ctx) return;
     const o = ctx.createOscillator();
     o.type = type;

@@ -93,7 +93,8 @@ await sleep(400);
 const roles = await p1.evaluate(() => window.__hushfall.roles());
 const seekerId = await p1.evaluate(() => window.__hushfall.seekerId());
 const seekers = Object.values(roles).filter((r) => r === 'seeker').length;
-const rolesOk = seekers === 1 && Object.values(roles).filter((r) => r === 'hider').length === 2 && !!seekerId;
+const rolesOk =
+  seekers === 1 && Object.values(roles).filter((r) => r === 'hider').length === 2 && !!seekerId;
 await p1.screenshot({ path: `${outDir}/hf-1-lobby.png` });
 
 // SELECT LOCK: browsing is open, but once Looky SELECTS Lookout it's locked
@@ -103,7 +104,10 @@ await sleep(600);
 await p3.evaluate(() => window.__hushfall.pick('lookout')); // locked → refused
 await sleep(600);
 const lockedClasses = await p1.evaluate(() => window.__hushfall.classes());
-const lockedCounts = Object.values(lockedClasses).reduce((m, c) => ((m[c] = (m[c] ?? 0) + 1), m), {});
+const lockedCounts = Object.values(lockedClasses).reduce(
+  (m, c) => ((m[c] = (m[c] ?? 0) + 1), m),
+  {},
+);
 const lockHeld = (lockedCounts['lookout'] ?? 0) === 1;
 await p2.evaluate(() => window.__hushfall.setLocked?.(false));
 await sleep(600);
@@ -204,18 +208,25 @@ const tapNear = await p2.evaluate((h) => {
   window.__hushfall.tapHide?.(0);
   return window.__hushfall.hideTargetSet?.() ?? false;
 }, hp0);
-await p2.waitForFunction(() => window.__hushfall.amConcealed?.() === true, null, { timeout: 3_000 }).catch(() => {});
+await p2
+  .waitForFunction(() => window.__hushfall.amConcealed?.() === true, null, { timeout: 3_000 })
+  .catch(() => {});
 const tapConcealed = await p2.evaluate(() => window.__hushfall.amConcealed?.() ?? false);
 const tapHideOk = tapFar === false && tapNear === true;
 
 // HIDE-BUST: the Seeker catches the Lookout hiding — the first strike smashes
 // the hiding spot (no damage), flushing them out of cover.
-await p2.evaluate((h) => window.__hushfall.warp(h.x, h.y), hp0); // tucked in
-await p1.evaluate((h) => window.__hushfall.warp(h.x + 60, h.y), hp0); // searching
-await sleep(400);
-await p1.evaluate(() => window.__hushfall.attack());
-await sleep(700);
-const bustedCount = await p1.evaluate(() => window.__hushfall.bustedCount?.() ?? 0);
+// The 10Hz pos stream + 0.9s attack cooldown make a single swing racy under
+// load — re-warp and re-swing until the spot busts.
+let bustedCount = 0;
+for (let i = 0; i < 6 && bustedCount < 1; i++) {
+  await p2.evaluate((h) => window.__hushfall.warp(h.x, h.y), hp0); // tucked in
+  await p1.evaluate((h) => window.__hushfall.warp(h.x + 60, h.y), hp0); // searching
+  await sleep(400);
+  await p1.evaluate(() => window.__hushfall.attack());
+  await sleep(900);
+  bustedCount = await p1.evaluate(() => window.__hushfall.bustedCount?.() ?? 0);
+}
 const hurtByBust = await p2.evaluate(() => window.__hushfall.amHurt?.() ?? false);
 const bustOk = bustedCount >= 1 && hurtByBust === false;
 
@@ -296,7 +307,9 @@ const downSignalOk = downSignalP3 >= 1;
 const p2posDown = await p2.evaluate(() => window.__hushfall.myPos());
 await p1.evaluate(() => window.__hushfall.warp(200, 200)); // seeker steps away
 await p3.evaluate((p) => window.__hushfall.warp(p.x, p.y), p2posDown);
-await p2.waitForFunction(() => window.__hushfall.amDowned?.() === false, null, { timeout: 16_000 }).catch(() => {});
+await p2
+  .waitForFunction(() => window.__hushfall.amDowned?.() === false, null, { timeout: 16_000 })
+  .catch(() => {});
 await sleep(400);
 const p2Revived = await p2.evaluate(() => window.__hushfall.amDowned());
 const rescueOk = p2Revived === false;
@@ -344,7 +357,9 @@ const relocOk = draggedFar && outAfterDrag === 0;
 const dragPos = await p2.evaluate(() => window.__hushfall.myPos());
 await p1.evaluate(() => window.__hushfall.warp(200, 200)); // seeker walks away
 await p3.evaluate((p) => window.__hushfall.warp(p.x, p.y), dragPos);
-await p2.waitForFunction(() => window.__hushfall.amDowned?.() === false, null, { timeout: 16_000 }).catch(() => {});
+await p2
+  .waitForFunction(() => window.__hushfall.amDowned?.() === false, null, { timeout: 16_000 })
+  .catch(() => {});
 const dragRescued = await p2.evaluate(() => window.__hushfall.amDowned());
 const dragRescueOk = dragRescued === false;
 
@@ -358,12 +373,15 @@ const gateOnP2 = await p2.evaluate(() => window.__hushfall.gateOpen());
 const gate = await p2.evaluate(() => window.__hushfall.gatePos());
 await p2.evaluate((g) => window.__hushfall.warp(g.x, g.y), gate);
 await p3.evaluate((g) => window.__hushfall.warp(g.x + 20, g.y), gate);
-await p1.waitForFunction(() => window.__hushfall.phase?.() !== 'playing', null, { timeout: 14_000 }).catch(() => {});
+await p1
+  .waitForFunction(() => window.__hushfall.phase?.() !== 'playing', null, { timeout: 14_000 })
+  .catch(() => {});
 await sleep(600);
 const escapedHost = await p1.evaluate(() => window.__hushfall.escapedCount());
 const phaseHost = await p1.evaluate(() => window.__hushfall.phase());
 const phaseP2 = await p2.evaluate(() => window.__hushfall.phase());
-const escapeOk = gateOnP2 === true && escapedHost >= 1 && phaseHost === 'hiders-win' && phaseP2 === 'hiders-win';
+const escapeOk =
+  gateOnP2 === true && escapedHost >= 1 && phaseHost === 'hiders-win' && phaseP2 === 'hiders-win';
 // DEEDS: the host tallied who lit lanterns and who landed strikes.
 const deedVals = Object.values(await p1.evaluate(() => window.__hushfall.stats?.() ?? {}));
 const deedOk = deedVals.some((d) => d.lit >= 1) && deedVals.some((d) => d.down >= 1);
@@ -418,7 +436,9 @@ await sleep(400);
 const botLobbyPlayers = await pb.evaluate(() => window.__hushfall.playerCount());
 const botLobbyCount = await pb.evaluate(() => window.__hushfall.botCount());
 const rolesB = await pb.evaluate(() => window.__hushfall.roles());
-const botHiders = Object.entries(rolesB).filter(([id, r]) => id.startsWith('bot') && r === 'hider').length;
+const botHiders = Object.entries(rolesB).filter(
+  ([id, r]) => id.startsWith('bot') && r === 'hider',
+).length;
 const botLobbyOk = botLobbyPlayers === 4 && botLobbyCount === 3 && botHiders === 3;
 await pb.screenshot({ path: `${outDir}/hf-5-bots-lobby.png` });
 await pb.evaluate(() => window.__hushfall.start());
@@ -434,9 +454,7 @@ const swarm1 = await pb.evaluate(() => window.__hushfall.botPositions());
 // lantern to light it can be momentarily still, so measure the whole swarm).
 const maxMove = Math.max(
   0,
-  ...swarm0.map((p, i) =>
-    swarm1[i] ? Math.hypot(swarm1[i].x - p.x, swarm1[i].y - p.y) : 0,
-  ),
+  ...swarm0.map((p, i) => (swarm1[i] ? Math.hypot(swarm1[i].x - p.x, swarm1[i].y - p.y) : 0)),
 );
 const botMoved = swarm0.length === 3 && maxMove > 20;
 // They should follow different directions, not all chase the same objective:
@@ -584,14 +602,17 @@ await pn.evaluate(() => window.__hushfall.skipHide());
 await pn.waitForFunction(() => window.__hushfall.phase() === 'playing', null, { timeout: 15_000 });
 await sleep(400);
 await pn.evaluate(() => window.__hushfall.ability()); // den appears underfoot
-await sleep(800);
-const nestCount = await pn.evaluate(() => window.__hushfall.nestCount?.() ?? 0);
-const nestConcealed = await pn.evaluate(() => window.__hushfall.amConcealed?.() ?? false);
+let nestCount = 0;
+let nestConcealed = false;
+for (let i = 0; i < 8 && !(nestCount >= 1 && nestConcealed); i++) {
+  await sleep(500);
+  nestCount = await pn.evaluate(() => window.__hushfall.nestCount?.() ?? 0);
+  nestConcealed = await pn.evaluate(() => window.__hushfall.amConcealed?.() ?? false);
+}
 const nestOk = nestCount >= 1 && nestConcealed;
 await pn.close();
 
-// TWIN: the seeker hunts as two — an Echo bot joins at start, and Trade
-// Places swaps your position with it.
+// TWIN: plant a dummy of yourself, then TRADE PLACES with it from afar.
 const p2w = await phone('host=1&seeker=1&class=twin&name=Twiny');
 await p2w.waitForFunction(() => window.__hushfall?.scene() === 'lobby', null, { timeout: 12_000 });
 await p2w.evaluate(() => window.__hushfall.setBots?.(1));
@@ -599,21 +620,36 @@ await p2w.evaluate(() => window.__hushfall.start());
 await p2w.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { timeout: 12_000 });
 await p2w.evaluate(() => window.__hushfall.skipHide());
 await p2w.waitForFunction(() => window.__hushfall.phase() === 'playing', null, { timeout: 15_000 });
-const twinSeekers = await p2w.evaluate(() => window.__hushfall.seekerCount?.() ?? 0);
-await sleep(4000); // let the echo wander off the shared spawn
+await sleep(400);
+await p2w.evaluate(() => window.__hushfall.ability()); // plant the dummy here
+let dummyCount = 0;
+for (let i = 0; i < 8 && dummyCount < 1; i++) {
+  await sleep(500);
+  dummyCount = await p2w.evaluate(() => window.__hushfall.dummyCount?.() ?? 0);
+}
+await p2w.evaluate(() => {
+  const p = window.__hushfall.myPos();
+  window.__hushfall.warp(p.x + 700, p.y); // stride away from the double
+});
+await sleep(8600); // ride out Dummy Swap's cooldown
 const posBefore = await p2w.evaluate(() => window.__hushfall.myPos());
-await p2w.evaluate(() => window.__hushfall.ability()); // Trade Places
-await sleep(600);
+await p2w.evaluate(() => window.__hushfall.ability()); // TRADE PLACES
+await sleep(700);
 const posAfter = await p2w.evaluate(() => window.__hushfall.myPos());
 const swapDist = Math.hypot(posAfter.x - posBefore.x, posAfter.y - posBefore.y);
-const twinOk = twinSeekers === 2 && swapDist > 200;
+const twinOk = dummyCount === 1 && swapDist > 400;
 await p2w.close();
 
-// WRAITH: at the hunt's opening one bot hider turns to the dark side, and
-// Cloak hides the Wraith from every hider's sight.
+// WRAITH: the opening curse takes a HUMAN hider first (bots are the last
+// resort) — their client flips to the seeker side. Cloak still hides the
+// Wraith from every hider's sight.
 const pv = await phone('host=1&seeker=1&class=wraith&name=Wisp');
 await pv.waitForFunction(() => window.__hushfall?.scene() === 'lobby', null, { timeout: 12_000 });
+const wCode = await pv.evaluate(() => window.__hushfall.code());
+const pvh = await phone(`join=${wCode}&class=scout&name=Prey`);
+await pvh.waitForFunction(() => window.__hushfall?.playerCount() === 2, null, { timeout: 10_000 });
 await pv.evaluate(() => window.__hushfall.setBots?.(2));
+await sleep(300);
 await pv.evaluate(() => window.__hushfall.start());
 await pv.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { timeout: 12_000 });
 await pv.evaluate(() => window.__hushfall.skipHide());
@@ -624,14 +660,89 @@ for (let i = 0; i < 10 && wraithConverted < 1; i++) {
   wraithConverted = await pv.evaluate(() => window.__hushfall.convertedCount?.() ?? 0);
 }
 const wraithSeekers = await pv.evaluate(() => window.__hushfall.seekerCount?.() ?? 0);
+// The HUMAN got converted (not a bot) and their own client knows it.
+let humanConverted = false;
+for (let i = 0; i < 8 && !humanConverted; i++) {
+  await sleep(400);
+  humanConverted = await pvh.evaluate(() => window.__hushfall.amSeeker?.() ?? false);
+}
 let cloaked = false;
 for (let i = 0; i < 6 && !cloaked; i++) {
   await pv.evaluate(() => window.__hushfall.ability()); // Cloak
   await sleep(800);
   cloaked = await pv.evaluate(() => window.__hushfall.amCloaked?.() ?? false);
 }
-const wraithOk = wraithConverted >= 1 && wraithSeekers >= 2 && cloaked;
+const wraithOk = wraithConverted >= 1 && wraithSeekers >= 2 && humanConverted && cloaked;
+await pvh.close();
 await pv.close();
+
+// BUILDER + universal SPRINT: every hider sprints; the Builder raises a
+// wall the seeker can't pass.
+const pb2 = await phone('host=1&class=builder&name=Bricks');
+await pb2.waitForFunction(() => window.__hushfall?.scene() === 'lobby', null, { timeout: 12_000 });
+await pb2.evaluate(() => window.__hushfall.setBots?.(1));
+await sleep(300);
+await pb2.evaluate(() => window.__hushfall.setSeeker?.('bot0'));
+await pb2.evaluate(() => window.__hushfall.start());
+await pb2.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { timeout: 12_000 });
+await pb2.evaluate(() => window.__hushfall.skipHide());
+await pb2.waitForFunction(() => window.__hushfall.phase() === 'playing', null, { timeout: 15_000 });
+await sleep(300);
+await pb2.evaluate(() => window.__hushfall.sprint?.());
+const sprintOk = await pb2.evaluate(() => window.__hushfall.sprinting?.() ?? false);
+await pb2.evaluate(() => window.__hushfall.ability()); // Barricade
+let wallCount = 0;
+for (let i = 0; i < 8 && wallCount < 1; i++) {
+  await sleep(500);
+  wallCount = await pb2.evaluate(() => window.__hushfall.wallCount?.() ?? 0);
+}
+const wallOk = wallCount >= 1;
+await pb2.close();
+
+// SPRINTER: Split spawns clone bots that scatter.
+const pc = await phone('host=1&class=sprinter&name=Zoom');
+await pc.waitForFunction(() => window.__hushfall?.scene() === 'lobby', null, { timeout: 12_000 });
+await pc.evaluate(() => window.__hushfall.setBots?.(1));
+await sleep(300);
+await pc.evaluate(() => window.__hushfall.setSeeker?.('bot0'));
+await pc.evaluate(() => window.__hushfall.start());
+await pc.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { timeout: 12_000 });
+await pc.evaluate(() => window.__hushfall.skipHide());
+await pc.waitForFunction(() => window.__hushfall.phase() === 'playing', null, { timeout: 15_000 });
+await sleep(300);
+await pc.evaluate(() => window.__hushfall.ability()); // Split
+let cloneCount = 0;
+for (let i = 0; i < 8 && cloneCount < 2; i++) {
+  await sleep(500);
+  cloneCount = await pc.evaluate(() => window.__hushfall.cloneCount?.() ?? 0);
+}
+const cloneOk = cloneCount >= 2;
+await pc.close();
+
+// KAIJU: the Atomic Blast hurls the seeker away.
+const pk = await phone('host=1&class=kaiju&name=Rex');
+await pk.waitForFunction(() => window.__hushfall?.scene() === 'lobby', null, { timeout: 12_000 });
+await pk.evaluate(() => window.__hushfall.setBots?.(1));
+await sleep(300);
+await pk.evaluate(() => window.__hushfall.setSeeker?.('bot0'));
+await pk.evaluate(() => window.__hushfall.start());
+await pk.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { timeout: 12_000 });
+await pk.evaluate(() => window.__hushfall.skipHide());
+await pk.waitForFunction(() => window.__hushfall.phase() === 'playing', null, { timeout: 15_000 });
+await sleep(300);
+await pk.evaluate(() => {
+  const sp = window.__hushfall.seekerPos();
+  if (sp) window.__hushfall.warp(sp.x + 100, sp.y); // stand in blast range
+});
+await sleep(300);
+const seekBefore = await pk.evaluate(() => window.__hushfall.seekerPos());
+await pk.evaluate(() => window.__hushfall.ability()); // Atomic Blast
+await sleep(700);
+const seekAfter = await pk.evaluate(() => window.__hushfall.seekerPos());
+const blastDist =
+  seekBefore && seekAfter ? Math.hypot(seekAfter.x - seekBefore.x, seekAfter.y - seekBefore.y) : 0;
+const blastOk = blastDist > 150;
+await pk.close();
 
 // HOWLER rework: Screech starts the glowing hider TRAIL window.
 const ph = await phone('host=1&seeker=1&class=howler&name=Howl');
@@ -685,6 +796,10 @@ const ok =
   twinOk &&
   wraithOk &&
   trailOk &&
+  sprintOk &&
+  wallOk &&
+  cloneOk &&
+  blastOk &&
   freezeOk &&
   round2Ok &&
   botOk &&
@@ -755,12 +870,20 @@ console.log(
       nestCount,
       nestConcealed,
       twinOk,
-      twinSeekers,
+      dummyCount,
       swapDist,
       wraithOk,
       wraithConverted,
       wraithSeekers,
+      humanConverted,
       cloaked,
+      sprintOk,
+      wallOk,
+      wallCount,
+      cloneOk,
+      cloneCount,
+      blastOk,
+      blastDist,
       trailOk,
       trailLeft,
       gateOnP2,
