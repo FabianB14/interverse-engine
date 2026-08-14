@@ -144,9 +144,12 @@ export class LobbyScene extends Scene {
       this.nameBtn?.position.set(96, 82);
       // Top-right, clear of the room-count line under the code.
       this.publicBtn?.position.set(W - 110, 40);
-      this.codeLabel.position.set(lx, 40);
-      this.codeText.position.set(lx, 86);
-      this.countText.position.set(lx, 130);
+      // The 84px code is shrunk in landscape so its descenders can't reach
+      // the room-count line (it used to sit ON "N in the room · …").
+      this.codeLabel.position.set(lx, 34);
+      this.codeText.scale.set(0.78);
+      this.codeText.position.set(lx, 76);
+      this.countText.position.set(lx, 126);
       this.rosterRow.position.set(lx, 196);
       this.roleBtn.position.set(lx, 336);
       this.statusText.position.set(lx, 392);
@@ -192,6 +195,7 @@ export class LobbyScene extends Scene {
     // Top-right — it used to sit ON the "N in the room" line under the code.
     this.publicBtn?.position.set(W - 110, 92);
     this.codeLabel.position.set(W / 2, 52);
+    this.codeText.scale.set(1); // portrait has the vertical room for full size
     this.codeText.position.set(W / 2, 112);
     this.countText.position.set(W / 2, 170);
     this.rosterRow.position.set(W / 2, 252);
