@@ -53,6 +53,7 @@ export class LobbyScene extends Scene {
   private pickLabel!: Text;
   private abilityInfo!: Text;
   private classBtns: UIButton[] = [];
+  private classBtnIds: string[] = [];
   private classRole: Role = 'hider';
   private veriumChip!: Text;
   private wardrobeBtn!: UIButton;
@@ -466,7 +467,7 @@ export class LobbyScene extends Scene {
         this.roster.order.push(...bots);
         this.roster.names[p.id] = this.uniqueName(p.name);
         this.roster.roles[p.id] = 'hider';
-        this.roster.classes[p.id] ??= defaultClassFor('hider');
+        this.roster.classes[p.id] ??= this.freeHiderClass(p.id);
         this.rebuildBots(); // re-clamp: a new human lowers the bot ceiling
         this.updateBotLabel();
         this.shareRoster();
@@ -489,7 +490,9 @@ export class LobbyScene extends Scene {
         if (!this.live) return;
         const msg = data as LobbyMsg;
         if (msg?.type === 'class') {
-          this.roster.classes[from] = msg.cls;
+          // One player per survivor — a taken hider class is refused, and
+          // the re-shared roster snaps the asker's UI back to the truth.
+          if (!this.hiderClassTakenBy(msg.cls, from)) this.roster.classes[from] = msg.cls;
           if (msg.acc !== undefined) (this.roster.accs ??= {})[from] = msg.acc;
         } else if (msg?.type === 'acc') {
           (this.roster.accs ??= {})[from] = msg.acc;
@@ -609,6 +612,26 @@ export class LobbyScene extends Scene {
   }
 
   /** Re-derive every player's role from the current seekerId (host only). */
+  /** One blob per survivor: which player (other than `except`) already
+   *  claimed this HIDER class? Seeker classes are never locked (there is
+   *  effectively one seeker slot anyway). */
+  private hiderClassTakenBy(cls: string, except: string): string | null {
+    if (classById(cls).role !== 'hider') return null;
+    for (const pid of this.roster.order) {
+      if (pid === except || this.roster.roles[pid] === 'seeker') continue;
+      if (this.roster.classes[pid] === cls) return pid;
+    }
+    return null;
+  }
+
+  /** The first hider class nobody has claimed yet (Scout as a last resort). */
+  private freeHiderClass(except: string): string {
+    for (const c of HIDERS) {
+      if (!this.hiderClassTakenBy(c.id, except)) return c.id;
+    }
+    return HIDERS[0]!.id;
+  }
+
   private applyRoles(): void {
     const id = this.roster.seekerId;
     for (const pid of this.roster.order) {
@@ -616,7 +639,10 @@ export class LobbyScene extends Scene {
       const prev = this.roster.roles[pid];
       this.roster.roles[pid] = role;
       const cls = classById(this.roster.classes[pid]);
-      if (cls.role !== role) this.roster.classes[pid] = defaultClassFor(role);
+      if (cls.role !== role) {
+        // Switching back to hider: take the first FREE survivor, not a taken one.
+        this.roster.classes[pid] = role === 'hider' ? this.freeHiderClass(pid) : defaultClassFor(role);
+      }
       if (prev !== role && pid === this.session.id) {
         this.classRole = role;
         this.buildClassButtons();
@@ -644,7 +670,8 @@ export class LobbyScene extends Scene {
       this.roster.order.push(id);
       this.roster.names[id] = `Bot ${i + 1}`;
       this.roster.roles[id] = 'hider';
-      this.roster.classes[id] = (HIDERS[i % HIDERS.length] ?? HIDERS[0]!).id;
+      // Bots take FREE survivors too — the one-per-class lock holds for them.
+      this.roster.classes[id] = this.freeHiderClass(id);
       (this.roster.accs ??= {})[id] = i % 4 === 0 ? 2 : 0;
     }
     if (this.roster.seekerId && !this.roster.order.includes(this.roster.seekerId)) this.roster.seekerId = null;
@@ -749,6 +776,7 @@ export class LobbyScene extends Scene {
     const list: ClassDef[] = this.classRole === 'seeker' ? SEEKERS : HIDERS;
     this.pickLabel.text = this.classRole === 'seeker' ? 'CHOOSE YOUR SEEKER' : 'CHOOSE YOUR SURVIVOR';
     this.updateAbilityInfo();
+    this.classBtnIds = [];
     for (const cls of list) {
       const btn = new UIButton(`${cls.emoji} ${cls.name}`, {
         width: 200,
@@ -760,7 +788,9 @@ export class LobbyScene extends Scene {
       });
       this.add(btn);
       this.classBtns.push(btn);
+      this.classBtnIds.push(cls.id);
     }
+    this.updateClassTaken();
     // Rebuilding buttons re-adds them on TOP of the stage — if the wardrobe
     // overlay is open (rotation re-grids mid-shopping), lift it back above
     // so class buttons never cover the cosmetics.
@@ -770,6 +800,15 @@ export class LobbyScene extends Scene {
   private pickClass(id: string, silent = false): void {
     const cls = classById(id);
     if (cls.role !== this.myRole()) return;
+    const owner = this.hiderClassTakenBy(id, this.session.id);
+    if (owner) {
+      if (!silent) {
+        sting('lose');
+        this.statusText.style.fill = NIGHT.blood;
+        this.statusText.text = `${cls.name} is taken by ${this.roster.names[owner] ?? '?'}`;
+      }
+      return;
+    }
     if (!silent) sting('blip');
     store.set(cls.role === 'seeker' ? 'seekerClass' : 'hiderClass', id);
     this.roster.classes[this.session.id] = id;
@@ -969,7 +1008,16 @@ export class LobbyScene extends Scene {
     this.wardVerium.text = label;
   }
 
+  /** Grey out survivors somebody else already claimed. */
+  private updateClassTaken(): void {
+    this.classBtns.forEach((btn, i) => {
+      const cls = this.classBtnIds[i];
+      btn.alpha = cls && this.hiderClassTakenBy(cls, this.session.id) ? 0.3 : 1;
+    });
+  }
+
   private refreshRoster(): void {
+    this.updateClassTaken();
     const n = this.roster.order.length;
     const hiders = this.roster.order.filter((id) => this.roster.roles[id] !== 'seeker').length;
     this.countText.text = `${n} in the room · ${hiders} hider${hiders === 1 ? '' : 's'} vs 1 seeker`;

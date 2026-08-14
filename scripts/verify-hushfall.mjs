@@ -96,6 +96,13 @@ const seekers = Object.values(roles).filter((r) => r === 'seeker').length;
 const rolesOk = seekers === 1 && Object.values(roles).filter((r) => r === 'hider').length === 2 && !!seekerId;
 await p1.screenshot({ path: `${outDir}/hf-1-lobby.png` });
 
+// CLASS LOCK: one player per survivor — Gears cannot steal Looky's Lookout.
+await p3.evaluate(() => window.__hushfall.pick('lookout'));
+await sleep(500);
+const lockClasses = await p1.evaluate(() => window.__hushfall.classes());
+const lockCounts = Object.values(lockClasses).reduce((m, c) => ((m[c] = (m[c] ?? 0) + 1), m), {});
+const lockOk = (lockCounts['lookout'] ?? 0) === 1 && (lockCounts['engineer'] ?? 0) === 1;
+
 // PUBLIC ROOMS: flipping the lobby 🌐 PUBLIC lists it in the relay's room
 // browser (with a live player count); flipping back to 🔒 PRIVATE removes
 // it. Private is the default — this room was invisible until now.
@@ -636,6 +643,7 @@ relay.kill();
 
 const ok =
   rolesOk &&
+  lockOk &&
   startRolesOk &&
   seekerVisibleOk &&
   objectiveOk &&
@@ -679,6 +687,7 @@ console.log(
       code,
       rolesOk,
       seekers,
+      lockOk,
       startRolesOk,
       seekerVisibleOk,
       objectiveOk,
