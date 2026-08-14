@@ -1,6 +1,14 @@
 import { Container, Graphics } from 'pixi.js';
 import type { Text } from 'pixi.js';
-import { Entity, Scene, Timer, Wobble, blobCharacter, makeTappable, verium } from '@interverse/engine';
+import {
+  Entity,
+  Scene,
+  Timer,
+  Wobble,
+  blobCharacter,
+  makeTappable,
+  verium,
+} from '@interverse/engine';
 import type { Session } from '@interverse/net';
 import { UIButton } from '@interverse/ui';
 import { HIDERS, SEEKERS, classById, defaultClassFor, shadeFor } from '../classes.js';
@@ -21,6 +29,8 @@ export interface RosterState {
   classes: Record<string, string>;
   accs?: Record<string, number>;
   ready?: Record<string, boolean>;
+  /** Who hit SELECT: a locked player's hider class is theirs alone. */
+  locked?: Record<string, boolean>;
   seekerId?: string | null;
   level?: number;
   /** Match salt: re-rolls the lantern scatter. Host picks it at START so
@@ -35,12 +45,21 @@ type LobbyMsg =
   | { type: 'name'; name: string }
   | { type: 'volunteer' }
   | { type: 'ready'; ready: boolean }
+  | { type: 'lock'; on: boolean }
   | { type: 'start'; roster: RosterState }
   | { type: 'inprogress' }
   | { type: 'hello' };
 
 export class LobbyScene extends Scene {
-  private roster: RosterState = { order: [], names: {}, roles: {}, classes: {}, accs: {}, ready: {}, level: 0 };
+  private roster: RosterState = {
+    order: [],
+    names: {},
+    roles: {},
+    classes: {},
+    accs: {},
+    ready: {},
+    level: 0,
+  };
   private live = true;
   private inProgress = false;
   private unsub: (() => void)[] = [];
@@ -57,6 +76,7 @@ export class LobbyScene extends Scene {
   private classRole: Role = 'hider';
   private veriumChip!: Text;
   private wardrobeBtn!: UIButton;
+  private selectBtn: UIButton | null = null;
   private startBtn: UIButton | null = null;
   private randomBtn: UIButton | null = null;
   private readyBtn: UIButton | null = null;
@@ -149,7 +169,8 @@ export class LobbyScene extends Scene {
       });
       const rows = Math.max(1, Math.ceil(n / cols));
       this.abilityInfo.position.set(rx, top + rows * rowH + 36);
-      this.wardrobeBtn.position.set(rx, top + rows * rowH + 100);
+      this.wardrobeBtn.position.set(rx + 105, top + rows * rowH + 100);
+      this.selectBtn?.position.set(rx - 145, top + rows * rowH + 100);
       // Bottom band.
       const ay = H - 52;
       this.startBtn?.position.set(lx, ay);
@@ -184,7 +205,8 @@ export class LobbyScene extends Scene {
     const rows = Math.max(1, Math.ceil(n / cols));
     const bottom = top + (rows - 1) * rowH + 84;
     this.abilityInfo.position.set(W / 2, bottom - 36);
-    this.wardrobeBtn.position.set(W / 2, bottom + 22);
+    this.wardrobeBtn.position.set(W / 2 + 105, bottom + 22);
+    this.selectBtn?.position.set(W / 2 - 145, bottom + 22);
     this.statusText.position.set(W / 2, bottom + 84);
     this.startBtn?.position.set(W / 2, H - 84);
     this.randomBtn?.position.set(W / 2, H - 164);
@@ -292,6 +314,18 @@ export class LobbyScene extends Scene {
     });
     this.add(this.wardrobeBtn);
 
+    // SELECT locks your highlighted survivor for everyone else; UNSELECT
+    // releases it. Tapping classes only browses until you commit.
+    this.selectBtn = new UIButton('🔒 SELECT', {
+      width: 200,
+      height: 60,
+      fontSize: 22,
+      fill: NIGHT.gate,
+      textColor: 0x0c1a12,
+      onTap: () => this.toggleSelect(),
+    });
+    this.add(this.selectBtn);
+
     this.statusText = makeText('', 26, { color: NIGHT.inkSoft, weight: 'bold', wrapWidth: 640 });
     this.stage.addChild(this.statusText);
 
@@ -370,7 +404,10 @@ export class LobbyScene extends Scene {
       });
       this.add(this.startBtn);
     } else {
-      this.waitText = makeText('tap READY when you are set', 24, { color: NIGHT.inkSoft, weight: 'bold' });
+      this.waitText = makeText('tap READY when you are set', 24, {
+        color: NIGHT.inkSoft,
+        weight: 'bold',
+      });
       this.stage.addChild(this.waitText);
       this.readyBtn = new UIButton("I'M READY", {
         width: 400,
@@ -412,6 +449,10 @@ export class LobbyScene extends Scene {
       inProgress: () => this.inProgress,
       joinNow: () => this.joinInProgress(),
       setName: (name: string) => this.applyName(cleanName(name)),
+      setLocked: (on: boolean) => {
+        if (!!this.roster.locked?.[session.id] !== on) this.toggleSelect();
+      },
+      myLocked: () => !!this.roster.locked?.[session.id],
       botCount: () => this.botCount,
       levelIndex: () => this.roster.level ?? 0,
       levelCount: () => LEVELS.length,
@@ -458,103 +499,121 @@ export class LobbyScene extends Scene {
   private wireNet(): void {
     const session = this.session;
     if (session.isHost) {
-      this.unsub.push(session.onPlayerJoin((p) => {
-        if (!this.live) return;
-        // Insert humans before the bot block so bot ids stay contiguous.
-        const bots = this.roster.order.filter((id) => this.isBot(id));
-        this.roster.order = this.roster.order.filter((id) => !this.isBot(id));
-        if (!this.roster.order.includes(p.id)) this.roster.order.push(p.id);
-        this.roster.order.push(...bots);
-        this.roster.names[p.id] = this.uniqueName(p.name);
-        this.roster.roles[p.id] = 'hider';
-        this.roster.classes[p.id] ??= this.freeHiderClass(p.id);
-        this.rebuildBots(); // re-clamp: a new human lowers the bot ceiling
-        this.updateBotLabel();
-        this.shareRoster();
-        this.refreshRoster();
-        sting('blip');
-      }));
-      this.unsub.push(session.onPlayerLeave((id) => {
-        if (!this.live) return;
-        this.roster.order = this.roster.order.filter((x) => x !== id);
-        delete this.roster.roles[id];
-        delete this.roster.classes[id];
-        if (this.roster.ready) delete this.roster.ready[id];
-        if (this.roster.seekerId === id) this.roster.seekerId = null;
-        this.rebuildBots();
-        this.updateBotLabel();
-        this.shareRoster();
-        this.refreshRoster();
-      }));
-      this.unsub.push(session.onMessage((from, data) => {
-        if (!this.live) return;
-        const msg = data as LobbyMsg;
-        if (msg?.type === 'class') {
-          // One player per survivor — a taken hider class is refused, and
-          // the re-shared roster snaps the asker's UI back to the truth.
-          if (!this.hiderClassTakenBy(msg.cls, from)) this.roster.classes[from] = msg.cls;
-          if (msg.acc !== undefined) (this.roster.accs ??= {})[from] = msg.acc;
-        } else if (msg?.type === 'acc') {
-          (this.roster.accs ??= {})[from] = msg.acc;
-        } else if (msg?.type === 'name') {
-          const v = cleanName(String(msg.name ?? ''));
-          if (v) this.roster.names[from] = this.uniqueName(v);
-        } else if (msg?.type === 'volunteer') {
-          this.setSeeker(from);
-        } else if (msg?.type === 'ready') {
-          (this.roster.ready ??= {})[from] = msg.ready;
-        } else if (msg?.type === 'hello') {
+      this.unsub.push(
+        session.onPlayerJoin((p) => {
+          if (!this.live) return;
+          // Insert humans before the bot block so bot ids stay contiguous.
+          const bots = this.roster.order.filter((id) => this.isBot(id));
+          this.roster.order = this.roster.order.filter((id) => !this.isBot(id));
+          if (!this.roster.order.includes(p.id)) this.roster.order.push(p.id);
+          this.roster.order.push(...bots);
+          this.roster.names[p.id] = this.uniqueName(p.name);
+          this.roster.roles[p.id] = 'hider';
+          this.roster.classes[p.id] ??= this.freeHiderClass(p.id);
+          this.rebuildBots(); // re-clamp: a new human lowers the bot ceiling
+          this.updateBotLabel();
           this.shareRoster();
-          return;
-        } else {
-          return;
-        }
-        this.shareRoster();
-        this.refreshRoster();
-      }));
-    } else {
-      this.unsub.push(session.onMessage((_from, data) => {
-        if (!this.live) return;
-        const msg = data as LobbyMsg;
-        if (msg?.type === 'roster') {
-          const mine = this.roster.classes[session.id];
-          const myAcc = this.roster.accs?.[session.id];
-          this.roster = {
-            order: msg.order,
-            names: msg.names,
-            roles: msg.roles,
-            classes: msg.classes,
-            accs: msg.accs ?? {},
-            ready: msg.ready ?? {},
-            seekerId: msg.seekerId ?? null,
-            level: msg.level ?? 0,
-          };
-          if (this.inProgress && mine) this.roster.classes[session.id] = mine;
-          if (this.inProgress && myAcc !== undefined) (this.roster.accs ??= {})[session.id] = myAcc;
-          this.classRole = this.myRole();
-          this.buildClassButtons();
-          this.layout(this.game.viewWidth, this.game.viewHeight);
           this.refreshRoster();
-        } else if (msg?.type === 'start') {
-          this.live = false;
-          this.game.scenes.replace(new MatchScene(session, msg.roster));
-        } else if (msg?.type === 'inprogress') {
-          this.enterLateJoin();
-        }
-      }));
-    }
-    this.unsub.push(session.onClose((reason) => {
-      if (!this.live) return;
-      this.statusText.text = `Disconnected: ${reason} — returning to menu…`;
-      const back = new Entity();
-      back.addBehavior(
-        new Timer(2.2, () => {
-          window.history.replaceState(null, '', window.location.pathname);
-          this.game.scenes.replace(new MenuScene());
+          sting('blip');
         }),
       );
-      this.add(back);
-    }));
+      this.unsub.push(
+        session.onPlayerLeave((id) => {
+          if (!this.live) return;
+          this.roster.order = this.roster.order.filter((x) => x !== id);
+          delete this.roster.roles[id];
+          delete this.roster.classes[id];
+          if (this.roster.locked) delete this.roster.locked[id];
+          if (this.roster.ready) delete this.roster.ready[id];
+          if (this.roster.seekerId === id) this.roster.seekerId = null;
+          this.rebuildBots();
+          this.updateBotLabel();
+          this.shareRoster();
+          this.refreshRoster();
+        }),
+      );
+      this.unsub.push(
+        session.onMessage((from, data) => {
+          if (!this.live) return;
+          const msg = data as LobbyMsg;
+          if (msg?.type === 'class') {
+            // Browsing is open unless someone LOCKED that class; switching
+            // releases the asker's own lock. Re-shares snap stale UIs back.
+            if (!this.lockedOwnerOf(msg.cls, from)) {
+              this.roster.classes[from] = msg.cls;
+              if (this.roster.locked?.[from]) this.roster.locked[from] = false;
+            }
+            if (msg.acc !== undefined) (this.roster.accs ??= {})[from] = msg.acc;
+          } else if (msg?.type === 'lock') {
+            this.applyLock(from, !!msg.on);
+          } else if (msg?.type === 'acc') {
+            (this.roster.accs ??= {})[from] = msg.acc;
+          } else if (msg?.type === 'name') {
+            const v = cleanName(String(msg.name ?? ''));
+            if (v) this.roster.names[from] = this.uniqueName(v);
+          } else if (msg?.type === 'volunteer') {
+            this.setSeeker(from);
+          } else if (msg?.type === 'ready') {
+            (this.roster.ready ??= {})[from] = msg.ready;
+          } else if (msg?.type === 'hello') {
+            this.shareRoster();
+            return;
+          } else {
+            return;
+          }
+          this.shareRoster();
+          this.refreshRoster();
+        }),
+      );
+    } else {
+      this.unsub.push(
+        session.onMessage((_from, data) => {
+          if (!this.live) return;
+          const msg = data as LobbyMsg;
+          if (msg?.type === 'roster') {
+            const mine = this.roster.classes[session.id];
+            const myAcc = this.roster.accs?.[session.id];
+            this.roster = {
+              order: msg.order,
+              names: msg.names,
+              roles: msg.roles,
+              classes: msg.classes,
+              accs: msg.accs ?? {},
+              ready: msg.ready ?? {},
+              locked: msg.locked ?? {},
+              seekerId: msg.seekerId ?? null,
+              level: msg.level ?? 0,
+            };
+            if (this.inProgress && mine) this.roster.classes[session.id] = mine;
+            if (this.inProgress && myAcc !== undefined)
+              (this.roster.accs ??= {})[session.id] = myAcc;
+            this.classRole = this.myRole();
+            this.buildClassButtons();
+            this.layout(this.game.viewWidth, this.game.viewHeight);
+            this.refreshRoster();
+          } else if (msg?.type === 'start') {
+            this.live = false;
+            this.game.scenes.replace(new MatchScene(session, msg.roster));
+          } else if (msg?.type === 'inprogress') {
+            this.enterLateJoin();
+          }
+        }),
+      );
+    }
+    this.unsub.push(
+      session.onClose((reason) => {
+        if (!this.live) return;
+        this.statusText.text = `Disconnected: ${reason} — returning to menu…`;
+        const back = new Entity();
+        back.addBehavior(
+          new Timer(2.2, () => {
+            window.history.replaceState(null, '', window.location.pathname);
+            this.game.scenes.replace(new MenuScene());
+          }),
+        );
+        this.add(back);
+      }),
+    );
 
     if (!session.isHost) session.send({ type: 'hello' });
   }
@@ -612,9 +671,8 @@ export class LobbyScene extends Scene {
   }
 
   /** Re-derive every player's role from the current seekerId (host only). */
-  /** One blob per survivor: which player (other than `except`) already
-   *  claimed this HIDER class? Seeker classes are never locked (there is
-   *  effectively one seeker slot anyway). */
+  /** ANY player (other than `except`) currently on this hider class —
+   *  browsing or locked. Used to hand out fresh defaults without dupes. */
   private hiderClassTakenBy(cls: string, except: string): string | null {
     if (classById(cls).role !== 'hider') return null;
     for (const pid of this.roster.order) {
@@ -622,6 +680,47 @@ export class LobbyScene extends Scene {
       if (this.roster.classes[pid] === cls) return pid;
     }
     return null;
+  }
+
+  /** Who LOCKED this hider class with SELECT? Browsing it is open to all —
+   *  only a lock is exclusive. */
+  private lockedOwnerOf(cls: string, except: string): string | null {
+    if (classById(cls).role !== 'hider') return null;
+    for (const pid of this.roster.order) {
+      if (pid === except || this.roster.roles[pid] === 'seeker') continue;
+      if (this.roster.locked?.[pid] && this.roster.classes[pid] === cls) return pid;
+    }
+    return null;
+  }
+
+  /** Host: apply a SELECT/UNSELECT — first lock on a class wins. */
+  private applyLock(id: string, on: boolean): void {
+    if (on && this.lockedOwnerOf(this.roster.classes[id] ?? '', id)) return;
+    (this.roster.locked ??= {})[id] = on;
+  }
+
+  /** My SELECT button: lock my highlighted survivor, or release it. */
+  private toggleSelect(): void {
+    if (this.myRole() !== 'hider') return;
+    const on = !this.roster.locked?.[this.session.id];
+    const cls = this.myClass();
+    const owner = this.lockedOwnerOf(cls, this.session.id);
+    if (on && owner) {
+      sting('lose');
+      this.statusText.style.fill = NIGHT.blood;
+      this.statusText.text = `${classById(cls).name} is locked by ${this.roster.names[owner] ?? '?'}`;
+      return;
+    }
+    sting('blip');
+    if (this.session.isHost) {
+      this.applyLock(this.session.id, on);
+      this.shareRoster();
+      this.refreshRoster();
+    } else {
+      (this.roster.locked ??= {})[this.session.id] = on; // optimistic — host truth follows
+      this.session.send({ type: 'lock', on });
+      this.refreshRoster();
+    }
   }
 
   /** The first hider class nobody has claimed yet (Scout as a last resort). */
@@ -641,8 +740,11 @@ export class LobbyScene extends Scene {
       const cls = classById(this.roster.classes[pid]);
       if (cls.role !== role) {
         // Switching back to hider: take the first FREE survivor, not a taken one.
-        this.roster.classes[pid] = role === 'hider' ? this.freeHiderClass(pid) : defaultClassFor(role);
+        this.roster.classes[pid] =
+          role === 'hider' ? this.freeHiderClass(pid) : defaultClassFor(role);
       }
+      // Role changes always drop any survivor lock the player held.
+      if (prev !== role && this.roster.locked?.[pid]) this.roster.locked[pid] = false;
       if (prev !== role && pid === this.session.id) {
         this.classRole = role;
         this.buildClassButtons();
@@ -660,7 +762,12 @@ export class LobbyScene extends Scene {
   /** Host: (re)generate the bot roster entries to match `botCount` (cap 8). */
   private rebuildBots(): void {
     this.roster.order = this.roster.order.filter((id) => !this.isBot(id));
-    for (const rec of [this.roster.roles, this.roster.classes, this.roster.names, this.roster.accs ?? {}]) {
+    for (const rec of [
+      this.roster.roles,
+      this.roster.classes,
+      this.roster.names,
+      this.roster.accs ?? {},
+    ]) {
       for (const id of Object.keys(rec)) if (this.isBot(id)) delete rec[id];
     }
     const humans = this.roster.order.length;
@@ -674,7 +781,8 @@ export class LobbyScene extends Scene {
       this.roster.classes[id] = this.freeHiderClass(id);
       (this.roster.accs ??= {})[id] = i % 4 === 0 ? 2 : 0;
     }
-    if (this.roster.seekerId && !this.roster.order.includes(this.roster.seekerId)) this.roster.seekerId = null;
+    if (this.roster.seekerId && !this.roster.order.includes(this.roster.seekerId))
+      this.roster.seekerId = null;
     this.applyRoles();
   }
 
@@ -774,7 +882,8 @@ export class LobbyScene extends Scene {
     for (const b of this.classBtns) this.remove(b);
     this.classBtns = [];
     const list: ClassDef[] = this.classRole === 'seeker' ? SEEKERS : HIDERS;
-    this.pickLabel.text = this.classRole === 'seeker' ? 'CHOOSE YOUR SEEKER' : 'CHOOSE YOUR SURVIVOR';
+    this.pickLabel.text =
+      this.classRole === 'seeker' ? 'CHOOSE YOUR SEEKER' : 'CHOOSE YOUR SURVIVOR';
     this.updateAbilityInfo();
     this.classBtnIds = [];
     for (const cls of list) {
@@ -800,18 +909,21 @@ export class LobbyScene extends Scene {
   private pickClass(id: string, silent = false): void {
     const cls = classById(id);
     if (cls.role !== this.myRole()) return;
-    const owner = this.hiderClassTakenBy(id, this.session.id);
+    // Browsing is open — only a LOCKED (selected) class refuses company.
+    const owner = this.lockedOwnerOf(id, this.session.id);
     if (owner) {
       if (!silent) {
         sting('lose');
         this.statusText.style.fill = NIGHT.blood;
-        this.statusText.text = `${cls.name} is taken by ${this.roster.names[owner] ?? '?'}`;
+        this.statusText.text = `${cls.name} is locked by ${this.roster.names[owner] ?? '?'}`;
       }
       return;
     }
     if (!silent) sting('blip');
     store.set(cls.role === 'seeker' ? 'seekerClass' : 'hiderClass', id);
     this.roster.classes[this.session.id] = id;
+    // Switching survivors releases any lock you held on the old one.
+    if (this.roster.locked?.[this.session.id]) this.roster.locked[this.session.id] = false;
     this.updateAbilityInfo();
     if (this.session.isHost) {
       this.shareRoster();
@@ -849,7 +961,8 @@ export class LobbyScene extends Scene {
     (this.roster.ready ??= {})[this.session.id] = now;
     sting('blip');
     this.readyBtn?.setLabel(now ? '✓ READY' : "I'M READY");
-    if (this.waitText) this.waitText.text = now ? 'waiting for the host to start…' : 'tap READY when you are set';
+    if (this.waitText)
+      this.waitText.text = now ? 'waiting for the host to start…' : 'tap READY when you are set';
     this.session.send({ type: 'ready', ready: now });
   }
 
@@ -866,6 +979,22 @@ export class LobbyScene extends Scene {
     }
     for (const id of this.roster.order) {
       this.roster.classes[id] ??= defaultClassFor(this.roster.roles[id] ?? 'hider');
+    }
+    // One player per survivor in the MATCH: locked picks are sacred; anyone
+    // still just browsing a class someone else claimed slides to a free one.
+    const claimed = new Set<string>();
+    for (const id of this.roster.order) {
+      if (this.roster.roles[id] === 'seeker') continue;
+      if (this.roster.locked?.[id]) claimed.add(this.roster.classes[id] ?? '');
+    }
+    for (const id of this.roster.order) {
+      if (this.roster.roles[id] === 'seeker' || this.roster.locked?.[id]) continue;
+      let cls = this.roster.classes[id] ?? defaultClassFor('hider');
+      if (claimed.has(cls)) {
+        cls = this.freeHiderClass(id);
+        this.roster.classes[id] = cls;
+      }
+      claimed.add(cls);
     }
     // The Twin hunts as TWO: a bot echo joins the seeker side for this hunt.
     // Its 'bot' prefix drops it straight into the bot sim, and riding the
@@ -898,7 +1027,10 @@ export class LobbyScene extends Scene {
     this.wardTitle = makeText('WARDROBE', 40, { color: NIGHT.violet });
     this.preview = new Entity();
     this.wardVerium = makeText('⬡ 0', 26, { color: NIGHT.ghost, weight: '800' });
-    this.wardNote = makeText('tap to equip · locked ones cost Verium', 20, { color: NIGHT.inkSoft, weight: 'bold' });
+    this.wardNote = makeText('tap to equip · locked ones cost Verium', 20, {
+      color: NIGHT.inkSoft,
+      weight: 'bold',
+    });
     this.wardGrid = new Entity();
     this.wardDone = new UIButton('DONE', {
       width: 300,
@@ -909,7 +1041,14 @@ export class LobbyScene extends Scene {
       onTap: () => this.closeWardrobe(),
     });
     this.wardDone.visible = false;
-    this.wardRoot.addChild(this.wardTitle, this.preview, this.wardVerium, this.wardNote, this.wardGrid, this.wardDone);
+    this.wardRoot.addChild(
+      this.wardTitle,
+      this.preview,
+      this.wardVerium,
+      this.wardNote,
+      this.wardGrid,
+      this.wardDone,
+    );
     this.stage.addChild(this.wardRoot);
   }
 
@@ -958,7 +1097,10 @@ export class LobbyScene extends Scene {
           .circle(0, 0, 44)
           .fill(i === cur ? 0x2e6b3e : has ? 0x241f38 : 0x18141f)
           .circle(0, 0, 44)
-          .stroke({ color: i === cur ? 0xffffff : has ? NIGHT.inkSoft : NIGHT.blood, width: i === cur ? 4 : 2 }),
+          .stroke({
+            color: i === cur ? 0xffffff : has ? NIGHT.inkSoft : NIGHT.blood,
+            width: i === cur ? 4 : 2,
+          }),
       );
       const mini = accessoryView(i, 30);
       mini.position.set(0, 14);
@@ -1008,12 +1150,16 @@ export class LobbyScene extends Scene {
     this.wardVerium.text = label;
   }
 
-  /** Grey out survivors somebody else already claimed. */
+  /** Grey out survivors somebody else LOCKED; refresh my SELECT button. */
   private updateClassTaken(): void {
     this.classBtns.forEach((btn, i) => {
       const cls = this.classBtnIds[i];
-      btn.alpha = cls && this.hiderClassTakenBy(cls, this.session.id) ? 0.3 : 1;
+      btn.alpha = cls && this.lockedOwnerOf(cls, this.session.id) ? 0.3 : 1;
     });
+    if (this.selectBtn) {
+      this.selectBtn.visible = this.classRole === 'hider';
+      this.selectBtn.setLabel(this.roster.locked?.[this.session.id] ? '🔓 UNSELECT' : '🔒 SELECT');
+    }
   }
 
   private refreshRoster(): void {
@@ -1059,10 +1205,18 @@ export class LobbyScene extends Scene {
       nm.position.set(0, 52);
       chip.addChild(nm);
       const bot = this.isBot(id);
-      const tag = makeText(isSeeker ? '🩸 SEEKER' : bot ? `🤖 ${cls.name}` : cls.name, 15, {
-        color: isSeeker ? NIGHT.blood : bot ? NIGHT.ghost : NIGHT.inkSoft,
-        weight: '800',
-      });
+      const tag = makeText(
+        isSeeker
+          ? '🩸 SEEKER'
+          : bot
+            ? `🤖 ${cls.name}`
+            : `${this.roster.locked?.[id] ? '🔒 ' : ''}${cls.name}`,
+        15,
+        {
+          color: isSeeker ? NIGHT.blood : bot ? NIGHT.ghost : NIGHT.inkSoft,
+          weight: '800',
+        },
+      );
       tag.position.set(0, 74);
       chip.addChild(tag);
       if (this.roster.ready?.[id]) {

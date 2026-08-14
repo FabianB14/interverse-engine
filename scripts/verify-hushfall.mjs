@@ -96,12 +96,25 @@ const seekers = Object.values(roles).filter((r) => r === 'seeker').length;
 const rolesOk = seekers === 1 && Object.values(roles).filter((r) => r === 'hider').length === 2 && !!seekerId;
 await p1.screenshot({ path: `${outDir}/hf-1-lobby.png` });
 
-// CLASS LOCK: one player per survivor — Gears cannot steal Looky's Lookout.
-await p3.evaluate(() => window.__hushfall.pick('lookout'));
-await sleep(500);
-const lockClasses = await p1.evaluate(() => window.__hushfall.classes());
-const lockCounts = Object.values(lockClasses).reduce((m, c) => ((m[c] = (m[c] ?? 0) + 1), m), {});
-const lockOk = (lockCounts['lookout'] ?? 0) === 1 && (lockCounts['engineer'] ?? 0) === 1;
+// SELECT LOCK: browsing is open, but once Looky SELECTS Lookout it's locked
+// for everyone else — and UNSELECT opens it right back up.
+await p2.evaluate(() => window.__hushfall.setLocked?.(true));
+await sleep(600);
+await p3.evaluate(() => window.__hushfall.pick('lookout')); // locked → refused
+await sleep(600);
+const lockedClasses = await p1.evaluate(() => window.__hushfall.classes());
+const lockedCounts = Object.values(lockedClasses).reduce((m, c) => ((m[c] = (m[c] ?? 0) + 1), m), {});
+const lockHeld = (lockedCounts['lookout'] ?? 0) === 1;
+await p2.evaluate(() => window.__hushfall.setLocked?.(false));
+await sleep(600);
+await p3.evaluate(() => window.__hushfall.pick('lookout')); // open again → shared browse
+await sleep(600);
+const openClasses = await p1.evaluate(() => window.__hushfall.classes());
+const openCounts = Object.values(openClasses).reduce((m, c) => ((m[c] = (m[c] ?? 0) + 1), m), {});
+const lockReleased = (openCounts['lookout'] ?? 0) === 2;
+await p3.evaluate(() => window.__hushfall.pick('engineer')); // restore for later gates
+await sleep(400);
+const lockOk = lockHeld && lockReleased;
 
 // PUBLIC ROOMS: flipping the lobby 🌐 PUBLIC lists it in the relay's room
 // browser (with a live player count); flipping back to 🔒 PRIVATE removes
