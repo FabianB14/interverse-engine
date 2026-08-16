@@ -181,17 +181,20 @@ const reachOk = await p1.evaluate(() => window.__hushfall.reachOk?.() ?? false);
 // from the Seeker (who would have to search to find them).
 const hideCount = await p1.evaluate(() => window.__hushfall.hideCount?.() ?? 0);
 const hp = await p3.evaluate(() => window.__hushfall.hidePos?.(0));
+// Delta check: warping p3 into the spot must ADD one to the host's hidden
+// set. (A random map can spawn a bystander on top of a hide spot, so an
+// absolute hiddenBefore === 0 check would flake on layout luck.)
 const hiddenBefore = (await p1.evaluate(() => window.__hushfall.hiddenIds?.() ?? [])).length;
 await p3.evaluate((h) => window.__hushfall.warp(h.x, h.y), hp);
 // p3's 10Hz position stream has to reach the host — retry, don't sample once.
-let hiddenAfter = 0;
-for (let i = 0; i < 8 && hiddenAfter < 1; i++) {
+let hiddenAfter = hiddenBefore;
+for (let i = 0; i < 8 && hiddenAfter <= hiddenBefore; i++) {
   await sleep(500);
   hiddenAfter = (await p1.evaluate(() => window.__hushfall.hiddenIds?.() ?? [])).length;
 }
 await p3.evaluate((p) => window.__hushfall.warp(p.x, p.y), lp); // back onto the lantern
 await sleep(200);
-const hideOk = hideCount >= 4 && hiddenBefore === 0 && hiddenAfter >= 1;
+const hideOk = hideCount >= 4 && hiddenAfter > hiddenBefore;
 
 // TAP-TO-HIDE: tapping a hiding spot registers intent only when it's within
 // reach. Far away → ignored; nearby → the hider auto-walks in to hide.

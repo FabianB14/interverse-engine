@@ -125,6 +125,13 @@ const WALL_RADIUS = 55;
 // Kaiju's Atomic Blast: seekers in range are hurled away.
 const BLAST_RADIUS = 380;
 const BLAST_PUSH = 340;
+// Trickster's Decoy now also fades the caster for a blink.
+const DECOY_FADE_SECS = 1.6;
+// Frostbite Armor (Frost passive): striking the Frost chills the attacker.
+const FROSTBITE_SLOW_SECS = 2.5;
+// Second Wind (Medic passive): a downed Medic rises alone — once in a while.
+const SELF_REZ_DELAY = 3.5;
+const SELF_REZ_CD = 120;
 // Howler rework: Screech makes every hider leave a glowing trail on the
 // ground that only seekers can see — footprints in the dark.
 const TRAIL_SECONDS = 7;
@@ -222,8 +229,8 @@ interface Snap {
   conv: string[];
   /** Howler trail seconds remaining (seekers see hider footprints). */
   trail: number;
-  /** Sprinter clone bots on the loose. */
-  cl: { x: number; y: number }[];
+  /** Sprinter clone bots on the loose (n = the owner's name — the disguise). */
+  cl: { x: number; y: number; n?: string }[];
   /** Twin dummies standing in the dark. */
   dm: { x: number; y: number }[];
   /** Builder walls (block SEEKERS only). */
@@ -339,10 +346,12 @@ export class MatchScene extends Scene {
   private converted: string[] = []; // hiders the Wraith turned (host truth)
   private trailUntil = 0; // Howler trail active until this game-time
   private hits: Record<string, number> = {}; // damage taken toward next DOWN
-  private clones: { x: number; y: number; ang: number; until: number }[] = [];
+  private clones: { x: number; y: number; ang: number; until: number; owner: string }[] = [];
   private dummies: Record<string, { x: number; y: number }> = {}; // twin doubles
   private dummyPingAt: Record<string, number> = {};
   private walls: { x: number; y: number; until: number }[] = [];
+  private selfRezAt: Record<string, number> = {}; // Second Wind pending rise
+  private selfRezCd: Record<string, number> = {}; // Second Wind per-player cd
   private decoys: { x: number; y: number; until: number }[] = [];
   private phase = 'hiding';
   private hideLeft = HIDE_PHASE_SECONDS;
@@ -948,10 +957,15 @@ export class MatchScene extends Scene {
     this.trailDots.length = alive;
   }
 
-  /** Sprinter clones: navy lookalikes with the cap — no name, no tell. */
-  private syncClones(list: { x: number; y: number }[]): void {
+  /** Sprinter clones: navy lookalikes wearing the OWNER'S NAME — a perfect
+   *  disguise, indistinguishable from the real Sprinter. */
+  private cloneLabels: Text[] = [];
+  private syncClones(list: { x: number; y: number; n?: string }[]): void {
     this.snapClones = list;
-    while (this.cloneViews.length > list.length) this.cloneViews.pop()?.destroy({ children: true });
+    while (this.cloneViews.length > list.length) {
+      this.cloneViews.pop()?.destroy({ children: true });
+      this.cloneLabels.pop();
+    }
     while (this.cloneViews.length < list.length) {
       const cls = classById('sprinter');
       const c = new Container();
@@ -963,10 +977,18 @@ export class MatchScene extends Scene {
       });
       char.body.addChild(cls.accessory(30));
       c.addChild(char.view);
+      const label = makeText('?', 17, { color: NIGHT.ink, weight: 'bold' });
+      label.position.set(0, 46);
+      c.addChild(label);
+      this.cloneLabels.push(label);
       this.mapLayer.addChild(c);
       this.cloneViews.push(c);
     }
-    list.forEach((cl, i) => this.cloneViews[i]?.position.set(cl.x, cl.y));
+    list.forEach((cl, i) => {
+      this.cloneViews[i]?.position.set(cl.x, cl.y);
+      const label = this.cloneLabels[i];
+      if (label && cl.n && label.text !== cl.n) label.text = cl.n;
+    });
   }
 
   /** Twin dummies: a full-size double of the Twin, standing too still. */
@@ -997,15 +1019,46 @@ export class MatchScene extends Scene {
     while (this.wallViews.length > list.length) this.wallViews.pop()?.destroy();
     while (this.wallViews.length < list.length) {
       const g = new Graphics();
-      for (let i = 0; i < 7; i++) {
-        const a = (i / 7) * Math.PI * 2;
-        const rr = WALL_RADIUS * (0.55 + (i % 3) * 0.14);
-        g.circle(Math.cos(a) * rr * 0.6, Math.sin(a) * rr * 0.6 - 8, 22 + (i % 3) * 6).fill(
-          i % 2 ? 0x6b6455 : 0x555044,
-        );
-      }
-      g.circle(0, -14, 24).fill(0x7a7263);
-      g.ellipse(0, 26, WALL_RADIUS, 16).fill({ color: 0x000000, alpha: 0.35 });
+      // A conjured stone CUBE (2.5D): front face, lit top, shaded side.
+      const half = WALL_RADIUS * 0.82;
+      const depth = half * 0.55;
+      g.ellipse(0, half * 0.72, half * 1.25, 16).fill({ color: 0x000000, alpha: 0.35 });
+      // front face
+      g.roundRect(-half, -half * 0.5, half * 2, half * 1.2, 6).fill(0x6b6455);
+      // top face (parallelogram, catches the moonlight)
+      g.poly([
+        -half,
+        -half * 0.5,
+        -half + depth,
+        -half * 0.5 - depth,
+        half + depth,
+        -half * 0.5 - depth,
+        half,
+        -half * 0.5,
+      ]).fill(0x8a8272);
+      // right side (shadowed)
+      g.poly([
+        half,
+        -half * 0.5,
+        half + depth,
+        -half * 0.5 - depth,
+        half + depth,
+        half * 0.7 - depth,
+        half,
+        half * 0.7,
+      ]).fill(0x4a453a);
+      // mortar lines on the front
+      g.moveTo(-half, 0).lineTo(half, 0).stroke({ color: 0x4a453a, width: 3, alpha: 0.7 });
+      g.moveTo(-half * 0.3, -half * 0.5)
+        .lineTo(-half * 0.3, 0)
+        .stroke({ color: 0x4a453a, width: 3, alpha: 0.7 });
+      g.moveTo(half * 0.35, 0)
+        .lineTo(half * 0.35, half * 0.7)
+        .stroke({ color: 0x4a453a, width: 3, alpha: 0.7 });
+      g.roundRect(-half, -half * 0.5, half * 2, half * 1.2, 6).stroke({
+        color: 0x2e2a22,
+        width: 3,
+      });
       this.trapLayer.addChild(g);
       this.wallViews.push(g);
     }
@@ -1424,6 +1477,23 @@ export class MatchScene extends Scene {
         this.healProg[target] = 0;
         this.broadcastFx({ type: 'fx', kind: 'hurt', x: p.x, y: p.y, id: target });
       }
+      // Frostbite Armor: striking the Frost chills the attacker.
+      if (this.ownsUp(target, 'frost3')) {
+        this.slowUntil[seekerId] = Math.max(
+          this.slowUntil[seekerId] ?? 0,
+          this.t + FROSTBITE_SLOW_SECS,
+        );
+        const ap = this.hostPositions[seekerId];
+        if (ap) this.broadcastFx({ type: 'fx', kind: 'freeze', x: ap.x, y: ap.y, id: seekerId });
+      }
+      // Second Wind: a downed Medic schedules their own rise.
+      if (
+        this.down[target] !== undefined &&
+        this.ownsUp(target, 'medic3') &&
+        this.t >= (this.selfRezCd[target] ?? 0)
+      ) {
+        this.selfRezAt[target] = this.t + SELF_REZ_DELAY;
+      }
     }
   }
 
@@ -1540,8 +1610,11 @@ export class MatchScene extends Scene {
         this.broadcastFx({ type: 'fx', kind: 'poof', x, y, id: from });
         break;
       case 'decoy':
+        // Drop the doll AND fade for a blink — the misdirection is the point.
         this.decoys.push({ x, y, until: this.t + DECOY_SECONDS * this.statsOf(from).powMul });
+        this.vanishUntil[from] = Math.max(this.vanishUntil[from] ?? 0, this.t + DECOY_FADE_SECS);
         this.broadcastFx({ type: 'fx', kind: 'decoy', x, y });
+        this.broadcastFx({ type: 'fx', kind: 'poof', x, y, id: from });
         break;
       case 'overcharge': {
         let li = -1;
@@ -1607,7 +1680,7 @@ export class MatchScene extends Scene {
         const count = this.statsOf(from).powMul >= 1.5 ? 3 : 2;
         for (let i = 0; i < count; i++) {
           const ang = Math.random() * Math.PI * 2;
-          this.clones.push({ x, y, ang, until: this.t + CLONE_SECONDS });
+          this.clones.push({ x, y, ang, until: this.t + CLONE_SECONDS, owner: from });
         }
         this.broadcastFx({ type: 'fx', kind: 'poof', x, y });
         break;
@@ -1724,6 +1797,11 @@ export class MatchScene extends Scene {
   /** A player's live numbers: class base + their owned Verium passives. */
   private statsOf(id: string): { speed: number; hp: number; cdMul: number; powMul: number } {
     return statsFor(classById(this.roster.classes[id]), this.roster.ups?.[id] ?? []);
+  }
+
+  /** Does this player own a specific passive (special, non-stat ones)? */
+  private ownsUp(id: string, upId: string): boolean {
+    return (this.roster.ups?.[id] ?? []).includes(upId);
   }
 
   private seekerIds(): string[] {
@@ -1995,6 +2073,20 @@ export class MatchScene extends Scene {
           this.broadcastFx({ type: 'fx', kind: 'snare', x: p.x, y: p.y, id });
         }
       }
+    }
+    // Second Wind: pending self-revives rise on their own.
+    for (const id of Object.keys(this.selfRezAt)) {
+      if (this.down[id] === undefined) {
+        delete this.selfRezAt[id]; // someone got there first
+        continue;
+      }
+      if (this.t < this.selfRezAt[id]!) continue;
+      delete this.selfRezAt[id];
+      delete this.down[id];
+      this.reviveProg[id] = 0;
+      this.selfRezCd[id] = this.t + SELF_REZ_CD;
+      const p = this.hostPositions[id];
+      if (p) this.broadcastFx({ type: 'fx', kind: 'rescue', x: p.x, y: p.y, id });
     }
     // Revives + bleed.
     for (const did of Object.keys(this.down)) {
@@ -2904,7 +2996,7 @@ export class MatchScene extends Scene {
       nests: this.nests.map((n) => ({ x: n.x, y: n.y })),
       conv: [...this.converted],
       trail: Math.max(0, this.trailUntil - this.t),
-      cl: this.clones.map((c) => ({ x: c.x, y: c.y })),
+      cl: this.clones.map((c) => ({ x: c.x, y: c.y, n: this.roster.names[c.owner] ?? '?' })),
       dm: Object.values(this.dummies).map((d) => ({ x: d.x, y: d.y })),
       wl: this.walls.map((w) => ({ x: w.x, y: w.y })),
     };

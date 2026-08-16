@@ -94,6 +94,7 @@ export class LobbyScene extends Scene {
   private statusText!: Text;
   private nameBtn!: UIButton;
   private publicBtn: UIButton | null = null;
+  private homeBtn: UIButton | null = null;
   private isPublic = false;
 
   private wardRoot!: Container;
@@ -143,7 +144,8 @@ export class LobbyScene extends Scene {
       this.veriumChip.position.set(80, 34);
       this.nameBtn?.position.set(96, 82);
       // Top-right, clear of the room-count line under the code.
-      this.publicBtn?.position.set(W - 110, 40);
+      this.homeBtn?.position.set(W - 44, 40);
+      this.publicBtn?.position.set(W - 160, 40);
       // The 84px code is shrunk in landscape so its descenders can't reach
       // the room-count line (it used to sit ON "N in the room · …").
       this.codeLabel.position.set(lx, 34);
@@ -193,7 +195,8 @@ export class LobbyScene extends Scene {
     this.veriumChip.position.set(96, 44);
     this.nameBtn?.position.set(112, 92);
     // Top-right — it used to sit ON the "N in the room" line under the code.
-    this.publicBtn?.position.set(W - 110, 92);
+    this.homeBtn?.position.set(W - 46, 44);
+    this.publicBtn?.position.set(W - 110, 100);
     this.codeLabel.position.set(W / 2, 52);
     this.codeText.scale.set(1); // portrait has the vertical room for full size
     this.codeText.position.set(W / 2, 112);
@@ -284,6 +287,24 @@ export class LobbyScene extends Scene {
 
     this.rosterRow = new Entity();
     this.add(this.rosterRow);
+
+    // Home: leave the room and land back on the menu — every page has one.
+    this.homeBtn = new UIButton('🏠', {
+      width: 64,
+      height: 64,
+      fontSize: 28,
+      fill: 0x1a1826,
+      textColor: NIGHT.ink,
+      onTap: () => {
+        if (this.game.scenes.isTransitioning) return;
+        sting('blip');
+        this.live = false;
+        session.leave();
+        window.history.replaceState(null, '', window.location.pathname);
+        this.game.scenes.replace(new MenuScene());
+      },
+    });
+    this.add(this.homeBtn);
 
     this.roleBtn = new UIButton('🩸 BE THE SEEKER', {
       width: 330,

@@ -337,9 +337,11 @@ export class MenuScene extends Scene {
     });
     ab.position.set(W / 2, statTop + 100);
     root.addChild(ab);
-    // The two passives.
-    upgradesFor(sel.id).forEach((up, i) => {
-      const y = statTop + 170 + i * 108;
+    // The passives (2 for most classes, 3 for some — spacing adapts).
+    const ups = upgradesFor(sel.id);
+    const rowH = ups.length > 2 ? 96 : 108;
+    ups.forEach((up, i) => {
+      const y = statTop + 170 + i * rowH;
       const has = owned.includes(up.id);
       const need = requiredLevel(up);
       const lockedByLvl = !has && lvl < need;
@@ -378,7 +380,7 @@ export class MenuScene extends Scene {
       root.addChild(buy);
     });
     const note = makeText(
-      'Play a class to level it — Lv 2 unlocks the first passive, Lv 3 the second.\nPassives are always-on once owned. Earn ⬡ Verium by playing hunts.',
+      'Play a class to level it — higher levels unlock its passives to buy.\nPassives are always-on once owned. Earn ⬡ Verium by playing hunts.',
       17,
       {
         color: NIGHT.inkSoft,
@@ -386,12 +388,13 @@ export class MenuScene extends Scene {
         wrapWidth: 640,
       },
     );
-    note.position.set(W / 2, statTop + 404);
+    const noteY = statTop + 170 + ups.length * rowH + 20;
+    note.position.set(W / 2, noteY);
     root.addChild(note);
     // Restore root.addChild and shrink the body if the screen is short —
     // detail content can never slide under the corner buttons again.
     root.addChild = rootAddChild;
-    const contentBottom = statTop + 450;
+    const contentBottom = noteY + 60;
     const scale = Math.min(1, (H - 100) / contentBottom);
     if (scale < 1) {
       body.pivot.set(W / 2, 90);

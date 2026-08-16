@@ -565,7 +565,7 @@ export const HIDERS: ClassDef[] = [
       name: 'Decoy',
       emoji: '🃏',
       cooldown: 14,
-      blurb: 'Leave a fake blob to distract.',
+      blurb: 'Drop a fake blob and FADE from sight for a blink — let them chase the doll.',
     },
     accessory: maskMark,
   },
@@ -707,7 +707,7 @@ export function defaultClassFor(role: Role): string {
 // Two per class: tier 1 (150⬡) shapes the ability, tier 2 (300⬡) shapes the
 // body. Always-on once owned; consumed by the sim via statsFor().
 
-export const UPGRADES: Record<string, [UpgradeDef, UpgradeDef]> = {
+export const UPGRADES: Record<string, UpgradeDef[]> = {
   // hiders
   scout: [
     {
@@ -761,6 +761,14 @@ export const UPGRADES: Record<string, [UpgradeDef, UpgradeDef]> = {
       cost: 300,
       blurb: '+1 durability.',
       fx: { hp: 1 },
+    },
+    {
+      id: 'medic3',
+      name: 'Second Wind',
+      emoji: '💫',
+      cost: 500,
+      blurb: 'Downed? You rise on your OWN after a few seconds (once every 2 minutes).',
+      fx: {},
     },
   ],
   ghost: [
@@ -851,6 +859,14 @@ export const UPGRADES: Record<string, [UpgradeDef, UpgradeDef]> = {
       cost: 300,
       blurb: '+1 durability.',
       fx: { hp: 1 },
+    },
+    {
+      id: 'frost3',
+      name: 'Frostbite Armor',
+      emoji: '🥶',
+      cost: 500,
+      blurb: 'Whoever STRIKES you is chilled — slowed for a few seconds.',
+      fx: {},
     },
   ],
   siren: [
@@ -1071,6 +1087,7 @@ export function xpForLevel(level: number): number {
 
 /** The class level required before this passive can be bought. */
 export function requiredLevel(up: UpgradeDef): number {
+  if (up.cost >= 500) return 4;
   return up.cost >= 300 ? 3 : 2;
 }
 

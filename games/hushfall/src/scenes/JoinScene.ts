@@ -28,6 +28,7 @@ export class JoinScene extends Scene {
   private status!: Text;
   private keyBtns: UIButton[] = [];
   private back!: UIButton;
+  private homeBtn: UIButton | null = null;
 
   constructor(private readonly prefill = '') {
     super();
@@ -64,6 +65,7 @@ export class JoinScene extends Scene {
       );
     });
     this.back.position.set(landscape ? codeCx : W / 2, H - (landscape ? 90 : 110));
+    this.homeBtn?.position.set(W - 46, 44);
   }
 
   protected override onEnter(): void {
@@ -102,6 +104,19 @@ export class JoinScene extends Scene {
       this.add(btn);
       this.keyBtns.push(btn);
     }
+
+    this.homeBtn = new UIButton('🏠', {
+      width: 64,
+      height: 64,
+      fontSize: 28,
+      fill: 0x1a1826,
+      textColor: NIGHT.ink,
+      onTap: () => {
+        if (this.game.scenes.isTransitioning) return;
+        this.game.scenes.replace(new MenuScene());
+      },
+    });
+    this.add(this.homeBtn);
 
     this.back = new UIButton('BACK', {
       width: 240,
