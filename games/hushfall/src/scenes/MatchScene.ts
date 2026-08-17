@@ -143,6 +143,8 @@ const MEND_RANGE = 520;
 // cooldown — the manor pads' shared cooldown is never touched.
 const TEMP_TP_LIFE = 45;
 const TEMP_TP_CD = 8;
+// Building a pad is its own SECOND BUTTON for Engineers who own the passive.
+const TPAD_BTN_CD = 20;
 // Sixth Sense (Scout passive): the arrow flares alone when a Seeker is near.
 const SCOUT_WARN_DIST = 340;
 const SCOUT_WARN_CD = 20;
@@ -440,6 +442,10 @@ export class MatchScene extends Scene {
   private sprintUntil = 0;
   private sprintCdLeft = 0;
 
+  // Active special passives get their own SECOND button (Pocket Portal).
+  private specialBtn: UIButton | null = null;
+  private specialCdLeft = 0;
+
   // local ability
   private cooldownLeft = 0;
   private boostUntil = 0;
@@ -482,6 +488,7 @@ export class MatchScene extends Scene {
     this.joystick?.position.set(160, H - 180);
     this.abilityBtn?.position.set(W - 118, H - 130);
     this.sprintBtn?.position.set(W - 252, H - 112);
+    this.specialBtn?.position.set(W - 118, H - 290);
     this.attackBtn?.position.set(W - 118, H - 300);
     this.homeBtn?.position.set(W - 46, 44);
     this.recordBtn?.position.set(W - 46, 118);
@@ -1205,6 +1212,20 @@ export class MatchScene extends Scene {
       this.add(this.sprintBtn, this.uiLayer);
     }
 
+    // Pocket Portal is an ACTIVE special — it gets its own button so the
+    // Engineer chooses where the pad goes without burning Overcharge.
+    if (!this.amSeeker && myCls.id === 'engineer' && this.ownsUp(this.session.id, 'engineer3')) {
+      this.specialBtn = new UIButton('🌀', {
+        width: 120,
+        height: 120,
+        fontSize: 48,
+        fill: 0x8a6a2f,
+        textColor: NIGHT.ink,
+        onTap: () => this.trySpecial(),
+      });
+      this.add(this.specialBtn, this.uiLayer);
+    }
+
     if (this.amSeeker) {
       this.attackBtn = new UIButton('🩸', {
         width: 120,
@@ -1531,14 +1552,6 @@ export class MatchScene extends Scene {
         const ap = this.hostPositions[seekerId];
         if (ap) this.broadcastFx({ type: 'fx', kind: 'freeze', x: ap.x, y: ap.y, id: seekerId });
       }
-      // Second Wind: a downed Medic schedules their own rise.
-      if (
-        this.down[target] !== undefined &&
-        this.ownsUp(target, 'medic3') &&
-        this.t >= (this.selfRezCd[target] ?? 0)
-      ) {
-        this.selfRezAt[target] = this.t + SELF_REZ_DELAY;
-      }
     }
   }
 
@@ -1683,14 +1696,17 @@ export class MatchScene extends Scene {
           const p = this.lanternPts[li]!;
           this.broadcastFx({ type: 'fx', kind: 'lantern', x: p.x, y: p.y });
         }
-        // Pocket Portal: the surge also assembles a temporary pad here.
-        // Newest two pads stand; rides use their OWN cooldown (never the
-        // manor pads' shared one).
-        if (this.ownsUp(from, 'engineer3')) {
-          this.tempPads.push({ x, y, until: this.t + TEMP_TP_LIFE, armed: false });
-          while (this.tempPads.length > 2) this.tempPads.shift();
-          this.broadcastFx({ type: 'fx', kind: 'tpad', x, y });
-        }
+        break;
+      }
+      case 'tpad': {
+        // Pocket Portal (second button): assemble a temporary pad right
+        // here. Newest two pads stand; rides use their OWN cooldown (never
+        // the manor pads' shared one).
+        if (this.isSeekerRole(from)) return;
+        if (!this.ownsUp(from, 'engineer3')) return;
+        this.tempPads.push({ x, y, until: this.t + TEMP_TP_LIFE, armed: false });
+        while (this.tempPads.length > 2) this.tempPads.shift();
+        this.broadcastFx({ type: 'fx', kind: 'tpad', x, y });
         break;
       }
       case 'dummy': {
@@ -2219,6 +2235,14 @@ export class MatchScene extends Scene {
         }
       }
     }
+    // Second Wind: any downed Medic with the passive (and an off-cooldown
+    // wind) schedules their own rise — whatever put them down.
+    for (const id of Object.keys(this.down)) {
+      if (this.selfRezAt[id] !== undefined) continue;
+      if (!this.ownsUp(id, 'medic3')) continue;
+      if (this.t < (this.selfRezCd[id] ?? 0)) continue;
+      this.selfRezAt[id] = this.t + SELF_REZ_DELAY;
+    }
     // Second Wind: pending self-revives rise on their own.
     for (const id of Object.keys(this.selfRezAt)) {
       if (this.down[id] === undefined) {
@@ -2307,7 +2331,11 @@ export class MatchScene extends Scene {
     // downed stragglers (often bots) left behind never flip it to the Seeker.
     if (this.phase === 'playing') {
       const inPlay = this.activeHiders();
-      const allDown = inPlay.length > 0 && inPlay.every((id) => this.down[id] !== undefined);
+      // A downed Medic with Second Wind pending is NOT done — the hunt
+      // holds its breath until they rise (or truly stay down).
+      const allDown =
+        inPlay.length > 0 &&
+        inPlay.every((id) => this.down[id] !== undefined && this.selfRezAt[id] === undefined);
       if (inPlay.length === 0 || allDown) {
         this.endMatch(this.escaped.size > 0 ? 'hiders-win' : 'seeker-wins');
       }
@@ -2684,6 +2712,8 @@ export class MatchScene extends Scene {
     this.attackCd = Math.max(0, this.attackCd - dt);
     this.sprintCdLeft = Math.max(0, this.sprintCdLeft - dt);
     if (this.sprintBtn) this.sprintBtn.alpha = this.sprintCdLeft > 0 ? 0.4 : 1;
+    this.specialCdLeft = Math.max(0, this.specialCdLeft - dt);
+    if (this.specialBtn) this.specialBtn.alpha = this.specialCdLeft > 0 ? 0.4 : 1;
     // Dazzled: the white-out holds, then thins as sight returns.
     if (this.blindG) {
       this.blindLeft = Math.max(0, this.blindLeft - dt);
@@ -3575,6 +3605,7 @@ export class MatchScene extends Scene {
           this.roleHud.style.fill = NIGHT.blood;
           this.hideTarget = null;
           if (this.sprintBtn) this.sprintBtn.visible = false;
+          if (this.specialBtn) this.specialBtn.visible = false;
           if (this.abilityBtn) this.abilityBtn.visible = false;
           if (!this.attackBtn) {
             this.attackBtn = new UIButton('🩸', {
@@ -3773,6 +3804,17 @@ export class MatchScene extends Scene {
     this.sprintUntil = this.t + SPRINT_SECS;
     this.sprintCdLeft = SPRINT_CD;
     sting('blip');
+  }
+
+  private trySpecial(): void {
+    // Same guards as the main ability, on an independent cooldown.
+    const okPhase = this.phase === 'playing' || (this.phase === 'hiding' && !this.amSeeker);
+    if (this.specialCdLeft > 0 || !okPhase) return;
+    if (this.snapDown[this.session.id] !== undefined || this.out.has(this.session.id)) return;
+    this.specialCdLeft = TPAD_BTN_CD * this.statsOf(this.session.id).cdMul;
+    sting('blip');
+    if (this.session.isHost) this.hostAbility(this.session.id, 'tpad', this.me.x, this.me.y);
+    else this.session.send({ type: 'ability', id: 'tpad', x: this.me.x, y: this.me.y });
   }
 
   private tryAbility(): void {
@@ -4124,6 +4166,8 @@ export class MatchScene extends Scene {
       tpadCount: () => this.snapTpads.length,
       tpadPos: (i: number) => this.snapTpads[i] ?? null,
       arrowOn: () => this.t < this.senseUntil,
+      special: () => this.trySpecial(),
+      hasSpecialBtn: () => !!this.specialBtn,
       blindsTaken: () => this.blindsTaken,
       amBlinded: () => this.blindLeft > 0,
       seekerCount: () => this.seekerIds().length,

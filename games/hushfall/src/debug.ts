@@ -104,6 +104,8 @@ export interface HushfallDebug {
   tpadCount?: () => number;
   tpadPos?: (i: number) => { x: number; y: number } | null;
   arrowOn?: () => boolean;
+  special?: () => void;
+  hasSpecialBtn?: () => boolean;
   cloneCount?: () => number;
   dummyCount?: () => number;
   wallCount?: () => number;

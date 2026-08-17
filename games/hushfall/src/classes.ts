@@ -838,7 +838,7 @@ export const UPGRADES: Record<string, UpgradeDef[]> = {
       emoji: '🌀',
       cost: 500,
       blurb:
-        "Overcharge also builds a temporary pad linked to the manor's FAR teleporter — its rides never touch the manor pads' shared cooldown.",
+        "Unlocks a 🌀 SECOND BUTTON: build a temporary pad linked to the manor's FAR teleporter. Its rides never touch the manor pads' shared cooldown.",
       fx: {},
     },
   ],

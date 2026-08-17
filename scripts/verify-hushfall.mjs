@@ -428,7 +428,10 @@ await p2.screenshot({ path: `${outDir}/hf-8-round2.png` });
 // The trio's gates are all measured — close their pages so the solo-host
 // sections that follow aren't starved for CPU (13 live game pages under
 // software rendering is enough to time out page loads on slow machines).
-await Promise.all([p1.close(), p2.close(), p3.close()]);
+// Joiners FIRST: closing the host while they're live races into a
+// "host disconnected" console error the suite would count as a failure.
+await Promise.all([p2.close(), p3.close()]);
+await p1.close();
 
 // BOTS: a short-handed host fills the hunt with AI bots. They appear in the
 // roster as hiders, enter the match, and their AI steers them (they move).
@@ -785,7 +788,10 @@ await pengr.waitForFunction(() => window.__hushfall.phase() === 'playing', null,
   timeout: 15_000,
 });
 await sleep(300);
-await pengr.evaluate(() => window.__hushfall.ability()); // Overcharge -> pad
+// The passive adds a dedicated 🌀 button — building a pad no longer rides on
+// Overcharge, so the Engineer picks the spot deliberately.
+const specialBtnOk = await pengr.evaluate(() => window.__hushfall.hasSpecialBtn?.() ?? false);
+await pengr.evaluate(() => window.__hushfall.special()); // 🌀 build a pad
 let tpadCount = 0;
 for (let i = 0; i < 8 && tpadCount < 1; i++) {
   await sleep(500);
@@ -807,8 +813,36 @@ if (padPos) {
 }
 // The manor pair's SHARED cooldown must still be untouched after the ride.
 const tpadSharedCd = await pengr.evaluate(() => window.__hushfall.tpCd?.() ?? -1);
-const tpadOk = tpadCount >= 1 && tpadRide >= 300 && tpadSharedCd === 0;
+const tpadOk = specialBtnOk && tpadCount >= 1 && tpadRide >= 300 && tpadSharedCd === 0;
 await pengr.close();
+
+// MEDIC Second Wind: a lone downed Medic with the passive does NOT hand the
+// Seeker the win — the end check waits, and the Medic rises on their own.
+const pm = await phone('host=1&class=medic&name=Doc');
+await pm.waitForFunction(() => window.__hushfall?.scene() === 'lobby', null, { timeout: 12_000 });
+await pm.evaluate(() => window.__hushfall.grantUp?.('medic3'));
+await pm.evaluate(() => window.__hushfall.setBots?.(1));
+await sleep(300);
+await pm.evaluate(() => window.__hushfall.setSeeker?.('bot0'));
+await pm.evaluate(() => window.__hushfall.start());
+await pm.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { timeout: 12_000 });
+await pm.evaluate(() => window.__hushfall.skipHide());
+await pm.waitForFunction(() => window.__hushfall.phase() === 'playing', null, { timeout: 15_000 });
+await sleep(300);
+await pm.evaluate(() => window.__hushfall.forceDownAll());
+let windDowned = false;
+for (let i = 0; i < 8 && !windDowned; i++) {
+  await sleep(300);
+  windDowned = await pm.evaluate(() => window.__hushfall.amDowned?.() ?? false);
+}
+let windRose = false;
+for (let i = 0; i < 16 && !windRose; i++) {
+  await sleep(500);
+  windRose = !(await pm.evaluate(() => window.__hushfall.amDowned?.() ?? true));
+}
+const windPhase = await pm.evaluate(() => window.__hushfall.phase());
+const secondWindOk = windDowned && windRose && windPhase === 'playing';
+await pm.close();
 
 // SCOUT Sixth Sense + LOOKOUT Town Crier: the scout's arrow flares alone
 // when the seeker creeps close; the lookout's Sense hands the arrow to
@@ -901,6 +935,7 @@ const ok =
   wraithOk &&
   trailOk &&
   tpadOk &&
+  secondWindOk &&
   sixthOk &&
   crierOk &&
   sprintOk &&
@@ -994,9 +1029,14 @@ console.log(
       trailOk,
       trailLeft,
       tpadOk,
+      specialBtnOk,
       tpadCount,
       tpadRide,
       tpadSharedCd,
+      secondWindOk,
+      windDowned,
+      windRose,
+      windPhase,
       sixthOk,
       crierOk,
       gateOnP2,
