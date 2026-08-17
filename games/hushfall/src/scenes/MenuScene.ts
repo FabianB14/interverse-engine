@@ -1,29 +1,17 @@
 import { Container, Graphics } from 'pixi.js';
 import type { Text } from 'pixi.js';
-import { Entity, Scene, Wobble, blobCharacter, popIn, verium } from '@interverse/engine';
+import { Entity, Scene, Wobble, blobCharacter, popIn } from '@interverse/engine';
 import { host, join, listRooms } from '@interverse/net';
 import { UIButton } from '@interverse/ui';
 import { GAME_TAG, resolveRelayUrl } from '../config.js';
 import { GAME_TITLE, GAME_VERSION } from '../game.js';
-import {
-  HIDERS,
-  SEEKERS,
-  levelFromXp,
-  requiredLevel,
-  statsFor,
-  upgradesFor,
-  xpForLevel,
-} from '../classes.js';
-import type { ClassDef } from '../classes.js';
+import { ClassesPanel } from '../classesPanel.js';
 import { NIGHT, setMusic, setSfx, sting } from '../theme.js';
 import { makeText, playerName } from '../text.js';
 import {
-  addUpgrade,
-  classXp,
   clearLastRoom,
   lastRoom,
   musicPref,
-  ownedUpgrades,
   recordPref,
   savedName,
   setMusicPref,
@@ -59,8 +47,7 @@ export class MenuScene extends Scene {
   private moon!: Graphics;
   private eyes!: Graphics;
   private versionT: Text | null = null;
-  private classesRoot: Container | null = null;
-  private classesSel: string | null = null;
+  private classesPanel: ClassesPanel | null = null;
   private settings: Container | null = null;
   private settingsBg!: Graphics;
   private settingsTitle!: Text;
@@ -90,6 +77,7 @@ export class MenuScene extends Scene {
       this.versionT?.position.set(W - 40, H - 24);
       this.layoutFinder(W, H);
       this.layoutSettings(W, H);
+      this.classesPanel?.layout();
       return;
     }
     this.moon.position.set(W * 0.78, H * 0.14);
@@ -106,7 +94,7 @@ export class MenuScene extends Scene {
     this.versionT?.position.set(W - 40, H - 24);
     this.layoutFinder(W, H);
     this.layoutSettings(W, H);
-    this.renderClasses();
+    this.classesPanel?.layout();
   }
 
   /** The Settings overlay: every comfort switch in one place. Each row is a
@@ -185,222 +173,6 @@ export class MenuScene extends Scene {
     if (!this.settings) return;
     this.settings.visible = true;
     this.layoutSettings(this.game.viewWidth, this.game.viewHeight);
-  }
-
-  // ------------------------------------------------------ classes page
-  /** The CLASSES page: every seeker + survivor, stats, ability, and the two
-   *  Verium passives — browse and BUY from the main menu, no match needed. */
-  private renderClasses(open = false): void {
-    const W = this.game.viewWidth;
-    const H = this.game.viewHeight;
-    if (!this.classesRoot) {
-      this.classesRoot = new Container();
-      this.classesRoot.visible = false;
-      this.stage.addChild(this.classesRoot);
-    }
-    const root = this.classesRoot;
-    if (open) root.visible = true;
-    if (!root.visible) return;
-    this.stage.addChild(root); // keep above everything
-    for (const c of root.removeChildren()) c.destroy({ children: true });
-    const bg = new Graphics().rect(0, 0, W, H).fill(0x0a0812);
-    bg.eventMode = 'static';
-    root.addChild(bg);
-    const bal = makeText(`⬡ ${verium.balance()}`, 26, { color: NIGHT.ghost, weight: '800' });
-    bal.position.set(W - 160, 44);
-    root.addChild(bal);
-    // Close lives in the TOP corner — it can never sit on the content.
-    const closeBtn = new UIButton('✕', {
-      width: 64,
-      height: 64,
-      fontSize: 26,
-      fill: NIGHT.violet,
-      textColor: 0x140f1e,
-      onTap: () => {
-        sting('blip');
-        root.visible = false;
-      },
-    });
-    closeBtn.position.set(W - 56, 44);
-    root.addChild(closeBtn);
-
-    const sel = this.classesSel
-      ? [...SEEKERS, ...HIDERS].find((c) => c.id === this.classesSel)
-      : null;
-    if (!sel) {
-      const title = makeText('🎓 CLASSES', 44, { color: NIGHT.ink });
-      title.position.set(W / 2, 56);
-      root.addChild(title);
-      const drawGrid = (list: ClassDef[], label: string, top: number): number => {
-        const head = makeText(label, 24, { color: NIGHT.inkSoft, weight: '800' });
-        head.position.set(W / 2, top);
-        root.addChild(head);
-        const cols = W > H ? 6 : 4;
-        const colW = Math.min(170, (W - 30) / cols);
-        const scale = Math.min(1, (colW - 8) / 160);
-        list.forEach((cls, i) => {
-          const row = Math.floor(i / cols);
-          const inRow = Math.min(cols, list.length - row * cols);
-          const btn = new UIButton(`${cls.emoji} ${cls.name}`, {
-            width: 160,
-            height: 58,
-            fontSize: 17,
-            fill: cls.color,
-            textColor: 0x140f1e,
-            onTap: () => {
-              sting('blip');
-              this.classesSel = cls.id;
-              this.renderClasses();
-            },
-          });
-          btn.scale.set(scale);
-          btn.position.set(W / 2 + (i - row * cols - (inRow - 1) / 2) * colW, top + 52 + row * 68);
-          root.addChild(btn);
-        });
-        return top + 52 + Math.ceil(list.length / cols) * 68;
-      };
-      const after = drawGrid(SEEKERS, '🩸 SEEKERS', 120);
-      drawGrid(HIDERS, '🔦 SURVIVORS', after + 26);
-      return;
-    }
-
-    // ---- detail page -----------------------------------------------
-    const owned = ownedUpgrades();
-    const live = statsFor(sel, owned);
-    const xp = classXp(sel.id);
-    const lvl = levelFromXp(xp);
-    const backBtn = new UIButton('‹ BACK', {
-      width: 150,
-      height: 60,
-      fontSize: 22,
-      fill: 0x221e34,
-      textColor: NIGHT.ink,
-      onTap: () => {
-        sting('blip');
-        this.classesSel = null;
-        this.renderClasses();
-      },
-    });
-    backBtn.position.set(96, 44);
-    root.addChild(backBtn);
-    // Everything below scales to fit short screens, so nothing can ever
-    // slide under the corner buttons.
-    const body = new Container();
-    root.addChild(body);
-    const rootAddChild = root.addChild.bind(root);
-    root.addChild = ((child: Container) => body.addChild(child)) as typeof root.addChild;
-    const preview = new Container();
-    const char = blobCharacter({ radius: 54, color: sel.color, seed: 9, shadow: false });
-    char.body.addChild(sel.accessory(54));
-    preview.addChild(char.view);
-    preview.position.set(W / 2, 170);
-    root.addChild(preview);
-    const name = makeText(`${sel.emoji} ${sel.name}`, 42, { color: NIGHT.ink });
-    name.position.set(W / 2, 268);
-    root.addChild(name);
-    const role = makeText(sel.role === 'seeker' ? '🩸 SEEKER' : '🔦 SURVIVOR', 20, {
-      color: sel.role === 'seeker' ? NIGHT.blood : NIGHT.gate,
-      weight: '800',
-    });
-    role.position.set(W / 2, 306);
-    root.addChild(role);
-    const lvlLine = makeText(
-      `⭐ Lv ${lvl} · ${xp}/${xpForLevel(lvl)} XP — play this class to level it`,
-      19,
-      { color: NIGHT.lantern, weight: '800' },
-    );
-    lvlLine.position.set(W / 2, 336);
-    root.addChild(lvlLine);
-    const blurb = makeText(sel.blurb, 22, { color: NIGHT.inkSoft, weight: 'bold', wrapWidth: 620 });
-    blurb.position.set(W / 2, 372);
-    root.addChild(blurb);
-    // Stats: speed bar + durability hearts (LIVE — owned passives applied).
-    const statTop = 424;
-    const speedLbl = makeText(`🏃 SPEED ${live.speed}`, 22, { color: NIGHT.ink, weight: '800' });
-    speedLbl.position.set(W / 2 - 160, statTop);
-    root.addChild(speedLbl);
-    const barBg = new Graphics().roundRect(-140, -8, 280, 16, 8).fill(0x221e34);
-    barBg.position.set(W / 2 + 130, statTop);
-    const frac = Math.max(0, Math.min(1, (live.speed - 240) / 70));
-    barBg.roundRect(-140, -8, 280 * frac, 16, 8).fill(sel.color);
-    root.addChild(barBg);
-    const hearts = makeText(`🛡️ DURABILITY ${'❤️'.repeat(live.hp)}`, 22, {
-      color: NIGHT.ink,
-      weight: '800',
-    });
-    hearts.position.set(W / 2, statTop + 44);
-    root.addChild(hearts);
-    const ab = makeText(`${sel.ability.emoji} ${sel.ability.name} — ${sel.ability.blurb}`, 20, {
-      color: NIGHT.violet,
-      weight: 'bold',
-      wrapWidth: 640,
-    });
-    ab.position.set(W / 2, statTop + 100);
-    root.addChild(ab);
-    // The passives (2 for most classes, 3 for some — spacing adapts).
-    const ups = upgradesFor(sel.id);
-    const rowH = ups.length > 2 ? 96 : 108;
-    ups.forEach((up, i) => {
-      const y = statTop + 170 + i * rowH;
-      const has = owned.includes(up.id);
-      const need = requiredLevel(up);
-      const lockedByLvl = !has && lvl < need;
-      const txt = makeText(`${up.emoji} ${up.name} — ${up.blurb}`, 20, {
-        color: has ? NIGHT.gate : lockedByLvl ? NIGHT.inkSoft : NIGHT.ink,
-        weight: 'bold',
-        wrapWidth: 440,
-      });
-      txt.position.set(W / 2 - 90, y);
-      root.addChild(txt);
-      const buy = new UIButton(
-        has ? '✓ OWNED' : lockedByLvl ? `🔒 Lv ${need}` : `BUY ${up.cost}⬡`,
-        {
-          width: 170,
-          height: 64,
-          fontSize: 20,
-          fill: has || lockedByLvl ? 0x221e34 : NIGHT.gate,
-          textColor: has ? NIGHT.gate : lockedByLvl ? NIGHT.inkSoft : 0x0c1a12,
-          onTap: () => {
-            if (has) return;
-            if (lockedByLvl) {
-              sting('lose');
-              return;
-            }
-            if (verium.spend(up.cost)) {
-              addUpgrade(up.id);
-              sting('gate');
-            } else {
-              sting('lose');
-            }
-            this.renderClasses();
-          },
-        },
-      );
-      buy.position.set(W / 2 + 240, y);
-      root.addChild(buy);
-    });
-    const note = makeText(
-      'Play a class to level it — higher levels unlock its passives to buy.\nPassives are always-on once owned. Earn ⬡ Verium by playing hunts.',
-      17,
-      {
-        color: NIGHT.inkSoft,
-        weight: 'bold',
-        wrapWidth: 640,
-      },
-    );
-    const noteY = statTop + 170 + ups.length * rowH + 20;
-    note.position.set(W / 2, noteY);
-    root.addChild(note);
-    // Restore root.addChild and shrink the body if the screen is short —
-    // detail content can never slide under the corner buttons again.
-    root.addChild = rootAddChild;
-    const contentBottom = noteY + 60;
-    const scale = Math.min(1, (H - 100) / contentBottom);
-    if (scale < 1) {
-      body.pivot.set(W / 2, 90);
-      body.position.set(W / 2, 96);
-      body.scale.set(scale);
-    }
   }
 
   private layoutSettings(W: number, H: number): void {
@@ -516,8 +288,11 @@ export class MenuScene extends Scene {
       textColor: NIGHT.ink,
       onTap: () => {
         sting('blip');
-        this.classesSel = null;
-        this.renderClasses(true);
+        this.classesPanel ??= new ClassesPanel(this.stage, () => ({
+          w: this.game.viewWidth,
+          h: this.game.viewHeight,
+        }));
+        this.classesPanel.open();
       },
     });
     this.add(this.classesBtn);

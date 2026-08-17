@@ -726,6 +726,14 @@ export const UPGRADES: Record<string, UpgradeDef[]> = {
       blurb: '+8 natural speed.',
       fx: { speed: 8 },
     },
+    {
+      id: 'scout3',
+      name: 'Sixth Sense',
+      emoji: '👁️',
+      cost: 500,
+      blurb: 'A chill down your spine: your arrow flares on its OWN when a Seeker creeps close.',
+      fx: {},
+    },
   ],
   sprinter: [
     {
@@ -824,6 +832,15 @@ export const UPGRADES: Record<string, UpgradeDef[]> = {
       blurb: '+1 durability.',
       fx: { hp: 1 },
     },
+    {
+      id: 'engineer3',
+      name: 'Pocket Portal',
+      emoji: '🌀',
+      cost: 500,
+      blurb:
+        "Overcharge also builds a temporary pad linked to the manor's FAR teleporter — its rides never touch the manor pads' shared cooldown.",
+      fx: {},
+    },
   ],
   lookout: [
     {
@@ -841,6 +858,14 @@ export const UPGRADES: Record<string, UpgradeDef[]> = {
       cost: 300,
       blurb: '+8 natural speed.',
       fx: { speed: 8 },
+    },
+    {
+      id: 'lookout3',
+      name: 'Town Crier',
+      emoji: '📣',
+      cost: 500,
+      blurb: 'Sense shares the tracking arrow with EVERY survivor, not just you.',
+      fx: {},
     },
   ],
   frost: [

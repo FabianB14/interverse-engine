@@ -16,7 +16,8 @@ import type { ClassDef, Role } from '../classes.js';
 import { ACCESSORIES, FREE_ACCESSORIES, accessoryView } from '../accessories.js';
 import { NIGHT, sting } from '../theme.js';
 import { makeText } from '../text.js';
-import { cleanName, ownedUpgrades, savedClass, store } from '../store.js';
+import { addUpgrade, cleanName, ownedUpgrades, savedClass, store } from '../store.js';
+import { ClassesPanel } from '../classesPanel.js';
 import { LEVELS } from '../map.js';
 import { MatchScene } from './MatchScene.js';
 import { MenuScene } from './MenuScene.js';
@@ -95,6 +96,8 @@ export class LobbyScene extends Scene {
   private nameBtn!: UIButton;
   private publicBtn: UIButton | null = null;
   private homeBtn: UIButton | null = null;
+  private classesBtn: UIButton | null = null;
+  private classesPanel: ClassesPanel | null = null;
   private isPublic = false;
 
   private wardRoot!: Container;
@@ -180,6 +183,8 @@ export class LobbyScene extends Scene {
       this.abilityInfo.position.set(rx, top + rows * rowH + 36);
       this.wardrobeBtn.position.set(rx + 105, top + rows * rowH + 100);
       this.selectBtn?.position.set(rx - 145, top + rows * rowH + 100);
+      this.classesBtn?.position.set(rx + 290, top + rows * rowH + 100);
+      this.classesPanel?.layout();
       // Bottom band.
       const ay = H - 52;
       this.startBtn?.position.set(lx, ay);
@@ -219,6 +224,8 @@ export class LobbyScene extends Scene {
     this.abilityInfo.position.set(W / 2, bottom - 36);
     this.wardrobeBtn.position.set(W / 2 + 105, bottom + 22);
     this.selectBtn?.position.set(W / 2 - 145, bottom + 22);
+    this.classesBtn?.position.set(W / 2 + 290, bottom + 22);
+    this.classesPanel?.layout();
     this.statusText.position.set(W / 2, bottom + 84);
     this.startBtn?.position.set(W / 2, H - 84);
     this.randomBtn?.position.set(W / 2, H - 164);
@@ -357,6 +364,25 @@ export class LobbyScene extends Scene {
     });
     this.add(this.selectBtn);
 
+    // Same CLASSES page as the main menu — study stats and buy passives
+    // while you wait for friends to join.
+    this.classesBtn = new UIButton('🎓', {
+      width: 60,
+      height: 60,
+      fontSize: 26,
+      fill: 0x3a2c4e,
+      textColor: NIGHT.ink,
+      onTap: () => {
+        sting('blip');
+        this.classesPanel ??= new ClassesPanel(this.stage, () => ({
+          w: this.game.viewWidth,
+          h: this.game.viewHeight,
+        }));
+        this.classesPanel.open();
+      },
+    });
+    this.add(this.classesBtn);
+
     this.statusText = makeText('', 26, { color: NIGHT.inkSoft, weight: 'bold', wrapWidth: 640 });
     this.stage.addChild(this.statusText);
 
@@ -484,6 +510,13 @@ export class LobbyScene extends Scene {
         if (!!this.roster.locked?.[session.id] !== on) this.toggleSelect();
       },
       myLocked: () => !!this.roster.locked?.[session.id],
+      grantUp: (id: string) => {
+        // Test hook: own a passive instantly and re-share it with the room.
+        addUpgrade(id);
+        (this.roster.ups ??= {})[session.id] = ownedUpgrades();
+        if (session.isHost) this.shareRoster();
+        else session.send({ type: 'ups', ids: ownedUpgrades() });
+      },
       botCount: () => this.botCount,
       levelIndex: () => this.roster.level ?? 0,
       levelCount: () => LEVELS.length,

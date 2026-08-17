@@ -765,6 +765,107 @@ for (let i = 0; i < 8 && trailLeft <= 3; i++) {
 const trailOk = trailLeft > 3;
 await ph.close();
 
+// ENGINEER Pocket Portal: with the passive, Overcharge also builds a temp
+// teleporter pad; riding it warps you across the manor WITHOUT touching the
+// manor pads' shared cooldown.
+const pengr = await phone('host=1&class=engineer&name=Gears');
+await pengr.waitForFunction(() => window.__hushfall?.scene() === 'lobby', null, {
+  timeout: 12_000,
+});
+await pengr.evaluate(() => window.__hushfall.grantUp?.('engineer3'));
+await pengr.evaluate(() => window.__hushfall.setBots?.(1));
+await sleep(300);
+await pengr.evaluate(() => window.__hushfall.setSeeker?.('bot0'));
+await pengr.evaluate(() => window.__hushfall.start());
+await pengr.waitForFunction(() => window.__hushfall?.scene() === 'match', null, {
+  timeout: 12_000,
+});
+await pengr.evaluate(() => window.__hushfall.skipHide());
+await pengr.waitForFunction(() => window.__hushfall.phase() === 'playing', null, {
+  timeout: 15_000,
+});
+await sleep(300);
+await pengr.evaluate(() => window.__hushfall.ability()); // Overcharge -> pad
+let tpadCount = 0;
+for (let i = 0; i < 8 && tpadCount < 1; i++) {
+  await sleep(500);
+  tpadCount = await pengr.evaluate(() => window.__hushfall.tpadCount?.() ?? 0);
+}
+const padPos = await pengr.evaluate(() => window.__hushfall.tpadPos?.(0));
+let tpadRide = 0;
+if (padPos) {
+  // Step OFF first — a fresh pad only ARMS once everyone is clear (so
+  // building one never teleports the Engineer on the spot).
+  await pengr.evaluate((p) => window.__hushfall.warp(p.x + 220, p.y), padPos);
+  await sleep(800);
+  await pengr.evaluate((p) => window.__hushfall.warp(p.x, p.y), padPos);
+  for (let i = 0; i < 8 && tpadRide < 300; i++) {
+    await sleep(500);
+    const mp = await pengr.evaluate(() => window.__hushfall.myPos());
+    tpadRide = Math.hypot(mp.x - padPos.x, mp.y - padPos.y);
+  }
+}
+// The manor pair's SHARED cooldown must still be untouched after the ride.
+const tpadSharedCd = await pengr.evaluate(() => window.__hushfall.tpCd?.() ?? -1);
+const tpadOk = tpadCount >= 1 && tpadRide >= 300 && tpadSharedCd === 0;
+await pengr.close();
+
+// SCOUT Sixth Sense + LOOKOUT Town Crier: the scout's arrow flares alone
+// when the seeker creeps close; the lookout's Sense hands the arrow to
+// EVERY survivor.
+const pl = await phone('host=1&class=lookout&name=Cry');
+await pl.waitForFunction(() => window.__hushfall?.scene() === 'lobby', null, { timeout: 12_000 });
+await pl.evaluate(() => window.__hushfall.grantUp?.('lookout3'));
+const plCode = await pl.evaluate(() => window.__hushfall.code());
+const pscout = await phone(`join=${plCode}&class=scout&name=Ears`);
+await pscout.waitForFunction(() => window.__hushfall?.scene() === 'lobby', null, {
+  timeout: 12_000,
+});
+await pscout.evaluate(() => window.__hushfall.grantUp?.('scout3'));
+await pl.evaluate(() => window.__hushfall.setBots?.(1));
+await sleep(600);
+await pl.evaluate(() => window.__hushfall.setSeeker?.('bot0'));
+await sleep(300);
+await pl.evaluate(() => window.__hushfall.start());
+for (const p of [pl, pscout]) {
+  await p.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { timeout: 12_000 });
+}
+await pl.evaluate(() => window.__hushfall.skipHide());
+await pl.waitForFunction(() => window.__hushfall.phase() === 'playing', null, { timeout: 15_000 });
+await sleep(300);
+// Sixth Sense: creep the scout up to the bot seeker until the arrow flares.
+let sixthOk = false;
+for (let i = 0; i < 8 && !sixthOk; i++) {
+  await pscout.evaluate(() => {
+    const sp = window.__hushfall.seekerPos();
+    if (sp) window.__hushfall.warp(sp.x + 150, sp.y);
+  });
+  await sleep(500);
+  sixthOk = await pscout.evaluate(() => window.__hushfall.arrowOn?.() ?? false);
+}
+// Step away and let the flare die down (warn cd holds 20s, so it stays off).
+await pscout.evaluate(() => {
+  const sp = window.__hushfall.seekerPos();
+  if (sp) window.__hushfall.warp(sp.x + 900, sp.y);
+});
+let arrowOff = false;
+for (let i = 0; i < 10 && !arrowOff; i++) {
+  await sleep(500);
+  arrowOff = !(await pscout.evaluate(() => window.__hushfall.arrowOn?.() ?? true));
+}
+// Town Crier: the LOOKOUT casts Sense — the SCOUT should get the arrow.
+let crierOk = false;
+for (let i = 0; i < 6 && !crierOk; i++) {
+  await pl.evaluate(() => window.__hushfall.ability()); // Sense
+  await sleep(700);
+  crierOk = await pscout.evaluate(() => window.__hushfall.arrowOn?.() ?? false);
+}
+crierOk = crierOk && arrowOff;
+// Joiner leaves FIRST — closing the host under a live joiner logs a
+// "host disconnected" console error, which the suite treats as a failure.
+await pscout.close();
+await pl.close();
+
 await browser.close();
 relay.kill();
 
@@ -799,6 +900,9 @@ const ok =
   twinOk &&
   wraithOk &&
   trailOk &&
+  tpadOk &&
+  sixthOk &&
+  crierOk &&
   sprintOk &&
   wallOk &&
   cloneOk &&
@@ -889,6 +993,12 @@ console.log(
       blastDist,
       trailOk,
       trailLeft,
+      tpadOk,
+      tpadCount,
+      tpadRide,
+      tpadSharedCd,
+      sixthOk,
+      crierOk,
       gateOnP2,
       escapedHost,
       phaseHost,

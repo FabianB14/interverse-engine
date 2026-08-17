@@ -138,6 +138,17 @@ const TRAIL_SECONDS = 7;
 const TRAIL_DOT_LIFE = 3.2;
 // Medic's Mend now reaches across the room.
 const MEND_RANGE = 520;
+// Pocket Portal (Engineer passive): Overcharge also builds a temporary pad
+// linked to the manor teleporter FARTHEST from it. Rides run on their OWN
+// cooldown — the manor pads' shared cooldown is never touched.
+const TEMP_TP_LIFE = 45;
+const TEMP_TP_CD = 8;
+// Sixth Sense (Scout passive): the arrow flares alone when a Seeker is near.
+const SCOUT_WARN_DIST = 340;
+const SCOUT_WARN_CD = 20;
+const SCOUT_WARN_SECS = 2.5;
+// Town Crier (Lookout passive): Sense hands the arrow to every survivor.
+const TOWN_CRIER_SECS = 4;
 // Lookout's Sense: besides the reveal, an arrow TRACKS the Seeker live.
 const SENSE_ARROW_SECS = 8;
 const BOT_FLEE_DIST = 250;
@@ -192,7 +203,9 @@ interface Fx {
     | 'wall'
     | 'blast'
     | 'dummy'
-    | 'dummyping';
+    | 'dummyping'
+    | 'tpad'
+    | 'warn';
   x: number;
   y: number;
   id?: string;
@@ -235,6 +248,8 @@ interface Snap {
   dm: { x: number; y: number }[];
   /** Builder walls (block SEEKERS only). */
   wl: { x: number; y: number }[];
+  /** Engineer Pocket Portal pads (temporary, own cooldown). */
+  tpads: { x: number; y: number }[];
 }
 /** What each player DID this hunt — shown on the end screen and paid out. */
 interface Deeds {
@@ -357,6 +372,11 @@ export class MatchScene extends Scene {
   private hideLeft = HIDE_PHASE_SECONDS;
   private deeds: Record<string, Deeds> = {};
   private tpReadyAt = 0; // game-time when the SHARED teleporter cooldown ends
+  // Pocket Portal pads arm only after everyone steps OFF — otherwise the
+  // Engineer would be yeeted across the manor the instant they build one.
+  private tempPads: { x: number; y: number; until: number; armed: boolean }[] = [];
+  private tempTpReadyAt = 0; // temp-pad rides cool down SEPARATELY from manor pads
+  private warnAt: Record<string, number> = {}; // Sixth Sense per-scout next warn
 
   // client mirror
   private snapLant: number[] = [];
@@ -379,9 +399,11 @@ export class MatchScene extends Scene {
   private snapClones: { x: number; y: number }[] = [];
   private snapDums: { x: number; y: number }[] = [];
   private snapWalls: { x: number; y: number }[] = [];
+  private snapTpads: { x: number; y: number }[] = [];
   private cloneViews: Container[] = [];
   private dumViews: Container[] = [];
   private wallViews: Graphics[] = [];
+  private tpadViews: Graphics[] = [];
   private trailDotAt = 0; // client throttle for trail dot spawning
   private trailDots: { x: number; y: number; born: number }[] = [];
   private trailGlow: Graphics | null = null;
@@ -1065,6 +1087,28 @@ export class MatchScene extends Scene {
     list.forEach((w, i) => this.wallViews[i]?.position.set(w.x, w.y));
   }
 
+  /** Engineer Pocket Portal pads: brass-and-copper rune rings — clearly the
+   *  Engineer's make, so nobody mistakes them for the manor's violet pads. */
+  private syncTpads(list: { x: number; y: number }[]): void {
+    this.snapTpads = list;
+    while (this.tpadViews.length > list.length) this.tpadViews.pop()?.destroy();
+    while (this.tpadViews.length < list.length) {
+      const g = new Graphics();
+      g.circle(0, 0, 52).fill({ color: 0xffc75f, alpha: 0.12 });
+      g.circle(0, 0, 44).stroke({ color: 0xffc75f, width: 4, alpha: 0.85 });
+      g.circle(0, 0, 30).stroke({ color: 0xffe6a8, width: 2, alpha: 0.6 });
+      // Gear teeth around the rim — a built thing, not an arcane one.
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        g.rect(Math.cos(a) * 44 - 4, Math.sin(a) * 44 - 4, 8, 8).fill(0xffc75f);
+      }
+      g.circle(0, 0, 8).fill({ color: 0xffe6a8, alpha: 0.9 });
+      this.trapLayer.addChild(g);
+      this.tpadViews.push(g);
+    }
+    list.forEach((p, i) => this.tpadViews[i]?.position.set(p.x, p.y));
+  }
+
   private makeBlob(id: string, isMe: boolean): { entity: Entity; body: Container } {
     const cls = classById(this.roster.classes[id]);
     const isSeeker = this.roster.roles[id] === 'seeker';
@@ -1369,6 +1413,7 @@ export class MatchScene extends Scene {
     this.syncClones(s.cl ?? []);
     this.syncDums(s.dm ?? []);
     this.syncWalls(s.wl ?? []);
+    this.syncTpads(s.tpads ?? []);
     this.syncTraps(s.traps ?? []);
     this.syncNests(s.nests ?? []);
     this.escaped = new Set(s.esc);
@@ -1562,6 +1607,8 @@ export class MatchScene extends Scene {
           if (sp) pts.push({ x: sp.x, y: sp.y });
         }
         this.reveal(pts, NIGHT.lantern, 6);
+        // Town Crier: the Lookout's arrow goes out to EVERY survivor.
+        if (this.ownsUp(from, 'lookout3')) this.broadcastFx({ type: 'fx', kind: 'warn', x, y });
         break;
       }
       case 'snare':
@@ -1635,6 +1682,14 @@ export class MatchScene extends Scene {
           if (before < 1) this.deed(from).lit++;
           const p = this.lanternPts[li]!;
           this.broadcastFx({ type: 'fx', kind: 'lantern', x: p.x, y: p.y });
+        }
+        // Pocket Portal: the surge also assembles a temporary pad here.
+        // Newest two pads stand; rides use their OWN cooldown (never the
+        // manor pads' shared one).
+        if (this.ownsUp(from, 'engineer3')) {
+          this.tempPads.push({ x, y, until: this.t + TEMP_TP_LIFE, armed: false });
+          while (this.tempPads.length > 2) this.tempPads.shift();
+          this.broadcastFx({ type: 'fx', kind: 'tpad', x, y });
         }
         break;
       }
@@ -1967,6 +2022,96 @@ export class MatchScene extends Scene {
     // Builder walls crumble on their own clock.
     for (let i = this.walls.length - 1; i >= 0; i--) {
       if (this.walls[i]!.until <= this.t) this.walls.splice(i, 1);
+    }
+    // Pocket Portal pads dissolve on their own clock too, and ARM once every
+    // hider has stepped clear (so building one never rides you instantly).
+    for (let i = this.tempPads.length - 1; i >= 0; i--) {
+      const pad = this.tempPads[i]!;
+      if (pad.until <= this.t) {
+        this.tempPads.splice(i, 1);
+        continue;
+      }
+      if (!pad.armed) {
+        const occupied = active.some((id) => {
+          const p = this.hostPositions[id];
+          return !!p && Math.hypot(pad.x - p.x, pad.y - p.y) < TELEPORT_RADIUS + 12;
+        });
+        if (!occupied) pad.armed = true;
+      }
+    }
+    // Pocket Portal rides: a hider on a temp pad warps to the manor
+    // teleporter FARTHEST from it — on the temp pads' OWN cooldown, so the
+    // manor pair's shared cooldown (tpReadyAt) is never spent here.
+    if (this.tempPads.length >= 1 && this.teleportPts.length >= 1 && this.t >= this.tempTpReadyAt) {
+      rideTemp: for (const id of active) {
+        if (this.down[id] !== undefined) continue;
+        const p = this.hostPositions[id];
+        if (!p) continue;
+        if (id.startsWith('bot')) continue; // bots never burn the Engineer's gift
+        for (const pad of this.tempPads) {
+          if (!pad.armed) continue;
+          if (Math.hypot(pad.x - p.x, pad.y - p.y) >= TELEPORT_RADIUS) continue;
+          let dest = this.teleportPts[0]!;
+          let far = -1;
+          for (const tp of this.teleportPts) {
+            const d = Math.hypot(tp.x - pad.x, tp.y - pad.y);
+            if (d > far) {
+              far = d;
+              dest = tp;
+            }
+          }
+          // Land just OFF the manor pad so the ride can't chain into the
+          // manor pair (that would spend THEIR shared cooldown).
+          let lx = dest.x + 90;
+          let ly = dest.y;
+          for (const [dx, dy] of [
+            [90, 0],
+            [-90, 0],
+            [0, 90],
+            [0, -90],
+          ] as const) {
+            if (
+              !solidAt(
+                this.map,
+                Math.floor((dest.x + dx) / TILE_SIZE),
+                Math.floor((dest.y + dy) / TILE_SIZE),
+              )
+            ) {
+              lx = dest.x + dx;
+              ly = dest.y + dy;
+              break;
+            }
+          }
+          this.hostPositions[id] = { x: lx, y: ly };
+          this.tempTpReadyAt = this.t + TEMP_TP_CD;
+          this.broadcastFx({
+            type: 'fx',
+            kind: 'teleport',
+            x: pad.x,
+            y: pad.y,
+            id,
+            tx: lx,
+            ty: ly,
+          });
+          break rideTemp;
+        }
+      }
+    }
+    // Sixth Sense: a Scout with the passive feels a Seeker creeping close —
+    // their arrow flares on its own (per-scout cooldown so it stays a chill,
+    // not a radar).
+    for (const id of active) {
+      if (this.down[id] !== undefined) continue;
+      if (classById(this.roster.classes[id]).id !== 'scout') continue;
+      if (!this.ownsUp(id, 'scout3')) continue;
+      if (this.t < (this.warnAt[id] ?? 0)) continue;
+      const p = this.hostPositions[id];
+      if (!p) continue;
+      const near = this.nearestSeeker(p.x, p.y);
+      if (near && near.d < SCOUT_WARN_DIST) {
+        this.warnAt[id] = this.t + SCOUT_WARN_CD;
+        this.broadcastFx({ type: 'fx', kind: 'warn', x: p.x, y: p.y, id });
+      }
     }
     // Teleporters: a standing hider on a ready pad rides to the twin pad.
     // ONE shared cooldown — the first ride locks the pair for everyone.
@@ -2999,6 +3144,7 @@ export class MatchScene extends Scene {
       cl: this.clones.map((c) => ({ x: c.x, y: c.y, n: this.roster.names[c.owner] ?? '?' })),
       dm: Object.values(this.dummies).map((d) => ({ x: d.x, y: d.y })),
       wl: this.walls.map((w) => ({ x: w.x, y: w.y })),
+      tpads: this.tempPads.map((p) => ({ x: p.x, y: p.y })),
     };
     this.session.broadcast(snap);
     // Host mirrors its own snap-derived view.
@@ -3022,6 +3168,7 @@ export class MatchScene extends Scene {
     this.syncClones(snap.cl);
     this.syncDums(snap.dm);
     this.syncWalls(snap.wl);
+    this.syncTpads(snap.tpads);
     this.syncTraps(snap.traps);
     this.syncNests(snap.nests);
     this.syncDecoys(snap.decoys);
@@ -3518,6 +3665,29 @@ export class MatchScene extends Scene {
         life = 0.6;
         break;
       }
+      case 'tpad':
+        // Pocket Portal assembles: brass sparks and a spinning rune flash.
+        g.circle(0, 0, 48).stroke({ color: 0xffc75f, width: 6, alpha: 0.9 });
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * Math.PI * 2;
+          g.moveTo(Math.cos(a) * 20, Math.sin(a) * 20)
+            .lineTo(Math.cos(a) * 58, Math.sin(a) * 58)
+            .stroke({ color: 0xffe6a8, width: 4, alpha: 0.8 });
+        }
+        sting('gate');
+        life = 0.7;
+        break;
+      case 'warn': {
+        // Sixth Sense / Town Crier: hand this survivor (or every survivor)
+        // the live tracking arrow for a moment. Seekers feel nothing.
+        if (this.amSeeker) break;
+        if (fx.id && fx.id !== this.session.id) break;
+        const secs = fx.id ? SCOUT_WARN_SECS : TOWN_CRIER_SECS;
+        this.senseUntil = Math.max(this.senseUntil, this.t + secs);
+        if (!fx.id || fx.id === this.session.id) sting('blip');
+        life = 0.1;
+        break;
+      }
       case 'bust':
         // The hiding spot shatters — splinters fly.
         for (let i = 0; i < 10; i++) {
@@ -3951,6 +4121,9 @@ export class MatchScene extends Scene {
       trapCount: () => this.traps.length,
       nestCount: () => this.snapNests.length,
       nestPos: (i: number) => this.snapNests[i] ?? null,
+      tpadCount: () => this.snapTpads.length,
+      tpadPos: (i: number) => this.snapTpads[i] ?? null,
+      arrowOn: () => this.t < this.senseUntil,
       blindsTaken: () => this.blindsTaken,
       amBlinded: () => this.blindLeft > 0,
       seekerCount: () => this.seekerIds().length,

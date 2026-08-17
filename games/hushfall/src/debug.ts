@@ -100,6 +100,10 @@ export interface HushfallDebug {
   setSeeker?: (id: string) => void;
   setLocked?: (on: boolean) => void;
   myLocked?: () => boolean;
+  grantUp?: (id: string) => void;
+  tpadCount?: () => number;
+  tpadPos?: (i: number) => { x: number; y: number } | null;
+  arrowOn?: () => boolean;
   cloneCount?: () => number;
   dummyCount?: () => number;
   wallCount?: () => number;
