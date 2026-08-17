@@ -162,6 +162,108 @@ export function setDroneMood(i: number): void {
   startDrone();
 }
 
+// ---- level music --------------------------------------------------------
+// The drone alone lives at 41-150Hz — real phone speakers can't reproduce
+// that, which read as "no music at all". This layer is the actual TUNE:
+// a slow bass line, a sparse minor arpeggio and eerie far-off bells, one
+// variation per manor, all in a register small speakers can voice.
+interface Tune {
+  bpm: number;
+  bass: readonly number[];
+  arp: readonly (number | 0)[];
+  bells: readonly number[];
+}
+const TUNES: readonly Tune[] = [
+  // Hollow Manor — A minor, a slow music-box waltz gone wrong.
+  {
+    bpm: 60,
+    bass: [110, 82.4, 87.3, 98],
+    arp: [220, 261.6, 329.6, 0, 261.6, 220, 0, 329.6],
+    bells: [523.3, 659.3, 880],
+  },
+  // Ashen Asylum — D minor, quicker, twitchy.
+  {
+    bpm: 78,
+    bass: [146.8, 110, 116.5, 130.8],
+    arp: [293.7, 349.2, 0, 440, 349.2, 0, 587.3, 440],
+    bells: [698.5, 880],
+  },
+  // The Cellars — E phrygian, half-speed, oppressive.
+  {
+    bpm: 48,
+    bass: [82.4, 87.3, 82.4, 73.4],
+    arp: [164.8, 0, 174.6, 0, 246.9, 0, 329.6, 0],
+    bells: [349.2, 493.9],
+  },
+  // Grand Estate — C minor, stately, almost a ballroom.
+  {
+    bpm: 66,
+    bass: [130.8, 98, 103.8, 116.5],
+    arp: [261.6, 311.1, 392, 311.1, 466.2, 392, 311.1, 0],
+    bells: [523.3, 622.3, 784],
+  },
+  // Blackwood Keep — G with a tritone leaning on it, restless.
+  {
+    bpm: 90,
+    bass: [98, 69.3, 98, 92.5],
+    arp: [196, 233.1, 0, 277.2, 293.7, 0, 233.1, 0],
+    bells: [392, 554.4],
+  },
+];
+let musicGain: GainNode | null = null;
+let musicTimer: number | null = null;
+let nextStepAt = 0;
+let stepIdx = 0;
+
+function musicNote(type: OscillatorType, freq: number, at: number, dur: number, vol: number): void {
+  if (!ctx || !musicGain || freq <= 0) return;
+  const o = ctx.createOscillator();
+  o.type = type;
+  o.frequency.value = freq;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, at);
+  g.gain.exponentialRampToValueAtTime(vol, at + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+  o.connect(g).connect(musicGain);
+  o.start(at);
+  o.stop(at + dur + 0.05);
+}
+
+/** Lookahead scheduler — queues the next few 8th-note steps ahead of the
+ *  audio clock so the tune never hiccups when the tab gets busy. */
+function pumpMusic(): void {
+  if (!ctx || !musicGain || !musicOn) return;
+  const tune = TUNES[moodIdx % TUNES.length] ?? TUNES[0]!;
+  const stepDur = 60 / tune.bpm / 2; // 8th notes
+  if (nextStepAt < ctx.currentTime) nextStepAt = ctx.currentTime + 0.05;
+  while (nextStepAt < ctx.currentTime + 0.4) {
+    const t = nextStepAt;
+    const pos = stepIdx % 8;
+    if (pos % 4 === 0) {
+      const bass = tune.bass[Math.floor(stepIdx / 4) % tune.bass.length]!;
+      musicNote('triangle', bass, t, stepDur * 3.2, 0.12);
+    }
+    const arp = tune.arp[pos % tune.arp.length]!;
+    if (arp > 0) musicNote('sine', arp, t, stepDur * 0.9, 0.045);
+    // A far-off bell now and then — detuned a hair so it feels haunted.
+    if (pos % 2 === 1 && Math.random() < 0.1) {
+      const bell = tune.bells[Math.floor(Math.random() * tune.bells.length)]!;
+      musicNote('sine', bell * (1 + (Math.random() - 0.5) * 0.01), t, stepDur * 5, 0.05);
+    }
+    stepIdx += 1;
+    nextStepAt += stepDur;
+  }
+}
+
+function startMusic(): void {
+  if (!ctx || !master || musicGain) return;
+  musicGain = ctx.createGain();
+  musicGain.gain.value = musicOn ? 1 : 0;
+  musicGain.connect(master);
+  nextStepAt = 0;
+  musicTimer ??= window.setInterval(pumpMusic, 90);
+}
+
 /** Unlock audio on the first user gesture (call once from the first scene). */
 export function unlockSpookAudio(): void {
   if (unlocked) return;
@@ -169,6 +271,7 @@ export function unlockSpookAudio(): void {
     ensure();
     if (ctx?.state === 'suspended') void ctx.resume();
     startDrone();
+    startMusic();
     unlocked = true;
     window.removeEventListener('pointerdown', go);
     window.removeEventListener('touchstart', go);
@@ -180,6 +283,7 @@ export function unlockSpookAudio(): void {
 export function setMusic(on: boolean): void {
   musicOn = on;
   if (droneGain) droneGain.gain.value = on ? 0.14 : 0;
+  if (musicGain) musicGain.gain.value = on ? 1 : 0;
 }
 export function musicEnabled(): boolean {
   return musicOn;

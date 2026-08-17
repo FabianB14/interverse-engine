@@ -48,6 +48,12 @@ export class MenuScene extends Scene {
   private eyes!: Graphics;
   private versionT: Text | null = null;
   private classesPanel: ClassesPanel | null = null;
+  private creditsBtn: UIButton | null = null;
+  private credits: Container | null = null;
+  private creditsBg!: Graphics;
+  private creditsTitle!: Text;
+  private creditsBody!: Text;
+  private creditsClose!: UIButton;
   private settings: Container | null = null;
   private settingsBg!: Graphics;
   private settingsTitle!: Text;
@@ -74,9 +80,11 @@ export class MenuScene extends Scene {
       this.rejoinBtn?.position.set(W * 0.72, H * 0.24 + 434);
       this.status?.position.set(W * 0.72, H * 0.9);
       this.soundBtn?.position.set(52, H - 52);
+      this.creditsBtn?.position.set(126, H - 52);
       this.versionT?.position.set(W - 40, H - 24);
       this.layoutFinder(W, H);
       this.layoutSettings(W, H);
+      this.layoutCredits(W, H);
       this.classesPanel?.layout();
       return;
     }
@@ -91,9 +99,11 @@ export class MenuScene extends Scene {
     this.rejoinBtn?.position.set(W / 2, H * 0.6 + 434);
     this.status?.position.set(W / 2, H * 0.95);
     this.soundBtn?.position.set(52, H - 52);
+    this.creditsBtn?.position.set(126, H - 52);
     this.versionT?.position.set(W - 40, H - 24);
     this.layoutFinder(W, H);
     this.layoutSettings(W, H);
+    this.layoutCredits(W, H);
     this.classesPanel?.layout();
   }
 
@@ -167,6 +177,51 @@ export class MenuScene extends Scene {
     });
     this.settings.addChild(this.settingsClose);
     this.stage.addChild(this.settings);
+  }
+
+  /** The CREDITS page — who made the manors creak. */
+  private buildCredits(): void {
+    this.credits = new Container();
+    this.credits.visible = false;
+    this.creditsBg = new Graphics();
+    this.creditsBg.eventMode = 'static'; // swallow taps behind the panel
+    this.credits.addChild(this.creditsBg);
+    this.creditsTitle = makeText('🕯️ HUSHFALL', 46, { color: NIGHT.ink });
+    this.credits.addChild(this.creditsTitle);
+    this.creditsBody = makeText(
+      'an Interverse game\n\n' +
+        'Created & directed by\nFABIAN BROOKS\n\n' +
+        'Built on the Interverse Engine —\n' +
+        'code-drawn art, procedural audio,\n' +
+        'install-free multiplayer.\n\n' +
+        'interverseengine.com\n\n' +
+        'Special thanks to every blob\nwho braved the manors. 🫧',
+      24,
+      { color: NIGHT.inkSoft, weight: 'bold', wrapWidth: 620 },
+    );
+    this.credits.addChild(this.creditsBody);
+    this.creditsClose = new UIButton('CLOSE', {
+      width: 240,
+      height: 76,
+      fontSize: 26,
+      fill: NIGHT.violet,
+      textColor: 0x140f1e,
+      onTap: () => {
+        sting('blip');
+        if (this.credits) this.credits.visible = false;
+      },
+    });
+    this.credits.addChild(this.creditsClose);
+    this.stage.addChild(this.credits);
+  }
+
+  private layoutCredits(W: number, H: number): void {
+    if (!this.credits) return;
+    this.creditsBg.clear();
+    this.creditsBg.rect(0, 0, W, H).fill({ color: 0x0a0812, alpha: 0.97 });
+    this.creditsTitle.position.set(W / 2, 96);
+    this.creditsBody.position.set(W / 2, Math.min(H * 0.46, 96 + 60 + this.creditsBody.height / 2));
+    this.creditsClose.position.set(W / 2, H - 80);
   }
 
   private openSettings(): void {
@@ -329,6 +384,27 @@ export class MenuScene extends Scene {
     });
     this.add(this.soundBtn);
     this.buildSettings();
+
+    this.creditsBtn = new UIButton('🎬', {
+      width: 64,
+      height: 64,
+      fontSize: 28,
+      fill: 0x1a1826,
+      textColor: NIGHT.ink,
+      onTap: () => {
+        sting('blip');
+        this.credits ??= (() => {
+          this.buildCredits();
+          return this.credits;
+        })();
+        if (this.credits) {
+          this.credits.visible = true;
+          this.stage.addChild(this.credits); // keep above everything
+          this.layoutCredits(this.game.viewWidth, this.game.viewHeight);
+        }
+      },
+    });
+    this.add(this.creditsBtn);
 
     // Build tag: lets players (and bug reports) confirm which deploy they run.
     this.versionT = makeText(GAME_VERSION, 18, { color: NIGHT.inkSoft });
