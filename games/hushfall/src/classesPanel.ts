@@ -28,6 +28,9 @@ export class ClassesPanel {
   ) {}
 
   open(): void {
+    // Always land on the class GRID — a detail page left open last time
+    // shouldn't greet the next visit.
+    this.sel = null;
     this.render(true);
   }
 
@@ -64,6 +67,7 @@ export class ClassesPanel {
       onTap: () => {
         sting('blip');
         root.visible = false;
+        this.sel = null; // next open starts back at the grid
       },
     });
     closeBtn.position.set(W - 56, 44);
@@ -132,38 +136,48 @@ export class ClassesPanel {
     root.addChild(body);
     const rootAddChild = root.addChild.bind(root);
     root.addChild = ((child: Container) => body.addChild(child)) as typeof root.addChild;
+    // Landscape gets TWO columns (identity + stats left, passives right) so
+    // nothing has to shrink to fit the short screen; portrait keeps the
+    // single scaled column.
+    const landscape = W > H;
+    const lx = landscape ? W * 0.25 : W / 2;
+    const leftWrap = landscape ? Math.min(560, W * 0.42) : 620;
     const preview = new Container();
     const char = blobCharacter({ radius: 54, color: sel.color, seed: 9, shadow: false });
     char.body.addChild(sel.accessory(54));
     preview.addChild(char.view);
-    preview.position.set(W / 2, 170);
+    preview.position.set(lx, landscape ? 160 : 170);
     root.addChild(preview);
     const name = makeText(`${sel.emoji} ${sel.name}`, 42, { color: NIGHT.ink });
-    name.position.set(W / 2, 268);
+    name.position.set(lx, landscape ? 258 : 268);
     root.addChild(name);
     const role = makeText(sel.role === 'seeker' ? '🩸 SEEKER' : '🔦 SURVIVOR', 20, {
       color: sel.role === 'seeker' ? NIGHT.blood : NIGHT.gate,
       weight: '800',
     });
-    role.position.set(W / 2, 306);
+    role.position.set(lx, landscape ? 296 : 306);
     root.addChild(role);
     const lvlLine = makeText(
       `⭐ Lv ${lvl} · ${xp}/${xpForLevel(lvl)} XP — play this class to level it`,
       19,
-      { color: NIGHT.lantern, weight: '800' },
+      { color: NIGHT.lantern, weight: '800', wrapWidth: leftWrap },
     );
-    lvlLine.position.set(W / 2, 336);
+    lvlLine.position.set(lx, landscape ? 328 : 336);
     root.addChild(lvlLine);
-    const blurb = makeText(sel.blurb, 22, { color: NIGHT.inkSoft, weight: 'bold', wrapWidth: 620 });
-    blurb.position.set(W / 2, 372);
+    const blurb = makeText(sel.blurb, 22, {
+      color: NIGHT.inkSoft,
+      weight: 'bold',
+      wrapWidth: leftWrap,
+    });
+    blurb.position.set(lx, landscape ? 368 : 372);
     root.addChild(blurb);
     // Stats: speed bar + durability hearts (LIVE — owned passives applied).
-    const statTop = 424;
+    const statTop = landscape ? 434 : 424;
     const speedLbl = makeText(`🏃 SPEED ${live.speed}`, 22, { color: NIGHT.ink, weight: '800' });
-    speedLbl.position.set(W / 2 - 160, statTop);
+    speedLbl.position.set(landscape ? lx : W / 2 - 160, statTop);
     root.addChild(speedLbl);
     const barBg = new Graphics().roundRect(-140, -8, 280, 16, 8).fill(0x221e34);
-    barBg.position.set(W / 2 + 130, statTop);
+    barBg.position.set(landscape ? lx : W / 2 + 130, landscape ? statTop + 40 : statTop);
     const frac = Math.max(0, Math.min(1, (live.speed - 240) / 70));
     barBg.roundRect(-140, -8, 280 * frac, 16, 8).fill(sel.color);
     root.addChild(barBg);
@@ -171,29 +185,35 @@ export class ClassesPanel {
       color: NIGHT.ink,
       weight: '800',
     });
-    hearts.position.set(W / 2, statTop + 44);
+    hearts.position.set(lx, landscape ? statTop + 84 : statTop + 44);
     root.addChild(hearts);
     const ab = makeText(`${sel.ability.emoji} ${sel.ability.name} — ${sel.ability.blurb}`, 20, {
       color: NIGHT.violet,
       weight: 'bold',
-      wrapWidth: 640,
+      wrapWidth: landscape ? leftWrap : 640,
     });
-    ab.position.set(W / 2, statTop + 100);
+    ab.position.set(lx, landscape ? statTop + 146 : statTop + 100);
     root.addChild(ab);
-    // The passives (2 for most classes, 3 for some — spacing adapts).
+    // The passives (2 for most classes, 3 for some — spacing adapts). In
+    // landscape they get their own column on the right, full-size text.
     const ups = upgradesFor(sel.id);
-    const rowH = ups.length > 2 ? 96 : 108;
+    const rowH = landscape ? (ups.length > 2 ? 128 : 150) : ups.length > 2 ? 96 : 108;
+    const rowTop = landscape ? 170 : statTop + 170;
+    // Right column: text flows up to the BUY button pinned near the edge.
+    const buyX = landscape ? W - 135 : W / 2 + 240;
+    const txtWrap = landscape ? Math.max(320, W * 0.5 - 250) : 440;
+    const txtX = landscape ? W * 0.52 + txtWrap / 2 : W / 2 - 90;
     ups.forEach((up, i) => {
-      const y = statTop + 170 + i * rowH;
+      const y = rowTop + i * rowH;
       const has = owned.includes(up.id);
       const need = requiredLevel(up);
       const lockedByLvl = !has && lvl < need;
       const txt = makeText(`${up.emoji} ${up.name} — ${up.blurb}`, 20, {
         color: has ? NIGHT.gate : lockedByLvl ? NIGHT.inkSoft : NIGHT.ink,
         weight: 'bold',
-        wrapWidth: 440,
+        wrapWidth: txtWrap,
       });
-      txt.position.set(W / 2 - 90, y);
+      txt.position.set(txtX, y);
       root.addChild(txt);
       const buy = new UIButton(
         has ? '✓ OWNED' : lockedByLvl ? `🔒 Lv ${need}` : `BUY ${up.cost}⬡`,
@@ -219,7 +239,7 @@ export class ClassesPanel {
           },
         },
       );
-      buy.position.set(W / 2 + 240, y);
+      buy.position.set(buyX, y);
       root.addChild(buy);
     });
     const note = makeText(
@@ -228,16 +248,16 @@ export class ClassesPanel {
       {
         color: NIGHT.inkSoft,
         weight: 'bold',
-        wrapWidth: 640,
+        wrapWidth: landscape ? Math.max(360, W * 0.44) : 640,
       },
     );
-    const noteY = statTop + 170 + ups.length * rowH + 20;
-    note.position.set(W / 2, noteY);
+    const noteY = rowTop + ups.length * rowH + 20;
+    note.position.set(landscape ? W * 0.74 : W / 2, noteY);
     root.addChild(note);
     // Restore root.addChild and shrink the body if the screen is short —
     // detail content can never slide under the corner buttons again.
     root.addChild = rootAddChild;
-    const contentBottom = noteY + 60;
+    const contentBottom = Math.max(noteY + 60, landscape ? statTop + 200 : 0);
     const scale = Math.min(1, (H - 100) / contentBottom);
     if (scale < 1) {
       body.pivot.set(W / 2, 90);
