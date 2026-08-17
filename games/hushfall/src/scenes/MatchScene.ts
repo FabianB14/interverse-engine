@@ -443,6 +443,59 @@ export class MatchScene extends Scene {
   private sprintUntil = 0;
   private sprintCdLeft = 0;
 
+  // PC controls: WASD/arrows move, E = ability, Q = special, Space/Shift =
+  // sprint, and (seekers) left-click = attack. Purely additive — touch
+  // controls are untouched.
+  private heldKeys = new Set<string>();
+  private clickCatcher: Graphics | null = null;
+  private onKeyDown = (e: KeyboardEvent): void => {
+    const k = e.key.toLowerCase();
+    if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) {
+      this.heldKeys.add(k);
+      e.preventDefault();
+      return;
+    }
+    if (e.repeat) return;
+    if (k === 'e') this.tryAbility();
+    else if (k === 'q' && this.specialBtn) this.trySpecial();
+    else if ((k === ' ' || k === 'shift') && !this.amSeeker) {
+      this.trySprint();
+      e.preventDefault();
+    }
+  };
+  private onKeyUp = (e: KeyboardEvent): void => {
+    this.heldKeys.delete(e.key.toLowerCase());
+  };
+  /** WASD/arrow direction, normalized — zero when nothing is held. */
+  private keyVector(): { x: number; y: number } {
+    const k = this.heldKeys;
+    const x =
+      (k.has('d') || k.has('arrowright') ? 1 : 0) - (k.has('a') || k.has('arrowleft') ? 1 : 0);
+    const y = (k.has('s') || k.has('arrowdown') ? 1 : 0) - (k.has('w') || k.has('arrowup') ? 1 : 0);
+    if (!x && !y) return { x: 0, y: 0 };
+    const m = Math.hypot(x, y);
+    return { x: x / m, y: y / m };
+  }
+  /** Seekers only: a full-screen catcher UNDER the UI buttons so a mouse
+   *  click anywhere in the world swings the attack. Hiders keep their
+   *  tap-to-hide, which this would otherwise swallow. */
+  private addClickAttack(): void {
+    if (this.clickCatcher) return;
+    this.clickCatcher = new Graphics();
+    this.clickCatcher.eventMode = 'static';
+    this.clickCatcher.on('pointerdown', (ev) => {
+      if (ev.pointerType === 'mouse' && ev.button === 0) this.tryAttack();
+    });
+    this.uiLayer.addChildAt(this.clickCatcher, 0);
+    this.layoutClickCatcher();
+  }
+  private layoutClickCatcher(): void {
+    this.clickCatcher
+      ?.clear()
+      .rect(0, 0, this.game.viewWidth, this.game.viewHeight)
+      .fill({ color: 0xffffff, alpha: 0.0001 });
+  }
+
   // Active special passives get their own SECOND button (Pocket Portal).
   private specialBtn: UIButton | null = null;
   private specialCdLeft = 0;
@@ -493,6 +546,7 @@ export class MatchScene extends Scene {
     this.abilityBtn?.position.set(W - 118, H - 130);
     this.sprintBtn?.position.set(W - 252, H - 112);
     this.specialBtn?.position.set(W - 118, H - 290);
+    this.layoutClickCatcher();
     this.attackBtn?.position.set(W - 118, H - 300);
     this.homeBtn?.position.set(W - 46, 44);
     this.recordBtn?.position.set(W - 46, 118);
@@ -652,6 +706,8 @@ export class MatchScene extends Scene {
 
   protected override onExit(): void {
     this.live = false;
+    window.removeEventListener('keydown', this.onKeyDown);
+    window.removeEventListener('keyup', this.onKeyUp);
     for (const u of this.unsub) u();
     this.unsub = [];
     delete window.__hushfall;
@@ -1240,7 +1296,12 @@ export class MatchScene extends Scene {
         onTap: () => this.tryAttack(),
       });
       this.add(this.attackBtn, this.uiLayer);
+      this.addClickAttack();
     }
+
+    // Desktop players get real keys alongside the touch buttons.
+    window.addEventListener('keydown', this.onKeyDown);
+    window.addEventListener('keyup', this.onKeyUp);
 
     this.homeBtn = new UIButton('🏠', {
       width: 64,
@@ -2812,8 +2873,13 @@ export class MatchScene extends Scene {
     if (this.t < this.boostUntil) {
       /* boost active */
     } else this.boostFactor = 1;
-    const jx = frozen ? 0 : this.joystick.value.x;
-    const jy = frozen ? 0 : this.joystick.value.y;
+    let jx = frozen ? 0 : this.joystick.value.x;
+    let jy = frozen ? 0 : this.joystick.value.y;
+    if (!frozen && Math.hypot(jx, jy) <= 0.12) {
+      const kv = this.keyVector();
+      jx = kv.x;
+      jy = kv.y;
+    }
     // Webbed? You crawl until the strands snap.
     const slowMul = this.snapSlowed.has(this.session.id) ? WEB_SLOW : 1;
     // Natural speed comes from class stats (+ passives); SPRINT is a burst.
@@ -3635,6 +3701,7 @@ export class MatchScene extends Scene {
             this.add(this.attackBtn, this.uiLayer);
             this.layoutUi(this.game.viewWidth, this.game.viewHeight);
           }
+          this.addClickAttack(); // converted seekers click-attack on PC too
         }
         g.circle(0, 0, 46).fill({ color: 0x1a1030, alpha: 0.7 });
         g.circle(0, 0, 46).stroke({ color: 0xb7ff5e, width: 5, alpha: 0.9 });

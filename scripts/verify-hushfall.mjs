@@ -135,6 +135,15 @@ const listedOff = await (await fetch('http://localhost:8787/rooms?game=hushfall'
 const unlisted = !(listedOff.rooms ?? []).some((r) => r.code === code);
 const publicOk = wasHidden && !!listing && listing.players === 3 && unlisted;
 
+// SELECT GATE: the hunt refuses to start while any human hider is still
+// just browsing — commit with SELECT first.
+await p1.evaluate(() => window.__hushfall.start());
+await sleep(1200);
+const selectGateOk = (await p1.evaluate(() => window.__hushfall.scene())) === 'lobby';
+await p2.evaluate(() => window.__hushfall.setLocked?.(true));
+await p3.evaluate(() => window.__hushfall.setLocked?.(true));
+await sleep(600);
+
 // START -> everyone in the match, opening in the HIDE PHASE (the Seeker
 // counts blindfolded while hiders scatter), then the host skips the count
 // so the rest of the playtest runs at full speed.
@@ -401,6 +410,9 @@ for (const p of [p1, p2, p3]) {
 await sleep(600);
 await p2.evaluate(() => window.__hushfall.pick?.('frost')); // Frost: Ice Snap
 await sleep(300);
+await p2.evaluate(() => window.__hushfall.setLocked?.(true));
+await p3.evaluate(() => window.__hushfall.setLocked?.(true));
+await sleep(600);
 await p1.evaluate(() => window.__hushfall.start());
 for (const p of [p1, p2, p3]) {
   await p.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { timeout: 12_000 });
@@ -418,7 +430,9 @@ const freezeOk = rootedBefore === false && rootedAfter === true;
 // a pure receiver — must see it happen.
 const lp2 = await p3.evaluate(() => window.__hushfall.lanternPos(0));
 let lit2 = false;
-for (let i = 0; i < 24 && !lit2; i++) {
+// 36 tries, not 24: round 2 runs ~8 minutes into the suite, when the slow
+// headless container makes the host sim crawl — lighting can take 15s+.
+for (let i = 0; i < 36 && !lit2; i++) {
   await p3.evaluate((p) => window.__hushfall.warp(p.x, p.y), lp2);
   await sleep(1000);
   lit2 = (await p2.evaluate(() => window.__hushfall.litCount?.() ?? 0)) >= 1;
@@ -602,6 +616,8 @@ await pn.waitForFunction(() => window.__hushfall?.scene() === 'lobby', null, { t
 await pn.evaluate(() => window.__hushfall.setBots?.(1));
 await sleep(300);
 await pn.evaluate(() => window.__hushfall.setSeeker?.('bot0'));
+await pn.evaluate(() => window.__hushfall.setLocked?.(true));
+await sleep(400);
 await pn.evaluate(() => window.__hushfall.start());
 await pn.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { timeout: 12_000 });
 await pn.evaluate(() => window.__hushfall.skipHide());
@@ -656,6 +672,8 @@ const pvh = await phone(`join=${wCode}&class=scout&name=Prey`);
 await pvh.waitForFunction(() => window.__hushfall?.playerCount() === 2, null, { timeout: 10_000 });
 await pv.evaluate(() => window.__hushfall.setBots?.(2));
 await sleep(300);
+await pvh.evaluate(() => window.__hushfall.setLocked?.(true));
+await sleep(400);
 await pv.evaluate(() => window.__hushfall.start());
 await pv.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { timeout: 12_000 });
 await pv.evaluate(() => window.__hushfall.skipHide());
@@ -689,6 +707,8 @@ await pb2.waitForFunction(() => window.__hushfall?.scene() === 'lobby', null, { 
 await pb2.evaluate(() => window.__hushfall.setBots?.(1));
 await sleep(300);
 await pb2.evaluate(() => window.__hushfall.setSeeker?.('bot0'));
+await pb2.evaluate(() => window.__hushfall.setLocked?.(true));
+await sleep(400);
 await pb2.evaluate(() => window.__hushfall.start());
 await pb2.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { timeout: 12_000 });
 await pb2.evaluate(() => window.__hushfall.skipHide());
@@ -711,6 +731,8 @@ await pc.waitForFunction(() => window.__hushfall?.scene() === 'lobby', null, { t
 await pc.evaluate(() => window.__hushfall.setBots?.(1));
 await sleep(300);
 await pc.evaluate(() => window.__hushfall.setSeeker?.('bot0'));
+await pc.evaluate(() => window.__hushfall.setLocked?.(true));
+await sleep(400);
 await pc.evaluate(() => window.__hushfall.start());
 await pc.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { timeout: 12_000 });
 await pc.evaluate(() => window.__hushfall.skipHide());
@@ -723,6 +745,14 @@ for (let i = 0; i < 8 && cloneCount < 2; i++) {
   cloneCount = await pc.evaluate(() => window.__hushfall.cloneCount?.() ?? 0);
 }
 const cloneOk = cloneCount >= 2;
+// PC CONTROLS: holding D must walk the blob right (WASD drives movement
+// whenever the touch joystick is idle).
+const pcStart = await pc.evaluate(() => window.__hushfall.myPos());
+await pc.keyboard.down('d');
+await sleep(800);
+await pc.keyboard.up('d');
+const pcEnd = await pc.evaluate(() => window.__hushfall.myPos());
+const pcMoveOk = pcEnd.x - pcStart.x > 40;
 await pc.close();
 
 // KAIJU: the Atomic Blast hurls the seeker away.
@@ -731,6 +761,8 @@ await pk.waitForFunction(() => window.__hushfall?.scene() === 'lobby', null, { t
 await pk.evaluate(() => window.__hushfall.setBots?.(1));
 await sleep(300);
 await pk.evaluate(() => window.__hushfall.setSeeker?.('bot0'));
+await pk.evaluate(() => window.__hushfall.setLocked?.(true));
+await sleep(400);
 await pk.evaluate(() => window.__hushfall.start());
 await pk.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { timeout: 12_000 });
 await pk.evaluate(() => window.__hushfall.skipHide());
@@ -779,6 +811,8 @@ await pengr.evaluate(() => window.__hushfall.grantUp?.('engineer3'));
 await pengr.evaluate(() => window.__hushfall.setBots?.(1));
 await sleep(300);
 await pengr.evaluate(() => window.__hushfall.setSeeker?.('bot0'));
+await pengr.evaluate(() => window.__hushfall.setLocked?.(true));
+await sleep(400);
 await pengr.evaluate(() => window.__hushfall.start());
 await pengr.waitForFunction(() => window.__hushfall?.scene() === 'match', null, {
   timeout: 12_000,
@@ -830,6 +864,8 @@ await pm.evaluate(() => window.__hushfall.grantUp?.('medic3'));
 await pm.evaluate(() => window.__hushfall.setBots?.(1));
 await sleep(300);
 await pm.evaluate(() => window.__hushfall.setSeeker?.('bot0'));
+await pm.evaluate(() => window.__hushfall.setLocked?.(true));
+await sleep(400);
 await pm.evaluate(() => window.__hushfall.start());
 await pm.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { timeout: 12_000 });
 await pm.evaluate(() => window.__hushfall.skipHide());
@@ -866,6 +902,9 @@ await pl.evaluate(() => window.__hushfall.setBots?.(1));
 await sleep(600);
 await pl.evaluate(() => window.__hushfall.setSeeker?.('bot0'));
 await sleep(300);
+await pl.evaluate(() => window.__hushfall.setLocked?.(true));
+await pscout.evaluate(() => window.__hushfall.setLocked?.(true));
+await sleep(500);
 await pl.evaluate(() => window.__hushfall.start());
 for (const p of [pl, pscout]) {
   await p.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { timeout: 12_000 });
@@ -912,6 +951,8 @@ relay.kill();
 const ok =
   rolesOk &&
   lockOk &&
+  selectGateOk &&
+  pcMoveOk &&
   startRolesOk &&
   seekerVisibleOk &&
   objectiveOk &&
@@ -964,6 +1005,8 @@ console.log(
       rolesOk,
       seekers,
       lockOk,
+      selectGateOk,
+      pcMoveOk,
       startRolesOk,
       seekerVisibleOk,
       objectiveOk,

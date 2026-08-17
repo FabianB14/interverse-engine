@@ -1038,11 +1038,31 @@ export class LobbyScene extends Scene {
     this.session.send({ type: 'ready', ready: now });
   }
 
+  /** Human hiders who haven't committed a survivor with SELECT yet. */
+  private unselectedHiders(): string[] {
+    return this.roster.order.filter(
+      (id) =>
+        !id.startsWith('bot') &&
+        (this.roster.roles[id] ?? 'hider') !== 'seeker' &&
+        !this.roster.locked?.[id],
+    );
+  }
+
   private startMatch(): void {
     if (!this.session.isHost) return;
     if (this.roster.order.length < 2) {
       this.statusText.style.fill = NIGHT.blood;
       this.statusText.text = 'need at least 2 blobs (1 seeker + 1 hider)';
+      sting('lose');
+      return;
+    }
+    // No hunt until every survivor has COMMITTED a class with SELECT —
+    // browsing doesn't count (the pick isn't yours until you lock it).
+    const unpicked = this.unselectedHiders();
+    if (unpicked.length > 0) {
+      const names = unpicked.map((id) => this.roster.names[id] ?? '?').join(', ');
+      this.statusText.style.fill = NIGHT.blood;
+      this.statusText.text = `🔒 everyone must SELECT a survivor — waiting on ${names}`;
       sting('lose');
       return;
     }
