@@ -144,7 +144,8 @@ const MEND_RANGE = 520;
 const TEMP_TP_LIFE = 45;
 const TEMP_TP_CD = 8;
 // Building a pad is its own SECOND BUTTON for Engineers who own the passive.
-const TPAD_BTN_CD = 20;
+// The cooldown matches the pad's lifetime — about one live pad at a time.
+const TPAD_BTN_CD = 45;
 // Sixth Sense (Scout passive): the arrow flares alone when a Seeker is near.
 const SCOUT_WARN_DIST = 340;
 const SCOUT_WARN_CD = 20;
@@ -445,6 +446,9 @@ export class MatchScene extends Scene {
   // Active special passives get their own SECOND button (Pocket Portal).
   private specialBtn: UIButton | null = null;
   private specialCdLeft = 0;
+  private specialLbl = '🌀';
+  // Host truth: per-player Pocket Portal cooldown (clients can't skip it).
+  private tpadCdAt: Record<string, number> = {};
 
   // local ability
   private cooldownLeft = 0;
@@ -1704,6 +1708,10 @@ export class MatchScene extends Scene {
         // the manor pads' shared one).
         if (this.isSeekerRole(from)) return;
         if (!this.ownsUp(from, 'engineer3')) return;
+        // Host-enforced build cooldown (slight slack so an honest client's
+        // own timer, which runs on its clock, is never rejected).
+        if (this.t < (this.tpadCdAt[from] ?? 0)) return;
+        this.tpadCdAt[from] = this.t + TPAD_BTN_CD * this.statsOf(from).cdMul * 0.9;
         this.tempPads.push({ x, y, until: this.t + TEMP_TP_LIFE, armed: false });
         while (this.tempPads.length > 2) this.tempPads.shift();
         this.broadcastFx({ type: 'fx', kind: 'tpad', x, y });
@@ -2713,7 +2721,15 @@ export class MatchScene extends Scene {
     this.sprintCdLeft = Math.max(0, this.sprintCdLeft - dt);
     if (this.sprintBtn) this.sprintBtn.alpha = this.sprintCdLeft > 0 ? 0.4 : 1;
     this.specialCdLeft = Math.max(0, this.specialCdLeft - dt);
-    if (this.specialBtn) this.specialBtn.alpha = this.specialCdLeft > 0 ? 0.4 : 1;
+    if (this.specialBtn) {
+      // Cooling: the button counts down the seconds so the wait is visible.
+      this.specialBtn.alpha = this.specialCdLeft > 0 ? 0.4 : 1;
+      const lbl = this.specialCdLeft > 0 ? `${Math.ceil(this.specialCdLeft)}` : '🌀';
+      if (lbl !== this.specialLbl) {
+        this.specialLbl = lbl;
+        this.specialBtn.setLabel(lbl);
+      }
+    }
     // Dazzled: the white-out holds, then thins as sight returns.
     if (this.blindG) {
       this.blindLeft = Math.max(0, this.blindLeft - dt);

@@ -797,6 +797,11 @@ for (let i = 0; i < 8 && tpadCount < 1; i++) {
   await sleep(500);
   tpadCount = await pengr.evaluate(() => window.__hushfall.tpadCount?.() ?? 0);
 }
+// Pressing again inside the cooldown must NOT build a second pad — the
+// button counts down client-side and the host referees it too.
+await pengr.evaluate(() => window.__hushfall.special());
+await sleep(800);
+const tpadAfterSpam = await pengr.evaluate(() => window.__hushfall.tpadCount?.() ?? 0);
 const padPos = await pengr.evaluate(() => window.__hushfall.tpadPos?.(0));
 let tpadRide = 0;
 if (padPos) {
@@ -813,7 +818,8 @@ if (padPos) {
 }
 // The manor pair's SHARED cooldown must still be untouched after the ride.
 const tpadSharedCd = await pengr.evaluate(() => window.__hushfall.tpCd?.() ?? -1);
-const tpadOk = specialBtnOk && tpadCount >= 1 && tpadRide >= 300 && tpadSharedCd === 0;
+const tpadOk =
+  specialBtnOk && tpadCount >= 1 && tpadAfterSpam === 1 && tpadRide >= 300 && tpadSharedCd === 0;
 await pengr.close();
 
 // MEDIC Second Wind: a lone downed Medic with the passive does NOT hand the
@@ -1031,6 +1037,7 @@ console.log(
       tpadOk,
       specialBtnOk,
       tpadCount,
+      tpadAfterSpam,
       tpadRide,
       tpadSharedCd,
       secondWindOk,
