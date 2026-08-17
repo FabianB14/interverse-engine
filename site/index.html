@@ -188,9 +188,28 @@
       .hush-shots img:nth-child(3) {
         transform: rotate(2.5deg);
       }
-      @media (max-width: 760px) {
+      /* Tablets: stack the box early so the shots keep real size. */
+      @media (max-width: 900px) {
         .hush-box {
           grid-template-columns: 1fr;
+          padding: 26px 22px;
+        }
+      }
+      /* Phones: three-across would be thumbnail-sized — swipe instead. */
+      @media (max-width: 760px) {
+        .hush-shots {
+          display: flex;
+          overflow-x: auto;
+          scroll-snap-type: x mandatory;
+          -webkit-overflow-scrolling: touch;
+          padding: 8px 2px 14px;
+          gap: 12px;
+        }
+        .hush-shots img {
+          flex: 0 0 64vw;
+          max-width: 280px;
+          scroll-snap-align: center;
+          transform: none;
         }
       }
       /* -------------------------------------------------------- studio */
@@ -336,6 +355,13 @@
       }
       footer a {
         color: var(--soft);
+      }
+      /* The nav can't fit both buttons beside the links on small screens —
+         the hero repeats the Install CTA anyway. */
+      @media (max-width: 900px) {
+        .nav .btn.primary {
+          display: none;
+        }
       }
       @media (max-width: 760px) {
         .studio-box {
