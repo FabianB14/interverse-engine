@@ -4,9 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#12101c" />
-    <meta name="description" content="Interverse — make 2D mobile games in your browser with Interverse Studio, and play the games built on the Interverse Engine. Install-free multiplayer, AI copilot, no downloads." />
+    <meta
+      name="description"
+      content="Interverse — make 2D mobile games in your browser with Interverse Studio, and play the games built on the Interverse Engine. Install-free multiplayer, AI copilot, no downloads."
+    />
     <meta property="og:title" content="Interverse — make games, play together" />
-    <meta property="og:description" content="Interverse Studio: a drag & drop game maker that runs in your browser. Plus multiplayer games built on the engine — join with a 4-letter code, nothing to install." />
+    <meta
+      property="og:description"
+      content="Interverse Studio: a drag & drop game maker that runs in your browser. Plus multiplayer games built on the engine — join with a 4-letter code, nothing to install."
+    />
     <link
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='3' y='3' width='26' height='26' rx='7' fill='%23c77dff'/%3E%3Ccircle cx='13' cy='14' r='2.4' fill='%2312101c'/%3E%3Ccircle cx='21' cy='14' r='2.4' fill='%2312101c'/%3E%3Cpath d='M11 20q5 4 10 0' stroke='%2312101c' stroke-width='2.4' fill='none' stroke-linecap='round'/%3E%3C/svg%3E"
@@ -136,6 +142,57 @@
         font-size: 1.05rem;
         padding: 14px 26px;
       }
+      /* ------------------------------------------------- featured game */
+      .hush-box {
+        background:
+          radial-gradient(120% 140% at 85% 0%, #2a1436 0%, transparent 55%),
+          linear-gradient(160deg, #191227, #120f1c);
+        border: 1px solid #3a2c4e;
+        border-radius: 22px;
+        padding: 34px;
+        display: grid;
+        grid-template-columns: 1fr 1.1fr;
+        gap: 30px;
+        align-items: center;
+      }
+      .hush-box .kicker {
+        color: #ff5d73;
+      }
+      .hush-box h2 {
+        margin: 0 0 10px;
+        font-size: 2.1rem;
+      }
+      .hush-box p.lead {
+        color: var(--soft);
+        margin: 0 0 18px;
+      }
+      .hush-shots {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 14px;
+        align-items: center;
+      }
+      .hush-shots img {
+        width: 100%;
+        display: block;
+        border-radius: 18px;
+        border: 1px solid #3a2c4e;
+        box-shadow: 0 12px 34px rgba(0, 0, 0, 0.5);
+      }
+      .hush-shots img:nth-child(1) {
+        transform: rotate(-2.5deg);
+      }
+      .hush-shots img:nth-child(2) {
+        transform: translateY(-10px);
+      }
+      .hush-shots img:nth-child(3) {
+        transform: rotate(2.5deg);
+      }
+      @media (max-width: 760px) {
+        .hush-box {
+          grid-template-columns: 1fr;
+        }
+      }
       /* -------------------------------------------------------- studio */
       section {
         padding: 48px 0;
@@ -227,7 +284,9 @@
         border-radius: 18px;
         padding: 20px 22px;
         background: var(--panel);
-        transition: transform 0.12s ease, border-color 0.12s ease;
+        transition:
+          transform 0.12s ease,
+          border-color 0.12s ease;
       }
       .card:hover {
         border-color: var(--accent);
@@ -292,6 +351,7 @@
     <header>
       <div class="wrap nav">
         <a class="logo" href="#">◆ INTERVERSE</a>
+        <a class="link" href="#hushfall">Hushfall</a>
         <a class="link" href="#studio">Studio</a>
         <a class="link" href="#games">Games</a>
         <a class="link" href="https://github.com/FabianB14/interverse-engine">GitHub</a>
@@ -304,15 +364,59 @@
     <div class="wrap hero">
       <h1>Make games.<br /><em>Play together.</em></h1>
       <p>
-        Interverse Studio is a drag &amp; drop game maker that runs right here in your browser —
-        and every game built on the engine plays install-free: share a 4-letter code and friends
-        are in.
+        Interverse Studio is a drag &amp; drop game maker that runs right here in your browser — and
+        every game built on the engine plays install-free: share a 4-letter code and friends are in.
       </p>
       <div class="cta">
+        <a class="btn good" href="./hushfall/">🕯️ Play Hushfall</a>
         <a class="btn primary" href="./studio/?install=1">⬇ Install Interverse Studio</a>
-        <a class="btn" href="#games">🎮 Play the games</a>
+        <a class="btn" href="#games">🎮 All games</a>
       </div>
     </div>
+
+    <section id="hushfall">
+      <div class="wrap">
+        <div class="hush-box">
+          <div>
+            <p class="kicker">Featured game</p>
+            <h2>🕯️ Hushfall</h2>
+            <p class="lead">
+              Hide-and-seek horror for you and your friends: one Seeker hunts through a haunted
+              manor while seven survivors light the lanterns and slip out the gate before dawn. Pick
+              from 19 classes — split into decoy clones, build barricades, drop portable
+              teleporters, blind the Seeker's screen — then level them up and unlock passives. One
+              phone hosts, everyone else joins with a 4-letter code. Nothing to install.
+            </p>
+            <ul class="feat">
+              <li>1 Seeker vs up to 7 survivors</li>
+              <li>19 classes with passives to unlock</li>
+              <li>Five haunted manors</li>
+              <li>Fill empty seats with bots</li>
+              <li>Opt-in proximity voice chat</li>
+              <li>Free in your browser</li>
+            </ul>
+            <a class="btn good" href="./hushfall/">🕯️ Play Hushfall free</a>
+          </div>
+          <div class="hush-shots">
+            <img
+              src="./shots/hushfall-lobby.png"
+              alt="The Hushfall lobby: pick a survivor class and share the room code"
+              loading="lazy"
+            />
+            <img
+              src="./shots/hushfall-lantern.png"
+              alt="A scout lights a lantern in the dark manor"
+              loading="lazy"
+            />
+            <img
+              src="./shots/hushfall-clones.png"
+              alt="The Sprinter splits into identical name-tagged clones"
+              loading="lazy"
+            />
+          </div>
+        </div>
+      </div>
+    </section>
 
     <section id="studio">
       <div class="wrap">
@@ -359,7 +463,11 @@
         <div class="grid">
           <a class="card" href="./hushfall/">
             <h3><img class="gicon" src="./hushfall/icon-192.png" alt="" /> Hushfall</h3>
-            <p>Asymmetric hide-and-seek across five haunted manors: hiders light the lanterns and slip out the gate (or the dawn hatch) while the Seeker hunts. 13 classes, teleporter pads, rescues — and a terror heartbeat.</p>
+            <p>
+              Asymmetric hide-and-seek across five haunted manors: hiders light the lanterns and
+              slip out the gate (or the dawn hatch) while the Seeker hunts. 13 classes, teleporter
+              pads, rescues — and a terror heartbeat.
+            </p>
             <span class="tag">1 vs 7 · HORROR</span>
           </a>
           <a class="card" href="./blobvale/">
@@ -378,22 +486,43 @@
         <div class="grid">
           <a class="card" href="./crashers/">
             <h3>🥊 Blob Crashers</h3>
-            <p>A 15-stage side-scrolling brawler. Pick a blob, chain combos, launch armoured brutes, and fight your way to the Blob King &mdash; alone or with three friends on a room code.</p>
+            <p>
+              A 15-stage side-scrolling brawler. Pick a blob, chain combos, launch armoured brutes,
+              and fight your way to the Blob King &mdash; alone or with three friends on a room
+              code.
+            </p>
             <span class="tag">BEAT-'EM-UP · 15 STAGES · 1&ndash;4 CO-OP</span>
           </a>
           <a class="card" href="./rush/">
             <h3>🏃 Blob Rush</h3>
-            <p>An endless runner down a rotting causeway, deeper and deeper into a swamp and out the far side &mdash; eight zones, from a misty bog to whatever The Mouth is. The road bends away out of sight and turns hard corners the camera swings round with you. Swipe to switch lanes, vault the fallen logs, duck the branches. The blob rolls; whatever hat you spend your coins on stays right where you put it.</p>
+            <p>
+              An endless runner down a rotting causeway, deeper and deeper into a swamp and out the
+              far side &mdash; eight zones, from a misty bog to whatever The Mouth is. The road
+              bends away out of sight and turns hard corners the camera swings round with you. Swipe
+              to switch lanes, vault the fallen logs, duck the branches. The blob rolls; whatever
+              hat you spend your coins on stays right where you put it.
+            </p>
             <span class="tag">ENDLESS RUNNER · 8 ZONES · 8 HATS</span>
           </a>
           <a class="card" href="./rush3d/">
             <h3>🏃 Blob Rush 3D</h3>
-            <p>The same swamp, rendered for real: the engine's new three.js renderer draws the causeway in true 3D &mdash; a sun that casts shadows, fog you can see into, corners the camera actually swings round. Same rules, same eight zones, and the <em>same save</em>: coins and hats carry over between this and the 2D game, because the game logic never knew which renderer it was running under.</p>
+            <p>
+              The same swamp, rendered for real: the engine's new three.js renderer draws the
+              causeway in true 3D &mdash; a sun that casts shadows, fog you can see into, corners
+              the camera actually swings round. Same rules, same eight zones, and the
+              <em>same save</em>: coins and hats carry over between this and the 2D game, because
+              the game logic never knew which renderer it was running under.
+            </p>
             <span class="tag">ENDLESS RUNNER · TRUE 3D · SHARED SAVE</span>
           </a>
           <a class="card" href="./crashers3d/">
             <h3>🥊 Blob Crashers 3D</h3>
-            <p>The brawler steps into a real canyon: animated stone golems (imported 3D models with idle and swing clips) stream in along curved paths and wind up the same telegraphed slams the 2D game taught you. Same combat rules under the hood &mdash; the three-hit chain, the launcher, waves that gate the arena &mdash; drawn with sun, shadow and fog.</p>
+            <p>
+              The brawler steps into a real canyon: animated stone golems (imported 3D models with
+              idle and swing clips) stream in along curved paths and wind up the same telegraphed
+              slams the 2D game taught you. Same combat rules under the hood &mdash; the three-hit
+              chain, the launcher, waves that gate the arena &mdash; drawn with sun, shadow and fog.
+            </p>
             <span class="tag">BRAWLER · ANIMATED MODELS · TRUE 3D</span>
           </a>
         </div>
@@ -402,12 +531,22 @@
         <div class="grid">
           <a class="card" href="./haven/">
             <h3>🏡 Blobhaven</h3>
-            <p>Your own big island in true 3D &mdash; walk it in third person or step into first person, go inside your house, and decorate everything. Spend ⬡ Verium (the shared Interverse wallet &mdash; coins earned in Bloomstead work here) on hats and coats, premium furniture and 3D statues, bigger houses up to a two-story manor with a loft, and five house themes. Open your world and friends join with a room code; visit theirs from a friends list that knows who's online. No accounts &mdash; just a friend code.</p>
+            <p>
+              Your own big island in true 3D &mdash; walk it in third person or step into first
+              person, go inside your house, and decorate everything. Spend ⬡ Verium (the shared
+              Interverse wallet &mdash; coins earned in Bloomstead work here) on hats and coats,
+              premium furniture and 3D statues, bigger houses up to a two-story manor with a loft,
+              and five house themes. Open your world and friends join with a room code; visit theirs
+              from a friends list that knows who's online. No accounts &mdash; just a friend code.
+            </p>
             <span class="tag">SOCIAL HUB · ⬡ STORE · 2-STORY MANORS</span>
           </a>
           <a class="card" href="./farm/">
             <h3>🌱 Bloomstead</h3>
-            <p>Name your farmer, then plant, water and harvest to zen music while weather and seasons roll by.</p>
+            <p>
+              Name your farmer, then plant, water and harvest to zen music while weather and seasons
+              roll by.
+            </p>
             <span class="tag">COZY FARMING</span>
           </a>
           <a class="card" href="./room/">
@@ -417,7 +556,9 @@
           </a>
           <a class="card" href="./blob-tap/">
             <h3>🫧 Blob Tap</h3>
-            <p>Pop the blobs before they escape — 30-second arcade rounds with a saved best score.</p>
+            <p>
+              Pop the blobs before they escape — 30-second arcade rounds with a saved best score.
+            </p>
             <span class="tag">ARCADE</span>
           </a>
         </div>
@@ -426,7 +567,8 @@
 
     <footer>
       <div class="wrap">
-        Built with the <a href="https://github.com/FabianB14/interverse-engine">Interverse Engine</a>
+        Built with the
+        <a href="https://github.com/FabianB14/interverse-engine">Interverse Engine</a>
         — games are best on a phone; the Studio is best on a desktop.
       </div>
     </footer>

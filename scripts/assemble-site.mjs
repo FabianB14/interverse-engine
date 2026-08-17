@@ -11,6 +11,8 @@ rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 
 cpSync('site/index.html', `${out}/index.html`);
+// Gameplay screenshots used by the landing page's featured section.
+cpSync('site/shots', `${out}/shots`, { recursive: true });
 // Android app links (TWA): proves to Android that the Hushfall app and this
 // site are the same publisher, which hides the browser bar in the app.
 cpSync('site/.well-known', `${out}/.well-known`, { recursive: true });
