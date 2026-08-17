@@ -78,20 +78,25 @@ export class ClassesPanel {
       const title = makeText('🎓 CLASSES', 44, { color: NIGHT.ink });
       title.position.set(W / 2, 56);
       root.addChild(title);
+      // Landscape phones render 720 design units of height on a small
+      // screen — the grid goes BIG there so class names stay readable.
+      const land = W > H;
+      const btnW = land ? 200 : 160;
       const drawGrid = (list: ClassDef[], label: string, top: number): number => {
-        const head = makeText(label, 24, { color: NIGHT.inkSoft, weight: '800' });
+        const head = makeText(label, land ? 28 : 24, { color: NIGHT.inkSoft, weight: '800' });
         head.position.set(W / 2, top);
         root.addChild(head);
-        const cols = W > H ? 6 : 4;
-        const colW = Math.min(170, (W - 30) / cols);
-        const scale = Math.min(1, (colW - 8) / 160);
+        const cols = land ? 6 : 4;
+        const colW = Math.min(btnW + 14, (W - 30) / cols);
+        const scale = Math.min(1, (colW - 8) / btnW);
+        const step = land ? 84 : 68;
         list.forEach((cls, i) => {
           const row = Math.floor(i / cols);
           const inRow = Math.min(cols, list.length - row * cols);
           const btn = new UIButton(`${cls.emoji} ${cls.name}`, {
-            width: 160,
-            height: 58,
-            fontSize: 17,
+            width: btnW,
+            height: land ? 70 : 58,
+            fontSize: land ? 21 : 17,
             fill: cls.color,
             textColor: 0x140f1e,
             onTap: () => {
@@ -101,13 +106,16 @@ export class ClassesPanel {
             },
           });
           btn.scale.set(scale);
-          btn.position.set(W / 2 + (i - row * cols - (inRow - 1) / 2) * colW, top + 52 + row * 68);
+          btn.position.set(
+            W / 2 + (i - row * cols - (inRow - 1) / 2) * colW,
+            top + 54 + row * step,
+          );
           root.addChild(btn);
         });
-        return top + 52 + Math.ceil(list.length / cols) * 68;
+        return top + 54 + Math.ceil(list.length / cols) * step;
       };
-      const after = drawGrid(SEEKERS, '🩸 SEEKERS', 120);
-      drawGrid(HIDERS, '🔦 SURVIVORS', after + 26);
+      const after = drawGrid(SEEKERS, '🩸 SEEKERS', land ? 116 : 120);
+      drawGrid(HIDERS, '🔦 SURVIVORS', after + (land ? 30 : 26));
       return;
     }
 
@@ -143,72 +151,86 @@ export class ClassesPanel {
     const lx = landscape ? W * 0.25 : W / 2;
     const leftWrap = landscape ? Math.min(560, W * 0.42) : 620;
     const preview = new Container();
-    const char = blobCharacter({ radius: 54, color: sel.color, seed: 9, shadow: false });
-    char.body.addChild(sel.accessory(54));
+    const blobR = landscape ? 44 : 54;
+    const char = blobCharacter({ radius: blobR, color: sel.color, seed: 9, shadow: false });
+    char.body.addChild(sel.accessory(blobR));
     preview.addChild(char.view);
-    preview.position.set(lx, landscape ? 160 : 170);
+    preview.position.set(lx, landscape ? 140 : 170);
     root.addChild(preview);
-    const name = makeText(`${sel.emoji} ${sel.name}`, 42, { color: NIGHT.ink });
-    name.position.set(lx, landscape ? 258 : 268);
+    const name = makeText(`${sel.emoji} ${sel.name}`, landscape ? 46 : 42, { color: NIGHT.ink });
+    name.position.set(lx, landscape ? 228 : 268);
     root.addChild(name);
-    const role = makeText(sel.role === 'seeker' ? '🩸 SEEKER' : '🔦 SURVIVOR', 20, {
-      color: sel.role === 'seeker' ? NIGHT.blood : NIGHT.gate,
-      weight: '800',
-    });
-    role.position.set(lx, landscape ? 296 : 306);
+    const role = makeText(
+      sel.role === 'seeker' ? '🩸 SEEKER' : '🔦 SURVIVOR',
+      landscape ? 24 : 20,
+      {
+        color: sel.role === 'seeker' ? NIGHT.blood : NIGHT.gate,
+        weight: '800',
+      },
+    );
+    role.position.set(lx, landscape ? 270 : 306);
     root.addChild(role);
     const lvlLine = makeText(
-      `⭐ Lv ${lvl} · ${xp}/${xpForLevel(lvl)} XP — play this class to level it`,
-      19,
-      { color: NIGHT.lantern, weight: '800', wrapWidth: leftWrap },
+      landscape
+        ? `⭐ Lv ${lvl} · ${xp}/${xpForLevel(lvl)} XP — play to level up`
+        : `⭐ Lv ${lvl} · ${xp}/${xpForLevel(lvl)} XP — play this class to level it`,
+      landscape ? 20 : 19,
+      { color: NIGHT.lantern, weight: '800', wrapWidth: landscape ? 640 : leftWrap },
     );
-    lvlLine.position.set(lx, landscape ? 328 : 336);
+    lvlLine.position.set(lx, landscape ? 302 : 336);
     root.addChild(lvlLine);
-    const blurb = makeText(sel.blurb, 22, {
+    const blurb = makeText(sel.blurb, landscape ? 26 : 22, {
       color: NIGHT.inkSoft,
       weight: 'bold',
       wrapWidth: leftWrap,
     });
-    blurb.position.set(lx, landscape ? 368 : 372);
+    blurb.position.set(lx, landscape ? 344 : 372);
     root.addChild(blurb);
     // Stats: speed bar + durability hearts (LIVE — owned passives applied).
-    const statTop = landscape ? 434 : 424;
-    const speedLbl = makeText(`🏃 SPEED ${live.speed}`, 22, { color: NIGHT.ink, weight: '800' });
-    speedLbl.position.set(landscape ? lx : W / 2 - 160, statTop);
-    root.addChild(speedLbl);
-    const barBg = new Graphics().roundRect(-140, -8, 280, 16, 8).fill(0x221e34);
-    barBg.position.set(landscape ? lx : W / 2 + 130, landscape ? statTop + 40 : statTop);
-    const frac = Math.max(0, Math.min(1, (live.speed - 240) / 70));
-    barBg.roundRect(-140, -8, 280 * frac, 16, 8).fill(sel.color);
-    root.addChild(barBg);
-    const hearts = makeText(`🛡️ DURABILITY ${'❤️'.repeat(live.hp)}`, 22, {
+    const statTop = landscape ? 410 : 424;
+    const speedLbl = makeText(`🏃 SPEED ${live.speed}`, landscape ? 28 : 22, {
       color: NIGHT.ink,
       weight: '800',
     });
-    hearts.position.set(lx, landscape ? statTop + 84 : statTop + 44);
-    root.addChild(hearts);
-    const ab = makeText(`${sel.ability.emoji} ${sel.ability.name} — ${sel.ability.blurb}`, 20, {
-      color: NIGHT.violet,
-      weight: 'bold',
-      wrapWidth: landscape ? leftWrap : 640,
+    speedLbl.position.set(landscape ? lx : W / 2 - 160, statTop);
+    root.addChild(speedLbl);
+    const barBg = new Graphics().roundRect(-140, -8, 280, 16, 8).fill(0x221e34);
+    barBg.position.set(landscape ? lx : W / 2 + 130, landscape ? statTop + 42 : statTop);
+    const frac = Math.max(0, Math.min(1, (live.speed - 240) / 70));
+    barBg.roundRect(-140, -8, 280 * frac, 16, 8).fill(sel.color);
+    root.addChild(barBg);
+    const hearts = makeText(`🛡️ DURABILITY ${'❤️'.repeat(live.hp)}`, landscape ? 28 : 22, {
+      color: NIGHT.ink,
+      weight: '800',
     });
-    ab.position.set(lx, landscape ? statTop + 146 : statTop + 100);
+    hearts.position.set(lx, landscape ? statTop + 86 : statTop + 44);
+    root.addChild(hearts);
+    const ab = makeText(
+      `${sel.ability.emoji} ${sel.ability.name} — ${sel.ability.blurb}`,
+      landscape ? 26 : 20,
+      {
+        color: NIGHT.violet,
+        weight: 'bold',
+        wrapWidth: landscape ? leftWrap : 640,
+      },
+    );
+    ab.position.set(lx, landscape ? statTop + 168 : statTop + 100);
     root.addChild(ab);
     // The passives (2 for most classes, 3 for some — spacing adapts). In
     // landscape they get their own column on the right, full-size text.
     const ups = upgradesFor(sel.id);
-    const rowH = landscape ? (ups.length > 2 ? 128 : 150) : ups.length > 2 ? 96 : 108;
-    const rowTop = landscape ? 170 : statTop + 170;
+    const rowH = landscape ? (ups.length > 2 ? 148 : 175) : ups.length > 2 ? 96 : 108;
+    const rowTop = landscape ? 140 : statTop + 170;
     // Right column: text flows up to the BUY button pinned near the edge.
-    const buyX = landscape ? W - 135 : W / 2 + 240;
-    const txtWrap = landscape ? Math.max(320, W * 0.5 - 250) : 440;
-    const txtX = landscape ? W * 0.52 + txtWrap / 2 : W / 2 - 90;
+    const buyX = landscape ? W - 140 : W / 2 + 240;
+    const txtWrap = landscape ? Math.max(340, W * 0.54 - 250) : 440;
+    const txtX = landscape ? W * 0.46 + txtWrap / 2 : W / 2 - 90;
     ups.forEach((up, i) => {
       const y = rowTop + i * rowH;
       const has = owned.includes(up.id);
       const need = requiredLevel(up);
       const lockedByLvl = !has && lvl < need;
-      const txt = makeText(`${up.emoji} ${up.name} — ${up.blurb}`, 20, {
+      const txt = makeText(`${up.emoji} ${up.name} — ${up.blurb}`, landscape ? 26 : 20, {
         color: has ? NIGHT.gate : lockedByLvl ? NIGHT.inkSoft : NIGHT.ink,
         weight: 'bold',
         wrapWidth: txtWrap,
@@ -218,9 +240,9 @@ export class ClassesPanel {
       const buy = new UIButton(
         has ? '✓ OWNED' : lockedByLvl ? `🔒 Lv ${need}` : `BUY ${up.cost}⬡`,
         {
-          width: 170,
-          height: 64,
-          fontSize: 20,
+          width: landscape ? 190 : 170,
+          height: landscape ? 72 : 64,
+          fontSize: landscape ? 24 : 20,
           fill: has || lockedByLvl ? 0x221e34 : NIGHT.gate,
           textColor: has ? NIGHT.gate : lockedByLvl ? NIGHT.inkSoft : 0x0c1a12,
           onTap: () => {
@@ -244,15 +266,15 @@ export class ClassesPanel {
     });
     const note = makeText(
       'Play a class to level it — higher levels unlock its passives to buy.\nPassives are always-on once owned. Earn ⬡ Verium by playing hunts.',
-      17,
+      landscape ? 20 : 17,
       {
         color: NIGHT.inkSoft,
         weight: 'bold',
-        wrapWidth: landscape ? Math.max(360, W * 0.44) : 640,
+        wrapWidth: landscape ? Math.max(400, W * 0.48) : 640,
       },
     );
     const noteY = rowTop + ups.length * rowH + 20;
-    note.position.set(landscape ? W * 0.74 : W / 2, noteY);
+    note.position.set(landscape ? W * 0.72 : W / 2, noteY);
     root.addChild(note);
     // Restore root.addChild and shrink the body if the screen is short —
     // detail content can never slide under the corner buttons again.
