@@ -106,6 +106,8 @@ export interface HushfallDebug {
   arrowOn?: () => boolean;
   special?: () => void;
   hasSpecialBtn?: () => boolean;
+  rubbleCount?: () => number;
+  decoyCount?: () => number;
   cloneCount?: () => number;
   dummyCount?: () => number;
   wallCount?: () => number;

@@ -752,6 +752,14 @@ export const UPGRADES: Record<string, UpgradeDef[]> = {
       blurb: 'One MORE clone per Split.',
       fx: { powMul: 1.5 },
     },
+    {
+      id: 'sprinter3',
+      name: 'Afterimage',
+      emoji: '💨',
+      cost: 500,
+      blurb: 'SPRINTING leaves a frozen clone of you behind — let them pounce on the wrong runner.',
+      fx: {},
+    },
   ],
   medic: [
     {
@@ -796,6 +804,14 @@ export const UPGRADES: Record<string, UpgradeDef[]> = {
       blurb: '+8 natural speed.',
       fx: { speed: 8 },
     },
+    {
+      id: 'ghost3',
+      name: 'Death Fade',
+      emoji: '👻',
+      cost: 500,
+      blurb: 'Survive a strike and you VANISH on the spot for a blink.',
+      fx: {},
+    },
   ],
   trickster: [
     {
@@ -813,6 +829,14 @@ export const UPGRADES: Record<string, UpgradeDef[]> = {
       cost: 300,
       blurb: '+8 natural speed.',
       fx: { speed: 8 },
+    },
+    {
+      id: 'trickster3',
+      name: 'Switcheroo',
+      emoji: '🎭',
+      cost: 500,
+      blurb: 'Unlocks a 🎭 SECOND BUTTON: swap places with your doll.',
+      fx: {},
     },
   ],
   engineer: [
@@ -911,6 +935,14 @@ export const UPGRADES: Record<string, UpgradeDef[]> = {
       blurb: 'Dazzle recharges 25% faster.',
       fx: { cdMul: 0.75 },
     },
+    {
+      id: 'siren3',
+      name: 'Lullaby',
+      emoji: '🎶',
+      cost: 500,
+      blurb: 'Unlocks a 🎶 SECOND BUTTON: a slowing song — Seekers in earshot crawl for a moment.',
+      fx: {},
+    },
   ],
   nester: [
     {
@@ -928,6 +960,14 @@ export const UPGRADES: Record<string, UpgradeDef[]> = {
       cost: 300,
       blurb: 'Dens recharge 30% faster.',
       fx: { cdMul: 0.7 },
+    },
+    {
+      id: 'nester3',
+      name: 'Brood Comfort',
+      emoji: '🪺',
+      cost: 500,
+      blurb: 'Anyone patching up inside YOUR dens heals twice as fast.',
+      fx: {},
     },
   ],
   builder: [
@@ -947,6 +987,14 @@ export const UPGRADES: Record<string, UpgradeDef[]> = {
       blurb: '+1 durability.',
       fx: { hp: 1 },
     },
+    {
+      id: 'builder3',
+      name: 'Rubble Snare',
+      emoji: '🧱',
+      cost: 500,
+      blurb: 'Crumbled walls leave rubble that SNARES the first Seeker to step in.',
+      fx: {},
+    },
   ],
   kaiju: [
     {
@@ -958,6 +1006,14 @@ export const UPGRADES: Record<string, UpgradeDef[]> = {
       fx: { powMul: 1.3 },
     },
     { id: 'kaiju2', name: 'Titan', emoji: '🛡️', cost: 300, blurb: '+1 durability.', fx: { hp: 1 } },
+    {
+      id: 'kaiju3',
+      name: 'Kickback',
+      emoji: '🦖',
+      cost: 500,
+      blurb: 'Whoever STRIKES you is hurled away.',
+      fx: {},
+    },
   ],
   // seekers
   stalker: [

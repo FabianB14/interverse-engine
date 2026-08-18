@@ -886,6 +886,92 @@ const windPhase = await pm.evaluate(() => window.__hushfall.phase());
 const secondWindOk = windDowned && windRose && windPhase === 'playing';
 await pm.close();
 
+// TRICKSTER Switcheroo: with the passive, a second 🎭 button swaps the
+// trickster with their doll — the doll keeps the old spot.
+const ptr = await phone('host=1&class=trickster&name=Trix');
+await ptr.waitForFunction(() => window.__hushfall?.scene() === 'lobby', null, { timeout: 12_000 });
+await ptr.evaluate(() => window.__hushfall.grantUp?.('trickster3'));
+await ptr.evaluate(() => window.__hushfall.setBots?.(1));
+await sleep(300);
+await ptr.evaluate(() => window.__hushfall.setSeeker?.('bot0'));
+await ptr.evaluate(() => window.__hushfall.setLocked?.(true));
+await sleep(400);
+await ptr.evaluate(() => window.__hushfall.start());
+await ptr.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { timeout: 12_000 });
+await ptr.evaluate(() => window.__hushfall.skipHide());
+await ptr.waitForFunction(() => window.__hushfall.phase() === 'playing', null, { timeout: 15_000 });
+await sleep(300);
+const dollAt = await ptr.evaluate(() => window.__hushfall.myPos());
+await ptr.evaluate(() => window.__hushfall.ability()); // drop the doll here
+let dolls = 0;
+for (let i = 0; i < 8 && dolls < 1; i++) {
+  await sleep(500);
+  dolls = await ptr.evaluate(() => window.__hushfall.decoyCount?.() ?? 0);
+}
+await ptr.evaluate((p) => window.__hushfall.warp(p.x + 600, p.y), dollAt);
+await sleep(400);
+await ptr.evaluate(() => window.__hushfall.special()); // 🎭 Switcheroo
+let trixDist = 9999;
+for (let i = 0; i < 8 && trixDist > 150; i++) {
+  await sleep(400);
+  const mp = await ptr.evaluate(() => window.__hushfall.myPos());
+  trixDist = Math.hypot(mp.x - dollAt.x, mp.y - dollAt.y);
+}
+const swapOk = dolls >= 1 && trixDist <= 150;
+await ptr.close();
+
+// SIREN Lullaby: the second 🎶 button slows every seeker in earshot.
+const psi = await phone('host=1&class=siren&name=Song');
+await psi.waitForFunction(() => window.__hushfall?.scene() === 'lobby', null, { timeout: 12_000 });
+await psi.evaluate(() => window.__hushfall.grantUp?.('siren3'));
+await psi.evaluate(() => window.__hushfall.setBots?.(1));
+await sleep(300);
+await psi.evaluate(() => window.__hushfall.setSeeker?.('bot0'));
+await psi.evaluate(() => window.__hushfall.setLocked?.(true));
+await sleep(400);
+await psi.evaluate(() => window.__hushfall.start());
+await psi.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { timeout: 12_000 });
+await psi.evaluate(() => window.__hushfall.skipHide());
+await psi.waitForFunction(() => window.__hushfall.phase() === 'playing', null, { timeout: 15_000 });
+await sleep(300);
+let lullabyOk = false;
+for (let i = 0; i < 6 && !lullabyOk; i++) {
+  await psi.evaluate(() => {
+    const sp = window.__hushfall.seekerPos();
+    if (sp) window.__hushfall.warp(sp.x + 150, sp.y);
+  });
+  await sleep(300);
+  await psi.evaluate(() => window.__hushfall.special()); // 🎶 Lullaby
+  await sleep(600);
+  lullabyOk = (await psi.evaluate(() => window.__hushfall.slowedCount?.() ?? 0)) >= 1;
+}
+await psi.close();
+
+// GHOST Death Fade: surviving a strike vanishes the ghost on the spot.
+const pgh = await phone('host=1&class=ghost&name=Boo');
+await pgh.waitForFunction(() => window.__hushfall?.scene() === 'lobby', null, { timeout: 12_000 });
+await pgh.evaluate(() => window.__hushfall.grantUp?.('ghost3'));
+await pgh.evaluate(() => window.__hushfall.setBots?.(1));
+await sleep(300);
+await pgh.evaluate(() => window.__hushfall.setSeeker?.('bot0'));
+await pgh.evaluate(() => window.__hushfall.setLocked?.(true));
+await sleep(400);
+await pgh.evaluate(() => window.__hushfall.start());
+await pgh.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { timeout: 12_000 });
+await pgh.evaluate(() => window.__hushfall.skipHide());
+await pgh.waitForFunction(() => window.__hushfall.phase() === 'playing', null, { timeout: 15_000 });
+await sleep(300);
+let fadeOk = false;
+for (let i = 0; i < 12 && !fadeOk; i++) {
+  await pgh.evaluate(() => {
+    const sp = window.__hushfall.seekerPos();
+    if (sp) window.__hushfall.warp(sp.x + 40, sp.y); // stand in strike range
+  });
+  await sleep(600);
+  fadeOk = await pgh.evaluate(() => window.__hushfall.amCloaked?.() ?? false);
+}
+await pgh.close();
+
 // SCOUT Sixth Sense + LOOKOUT Town Crier: the scout's arrow flares alone
 // when the seeker creeps close; the lookout's Sense hands the arrow to
 // EVERY survivor.
@@ -983,6 +1069,9 @@ const ok =
   trailOk &&
   tpadOk &&
   secondWindOk &&
+  swapOk &&
+  lullabyOk &&
+  fadeOk &&
   sixthOk &&
   crierOk &&
   sprintOk &&
@@ -1087,6 +1176,10 @@ console.log(
       windDowned,
       windRose,
       windPhase,
+      swapOk,
+      trixDist,
+      lullabyOk,
+      fadeOk,
       sixthOk,
       crierOk,
       gateOnP2,

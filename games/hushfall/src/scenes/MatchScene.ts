@@ -146,6 +146,22 @@ const TEMP_TP_CD = 8;
 // Building a pad is its own SECOND BUTTON for Engineers who own the passive.
 // The cooldown matches the pad's lifetime — about one live pad at a time.
 const TPAD_BTN_CD = 45;
+// Lv4 specials for the rest of the survivor roster.
+const GHOST_FADE_SECS = 2.2; // Death Fade: vanish after surviving a strike
+const LULLABY_RANGE = 520; // Lullaby: song reach
+const LULLABY_SLOW_SECS = 3;
+const KICKBACK_PUSH = 220; // Kickback: how far the striker is hurled
+const AFTERIMAGE_LIFE = 7; // Afterimage: frozen clone lifetime
+const RUBBLE_LIFE = 10; // Rubble Snare: how long crumbled walls stay dangerous
+const RUBBLE_RADIUS = 70;
+const RUBBLE_ROOT_SECS = 2;
+/** ACTIVE specials — Lv4 passives that unlock a SECOND button. Everything
+ *  else in the Lv4 tier triggers on its own. */
+const SPECIALS: Record<string, { upId: string; abilityId: string; emoji: string; cd: number }> = {
+  engineer: { upId: 'engineer3', abilityId: 'tpad', emoji: '🌀', cd: TPAD_BTN_CD },
+  trickster: { upId: 'trickster3', abilityId: 'swap', emoji: '🎭', cd: 25 },
+  siren: { upId: 'siren3', abilityId: 'lullaby', emoji: '🎶', cd: 35 },
+};
 // Sixth Sense (Scout passive): the arrow flares alone when a Seeker is near.
 const SCOUT_WARN_DIST = 340;
 const SCOUT_WARN_CD = 20;
@@ -208,7 +224,8 @@ interface Fx {
     | 'dummy'
     | 'dummyping'
     | 'tpad'
-    | 'warn';
+    | 'warn'
+    | 'lull';
   x: number;
   y: number;
   id?: string;
@@ -253,6 +270,8 @@ interface Snap {
   wl: { x: number; y: number }[];
   /** Engineer Pocket Portal pads (temporary, own cooldown). */
   tpads: { x: number; y: number }[];
+  /** Builder Rubble Snare piles (crumbled walls, seeker-rooting). */
+  rb: { x: number; y: number }[];
 }
 /** What each player DID this hunt — shown on the end screen and paid out. */
 interface Deeds {
@@ -360,17 +379,25 @@ export class MatchScene extends Scene {
   private slowUntil: Record<string, number> = {};
   private hatchOpen = false;
   private traps: { x: number; y: number; s?: number }[] = [];
-  private nests: { x: number; y: number }[] = [];
+  private nests: { x: number; y: number; owner?: string }[] = [];
   private converted: string[] = []; // hiders the Wraith turned (host truth)
   private trailUntil = 0; // Howler trail active until this game-time
   private hits: Record<string, number> = {}; // damage taken toward next DOWN
-  private clones: { x: number; y: number; ang: number; until: number; owner: string }[] = [];
+  private clones: {
+    x: number;
+    y: number;
+    ang: number;
+    until: number;
+    owner: string;
+    spd?: number; // afterimages stand perfectly still
+  }[] = [];
   private dummies: Record<string, { x: number; y: number }> = {}; // twin doubles
   private dummyPingAt: Record<string, number> = {};
-  private walls: { x: number; y: number; until: number }[] = [];
+  private walls: { x: number; y: number; until: number; owner?: string }[] = [];
+  private rubble: { x: number; y: number; until: number }[] = [];
   private selfRezAt: Record<string, number> = {}; // Second Wind pending rise
   private selfRezCd: Record<string, number> = {}; // Second Wind per-player cd
-  private decoys: { x: number; y: number; until: number }[] = [];
+  private decoys: { x: number; y: number; until: number; owner?: string }[] = [];
   private phase = 'hiding';
   private hideLeft = HIDE_PHASE_SECONDS;
   private deeds: Record<string, Deeds> = {};
@@ -403,10 +430,12 @@ export class MatchScene extends Scene {
   private snapDums: { x: number; y: number }[] = [];
   private snapWalls: { x: number; y: number }[] = [];
   private snapTpads: { x: number; y: number }[] = [];
+  private snapRubble: { x: number; y: number }[] = [];
   private cloneViews: Container[] = [];
   private dumViews: Container[] = [];
   private wallViews: Graphics[] = [];
   private tpadViews: Graphics[] = [];
+  private rubbleViews: Graphics[] = [];
   private trailDotAt = 0; // client throttle for trail dot spawning
   private trailDots: { x: number; y: number; born: number }[] = [];
   private trailGlow: Graphics | null = null;
@@ -499,9 +528,10 @@ export class MatchScene extends Scene {
   // Active special passives get their own SECOND button (Pocket Portal).
   private specialBtn: UIButton | null = null;
   private specialCdLeft = 0;
-  private specialLbl = '🌀';
-  // Host truth: per-player Pocket Portal cooldown (clients can't skip it).
-  private tpadCdAt: Record<string, number> = {};
+  private specialLbl = '';
+  private specialDef: { upId: string; abilityId: string; emoji: string; cd: number } | null = null;
+  // Host truth: per-player active-special cooldown (clients can't skip it).
+  private specialCdAt: Record<string, number> = {};
 
   // local ability
   private cooldownLeft = 0;
@@ -1176,6 +1206,28 @@ export class MatchScene extends Scene {
     list.forEach((p, i) => this.tpadViews[i]?.position.set(p.x, p.y));
   }
 
+  /** Rubble Snare piles: a crumbled wall's stones — step in and get stuck. */
+  private syncRubble(list: { x: number; y: number }[]): void {
+    this.snapRubble = list;
+    while (this.rubbleViews.length > list.length) this.rubbleViews.pop()?.destroy();
+    while (this.rubbleViews.length < list.length) {
+      const g = new Graphics();
+      g.ellipse(0, 10, 46, 16).fill({ color: 0x000000, alpha: 0.3 });
+      for (const [ox, oy, r] of [
+        [-20, 4, 14],
+        [8, -2, 17],
+        [24, 8, 11],
+        [-2, 12, 12],
+      ] as const) {
+        g.circle(ox, oy, r).fill(0x5a544a);
+        g.circle(ox - 3, oy - 3, r * 0.55).fill(0x6b6455);
+      }
+      this.trapLayer.addChild(g);
+      this.rubbleViews.push(g);
+    }
+    list.forEach((r, i) => this.rubbleViews[i]?.position.set(r.x, r.y));
+  }
+
   private makeBlob(id: string, isMe: boolean): { entity: Entity; body: Container } {
     const cls = classById(this.roster.classes[id]);
     const isSeeker = this.roster.roles[id] === 'seeker';
@@ -1272,10 +1324,13 @@ export class MatchScene extends Scene {
       this.add(this.sprintBtn, this.uiLayer);
     }
 
-    // Pocket Portal is an ACTIVE special — it gets its own button so the
-    // Engineer chooses where the pad goes without burning Overcharge.
-    if (!this.amSeeker && myCls.id === 'engineer' && this.ownsUp(this.session.id, 'engineer3')) {
-      this.specialBtn = new UIButton('🌀', {
+    // ACTIVE specials (Pocket Portal, Switcheroo, Lullaby) get their own
+    // button so the survivor chooses the moment — auto specials don't.
+    const specialDef = SPECIALS[myCls.id];
+    if (!this.amSeeker && specialDef && this.ownsUp(this.session.id, specialDef.upId)) {
+      this.specialDef = specialDef;
+      this.specialLbl = specialDef.emoji;
+      this.specialBtn = new UIButton(specialDef.emoji, {
         width: 120,
         height: 120,
         fontSize: 48,
@@ -1500,6 +1555,7 @@ export class MatchScene extends Scene {
     this.syncDums(s.dm ?? []);
     this.syncWalls(s.wl ?? []);
     this.syncTpads(s.tpads ?? []);
+    this.syncRubble(s.rb ?? []);
     this.syncTraps(s.traps ?? []);
     this.syncNests(s.nests ?? []);
     this.escaped = new Set(s.esc);
@@ -1617,6 +1673,47 @@ export class MatchScene extends Scene {
         const ap = this.hostPositions[seekerId];
         if (ap) this.broadcastFx({ type: 'fx', kind: 'freeze', x: ap.x, y: ap.y, id: seekerId });
       }
+      // Death Fade: a Ghost who SURVIVES the strike vanishes on the spot.
+      if (this.down[target] === undefined && this.ownsUp(target, 'ghost3')) {
+        this.vanishUntil[target] = Math.max(
+          this.vanishUntil[target] ?? 0,
+          this.t + GHOST_FADE_SECS,
+        );
+        this.broadcastFx({ type: 'fx', kind: 'poof', x: p.x, y: p.y, id: target });
+      }
+      // Kickback: striking the Kaiju hurls YOU away (walls stop it honestly).
+      if (this.ownsUp(target, 'kaiju3')) {
+        const ap = this.hostPositions[seekerId];
+        if (ap) {
+          const ang = Math.atan2(ap.y - p.y, ap.x - p.x);
+          let px = ap.x;
+          let py = ap.y;
+          for (let s = 0; s < 8; s++) {
+            const m = moveWithCollision(
+              this.map,
+              px,
+              py,
+              18,
+              14,
+              Math.cos(ang) * (KICKBACK_PUSH / 8),
+              Math.sin(ang) * (KICKBACK_PUSH / 8),
+            );
+            px = m.x;
+            py = m.y;
+          }
+          this.hostPositions[seekerId] = { x: px, y: py };
+          this.botPaths.delete(seekerId);
+          this.broadcastFx({
+            type: 'fx',
+            kind: 'blast',
+            x: ap.x,
+            y: ap.y,
+            id: seekerId,
+            tx: px,
+            ty: py,
+          });
+        }
+      }
     }
   }
 
@@ -1715,7 +1812,7 @@ export class MatchScene extends Scene {
         // Nester's Pop-up Den: a conjured hiding spot right where she stands.
         // Over the cap, her OLDEST den folds away (anyone inside loses cover).
         if (this.isSeekerRole(from)) return;
-        this.nests.push({ x, y });
+        this.nests.push({ x, y, owner: from });
         const cap = NEST_MAX + (this.statsOf(from).powMul >= 1.3 ? 1 : 0);
         while (this.nests.length > cap) this.nests.shift();
         this.broadcastFx({ type: 'fx', kind: 'nest', x, y });
@@ -1736,7 +1833,12 @@ export class MatchScene extends Scene {
         break;
       case 'decoy':
         // Drop the doll AND fade for a blink — the misdirection is the point.
-        this.decoys.push({ x, y, until: this.t + DECOY_SECONDS * this.statsOf(from).powMul });
+        this.decoys.push({
+          x,
+          y,
+          until: this.t + DECOY_SECONDS * this.statsOf(from).powMul,
+          owner: from,
+        });
         this.vanishUntil[from] = Math.max(this.vanishUntil[from] ?? 0, this.t + DECOY_FADE_SECS);
         this.broadcastFx({ type: 'fx', kind: 'decoy', x, y });
         this.broadcastFx({ type: 'fx', kind: 'poof', x, y, id: from });
@@ -1771,11 +1873,60 @@ export class MatchScene extends Scene {
         if (!this.ownsUp(from, 'engineer3')) return;
         // Host-enforced build cooldown (slight slack so an honest client's
         // own timer, which runs on its clock, is never rejected).
-        if (this.t < (this.tpadCdAt[from] ?? 0)) return;
-        this.tpadCdAt[from] = this.t + TPAD_BTN_CD * this.statsOf(from).cdMul * 0.9;
+        if (this.t < (this.specialCdAt[from] ?? 0)) return;
+        this.specialCdAt[from] = this.t + TPAD_BTN_CD * this.statsOf(from).cdMul * 0.9;
         this.tempPads.push({ x, y, until: this.t + TEMP_TP_LIFE, armed: false });
         while (this.tempPads.length > 2) this.tempPads.shift();
         this.broadcastFx({ type: 'fx', kind: 'tpad', x, y });
+        break;
+      }
+      case 'swap': {
+        // Switcheroo: trade places with your latest doll — the doll keeps
+        // your old spot, and the Seeker keeps guessing.
+        if (this.isSeekerRole(from)) return;
+        if (!this.ownsUp(from, 'trickster3')) return;
+        if (this.t < (this.specialCdAt[from] ?? 0)) return;
+        let doll: { x: number; y: number; until: number; owner?: string } | null = null;
+        for (let i = this.decoys.length - 1; i >= 0; i--) {
+          if (this.decoys[i]!.owner === from) {
+            doll = this.decoys[i]!;
+            break;
+          }
+        }
+        if (!doll) return; // no doll standing — no swap, no cooldown burned
+        this.specialCdAt[from] = this.t + 25 * this.statsOf(from).cdMul * 0.9;
+        const dx = doll.x;
+        const dy = doll.y;
+        doll.x = x;
+        doll.y = y;
+        this.hostPositions[from] = { x: dx, y: dy };
+        this.broadcastFx({ type: 'fx', kind: 'teleport', x, y, id: from, tx: dx, ty: dy });
+        break;
+      }
+      case 'lullaby': {
+        // Lullaby: a slowing song — every Seeker in earshot crawls.
+        if (this.isSeekerRole(from)) return;
+        if (!this.ownsUp(from, 'siren3')) return;
+        if (this.t < (this.specialCdAt[from] ?? 0)) return;
+        this.specialCdAt[from] = this.t + 35 * this.statsOf(from).cdMul * 0.9;
+        for (const sid of this.seekerIds()) {
+          const sp2 = this.hostPositions[sid];
+          if (!sp2) continue;
+          if (Math.hypot(sp2.x - x, sp2.y - y) >= LULLABY_RANGE * this.statsOf(from).powMul)
+            continue;
+          this.slowUntil[sid] = Math.max(this.slowUntil[sid] ?? 0, this.t + LULLABY_SLOW_SECS);
+        }
+        this.broadcastFx({ type: 'fx', kind: 'lull', x, y });
+        break;
+      }
+      case 'afterimage': {
+        // Afterimage: sprinting leaves a frozen you-shaped clone behind.
+        if (this.isSeekerRole(from)) return;
+        if (!this.ownsUp(from, 'sprinter3')) return;
+        if (this.t < (this.specialCdAt[from] ?? 0)) return;
+        this.specialCdAt[from] = this.t + 8; // matches the sprint's own pace
+        this.clones.push({ x, y, ang: 0, until: this.t + AFTERIMAGE_LIFE, owner: from, spd: 0 });
+        this.broadcastFx({ type: 'fx', kind: 'poof', x, y });
         break;
       }
       case 'dummy': {
@@ -1828,7 +1979,12 @@ export class MatchScene extends Scene {
       case 'wall': {
         // Builder: a barricade only the SEEKER collides with.
         if (this.isSeekerRole(from)) return;
-        this.walls.push({ x, y, until: this.t + WALL_SECONDS * this.statsOf(from).powMul });
+        this.walls.push({
+          x,
+          y,
+          until: this.t + WALL_SECONDS * this.statsOf(from).powMul,
+          owner: from,
+        });
         this.broadcastFx({ type: 'fx', kind: 'wall', x, y });
         break;
       }
@@ -2077,7 +2233,7 @@ export class MatchScene extends Scene {
       if (near && near.d < 420) {
         c.ang = Math.atan2(c.y - near.p.y, c.x - near.p.x) + (Math.random() - 0.5) * 0.4;
       }
-      const step = 260 * dt;
+      const step = (c.spd ?? 260) * dt;
       const m = moveWithCollision(
         this.map,
         c.x,
@@ -2104,9 +2260,31 @@ export class MatchScene extends Scene {
         this.broadcastFx({ type: 'fx', kind: 'dummyping', x: d.x, y: d.y, id: owner });
       }
     }
-    // Builder walls crumble on their own clock.
+    // Builder walls crumble on their own clock — and with Rubble Snare,
+    // the wreckage stays dangerous for a while.
     for (let i = this.walls.length - 1; i >= 0; i--) {
-      if (this.walls[i]!.until <= this.t) this.walls.splice(i, 1);
+      const w = this.walls[i]!;
+      if (w.until <= this.t) {
+        if (this.ownsUp(w.owner ?? '', 'builder3'))
+          this.rubble.push({ x: w.x, y: w.y, until: this.t + RUBBLE_LIFE });
+        this.walls.splice(i, 1);
+      }
+    }
+    // Rubble snares the first Seeker who blunders in, then is spent.
+    for (let i = this.rubble.length - 1; i >= 0; i--) {
+      const r = this.rubble[i]!;
+      if (r.until <= this.t) {
+        this.rubble.splice(i, 1);
+        continue;
+      }
+      for (const sid of this.seekerIds()) {
+        const sp2 = this.hostPositions[sid];
+        if (!sp2 || Math.hypot(sp2.x - r.x, sp2.y - r.y) >= RUBBLE_RADIUS) continue;
+        this.rootUntil[sid] = Math.max(this.rootUntil[sid] ?? 0, this.t + RUBBLE_ROOT_SECS);
+        this.broadcastFx({ type: 'fx', kind: 'snare', x: r.x, y: r.y, id: sid });
+        this.rubble.splice(i, 1);
+        break;
+      }
     }
     // Pocket Portal pads dissolve on their own clock too, and ARM once every
     // hider has stepped clear (so building one never rides you instantly).
@@ -2364,7 +2542,11 @@ export class MatchScene extends Scene {
     for (const id of active) {
       if (!this.hurt.has(id) || this.down[id] !== undefined) continue;
       if (this.isConcealed(id)) {
-        this.healProg[id] = (this.healProg[id] ?? 0) + dt / HEAL_SECONDS;
+        // Brood Comfort: patching up inside a caring Nester's den is 2x.
+        const hp2 = this.hostPositions[id];
+        const ni = hp2 ? this.nestAt(hp2.x, hp2.y) : -1;
+        const brood = ni >= 0 && this.ownsUp(this.nests[ni]?.owner ?? '', 'nester3') ? 2 : 1;
+        this.healProg[id] = (this.healProg[id] ?? 0) + (dt * brood) / HEAL_SECONDS;
         if (this.healProg[id]! >= 1) {
           this.hurt.delete(id);
           this.hits[id] = 0; // fully patched — all durability back
@@ -2785,7 +2967,10 @@ export class MatchScene extends Scene {
     if (this.specialBtn) {
       // Cooling: the button counts down the seconds so the wait is visible.
       this.specialBtn.alpha = this.specialCdLeft > 0 ? 0.4 : 1;
-      const lbl = this.specialCdLeft > 0 ? `${Math.ceil(this.specialCdLeft)}` : '🌀';
+      const lbl =
+        this.specialCdLeft > 0
+          ? `${Math.ceil(this.specialCdLeft)}`
+          : (this.specialDef?.emoji ?? '');
       if (lbl !== this.specialLbl) {
         this.specialLbl = lbl;
         this.specialBtn.setLabel(lbl);
@@ -3257,6 +3442,7 @@ export class MatchScene extends Scene {
       dm: Object.values(this.dummies).map((d) => ({ x: d.x, y: d.y })),
       wl: this.walls.map((w) => ({ x: w.x, y: w.y })),
       tpads: this.tempPads.map((p) => ({ x: p.x, y: p.y })),
+      rb: this.rubble.map((r) => ({ x: r.x, y: r.y })),
     };
     this.session.broadcast(snap);
     // Host mirrors its own snap-derived view.
@@ -3281,6 +3467,7 @@ export class MatchScene extends Scene {
     this.syncDums(snap.dm);
     this.syncWalls(snap.wl);
     this.syncTpads(snap.tpads);
+    this.syncRubble(snap.rb);
     this.syncTraps(snap.traps);
     this.syncNests(snap.nests);
     this.syncDecoys(snap.decoys);
@@ -3791,6 +3978,20 @@ export class MatchScene extends Scene {
         sting('gate');
         life = 0.7;
         break;
+      case 'lull': {
+        // The Siren's slowing song — soft rings ripple out to earshot.
+        for (let i = 0; i < 3; i++) {
+          g.circle(0, 0, 60 + i * 90).stroke({
+            color: 0xffb3c6,
+            width: 5 - i,
+            alpha: 0.7 - i * 0.18,
+          });
+        }
+        g.circle(0, 0, 26).fill({ color: 0xffb3c6, alpha: 0.35 });
+        sting('rescue');
+        life = 0.9;
+        break;
+      }
       case 'warn': {
         // Sixth Sense / Town Crier: hand this survivor (or every survivor)
         // the live tracking arrow for a moment. Seekers feel nothing.
@@ -3887,17 +4088,30 @@ export class MatchScene extends Scene {
     this.sprintUntil = this.t + SPRINT_SECS;
     this.sprintCdLeft = SPRINT_CD;
     sting('blip');
+    // Afterimage: the burst leaves a frozen clone where you started.
+    if (this.ownsUp(this.session.id, 'sprinter3')) {
+      if (this.session.isHost)
+        this.hostAbility(this.session.id, 'afterimage', this.me.x, this.me.y);
+      else this.session.send({ type: 'ability', id: 'afterimage', x: this.me.x, y: this.me.y });
+    }
   }
 
   private trySpecial(): void {
     // Same guards as the main ability, on an independent cooldown.
+    const sp = this.specialDef;
+    if (!sp) return;
     const okPhase = this.phase === 'playing' || (this.phase === 'hiding' && !this.amSeeker);
     if (this.specialCdLeft > 0 || !okPhase) return;
     if (this.snapDown[this.session.id] !== undefined || this.out.has(this.session.id)) return;
-    this.specialCdLeft = TPAD_BTN_CD * this.statsOf(this.session.id).cdMul;
+    // Switcheroo needs a doll out — don't burn the cooldown on empty air.
+    if (sp.abilityId === 'swap' && this.decoyViews.length === 0) {
+      sting('lose');
+      return;
+    }
+    this.specialCdLeft = sp.cd * this.statsOf(this.session.id).cdMul;
     sting('blip');
-    if (this.session.isHost) this.hostAbility(this.session.id, 'tpad', this.me.x, this.me.y);
-    else this.session.send({ type: 'ability', id: 'tpad', x: this.me.x, y: this.me.y });
+    if (this.session.isHost) this.hostAbility(this.session.id, sp.abilityId, this.me.x, this.me.y);
+    else this.session.send({ type: 'ability', id: sp.abilityId, x: this.me.x, y: this.me.y });
   }
 
   private tryAbility(): void {
@@ -4248,6 +4462,8 @@ export class MatchScene extends Scene {
       nestPos: (i: number) => this.snapNests[i] ?? null,
       tpadCount: () => this.snapTpads.length,
       tpadPos: (i: number) => this.snapTpads[i] ?? null,
+      rubbleCount: () => this.snapRubble.length,
+      decoyCount: () => this.decoyViews.length,
       arrowOn: () => this.t < this.senseUntil,
       special: () => this.trySpecial(),
       hasSpecialBtn: () => !!this.specialBtn,
