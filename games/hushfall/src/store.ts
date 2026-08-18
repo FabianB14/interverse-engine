@@ -34,6 +34,20 @@ export function addClassXp(clsId: string, n: number): number {
   return all[clsId];
 }
 
+/** 🎟 Redeem codes: Verium make-goods (lost wallets, giveaways). Each code
+ *  works ONCE per device. They ship in the bundle — treat them as gifts to
+ *  share, not secrets to guard. */
+export const REDEEM_CODES: Readonly<Record<string, number>> = {
+  HUSHGIFT: 7000,
+};
+export function redeemedCodes(): string[] {
+  return store.get<string[]>('redeemed', []);
+}
+export function markRedeemed(code: string): void {
+  const used = redeemedCodes();
+  if (!used.includes(code)) store.set('redeemed', [...used, code]);
+}
+
 /** Passive upgrades bought with Verium (upgrade ids, across all classes). */
 export function ownedUpgrades(): string[] {
   return store.get<string[]>('upgrades', []);

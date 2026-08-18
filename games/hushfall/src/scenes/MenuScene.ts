@@ -1,6 +1,6 @@
 import { Container, Graphics } from 'pixi.js';
 import type { Text } from 'pixi.js';
-import { Entity, Scene, Wobble, blobCharacter, popIn } from '@interverse/engine';
+import { Entity, Scene, Wobble, blobCharacter, popIn, verium } from '@interverse/engine';
 import { host, join, listRooms } from '@interverse/net';
 import { UIButton } from '@interverse/ui';
 import { GAME_TAG, resolveRelayUrl } from '../config.js';
@@ -9,9 +9,12 @@ import { ClassesPanel } from '../classesPanel.js';
 import { NIGHT, setMusic, setSfx, sting } from '../theme.js';
 import { makeText, playerName } from '../text.js';
 import {
+  REDEEM_CODES,
   clearLastRoom,
   lastRoom,
+  markRedeemed,
   musicPref,
+  redeemedCodes,
   recordPref,
   savedName,
   setMusicPref,
@@ -158,6 +161,24 @@ export class MenuScene extends Scene {
     );
     mkToggle((on) => `🎙️ Proximity voice chat: ${onOff(on)}`, voicePref, setVoicePref);
     mkToggle((on) => `⏺ Screen record button: ${onOff(on)}`, recordPref, setRecordPref);
+    // 🎟 Redeem: type a gift code, get ⬡ — once per device per code.
+    const redeemBtn = new UIButton('🎟 Redeem a code', {
+      width: 480,
+      height: 76,
+      fontSize: 24,
+      fill: 0x221e34,
+      textColor: NIGHT.ink,
+      onTap: () => {
+        const raw = window.prompt('Enter your gift code');
+        if (!raw) return;
+        const res = this.redeemCode(raw);
+        sting(res.ok ? 'gate' : 'lose');
+        redeemBtn.setLabel(res.msg);
+        window.setTimeout(() => redeemBtn.setLabel('🎟 Redeem a code'), 3000);
+      },
+    });
+    this.settings.addChild(redeemBtn);
+    this.settingsRows.push(redeemBtn);
     this.settingsNote = makeText(
       'Voice chat is off unless YOU turn it on — it asks for the mic when a\nhunt starts, and only players nearby in the manor can hear you.',
       18,
@@ -224,6 +245,18 @@ export class MenuScene extends Scene {
     this.creditsClose.position.set(W / 2, H - 80);
   }
 
+  /** 🎟 Redeem a code for Verium. Returns a short human-readable result;
+   *  each code pays out ONCE per device. */
+  private redeemCode(raw: string): { ok: boolean; msg: string } {
+    const code = raw.trim().toUpperCase();
+    const amount = REDEEM_CODES[code];
+    if (!amount) return { ok: false, msg: '🤔 that code does nothing' };
+    if (redeemedCodes().includes(code)) return { ok: false, msg: '🎟 already used here' };
+    markRedeemed(code);
+    verium.add(amount);
+    return { ok: true, msg: `🎁 +${amount.toLocaleString()} ⬡ added!` };
+  }
+
   private openSettings(): void {
     if (!this.settings) return;
     this.settings.visible = true;
@@ -255,7 +288,13 @@ export class MenuScene extends Scene {
   protected override onEnter(): void {
     const W = this.game.viewWidth;
     const H = this.game.viewHeight;
-    window.__hushfall = { scene: () => 'menu', code: () => null, playerCount: () => 0 };
+    window.__hushfall = {
+      scene: () => 'menu',
+      code: () => null,
+      playerCount: () => 0,
+      verium: () => verium.balance(),
+      redeem: (code: string) => this.redeemCode(code).ok,
+    };
 
     this.moon = new Graphics()
       .circle(0, 0, 120)
@@ -418,6 +457,8 @@ export class MenuScene extends Scene {
       code: () => null,
       playerCount: () => 0,
       host: () => void this.hostRoom(relayUrl),
+      verium: () => verium.balance(),
+      redeem: (code: string) => this.redeemCode(code).ok,
     };
 
     const params = new URLSearchParams(window.location.search);

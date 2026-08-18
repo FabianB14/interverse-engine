@@ -1013,6 +1013,18 @@ for (let i = 0; i < 6 && !gazeOk; i++) {
 }
 await pwa.close();
 
+// REDEEM CODE: the gift code pays out 7,000 Verium exactly once per device.
+const prd = await phone('nothing=1');
+await prd.waitForFunction(() => window.__hushfall?.scene() === 'menu', null, { timeout: 12_000 });
+const vBefore = await prd.evaluate(() => window.__hushfall.verium?.() ?? 0);
+const redeemFirst = await prd.evaluate(() => window.__hushfall.redeem?.('hushgift') ?? false);
+const vAfter = await prd.evaluate(() => window.__hushfall.verium?.() ?? 0);
+const redeemSecond = await prd.evaluate(() => window.__hushfall.redeem?.('HUSHGIFT') ?? true);
+const redeemBogus = await prd.evaluate(() => window.__hushfall.redeem?.('NOPE') ?? true);
+const redeemOk =
+  redeemFirst && vAfter - vBefore === 7000 && redeemSecond === false && redeemBogus === false;
+await prd.close();
+
 // SCOUT Sixth Sense + LOOKOUT Town Crier: the scout's arrow flares alone
 // when the seeker creeps close; the lookout's Sense hands the arrow to
 // EVERY survivor.
@@ -1115,6 +1127,7 @@ const ok =
   fadeOk &&
   scentOk &&
   gazeOk &&
+  redeemOk &&
   sixthOk &&
   crierOk &&
   sprintOk &&
@@ -1225,6 +1238,7 @@ console.log(
       fadeOk,
       scentOk,
       gazeOk,
+      redeemOk,
       sixthOk,
       crierOk,
       gateOnP2,
