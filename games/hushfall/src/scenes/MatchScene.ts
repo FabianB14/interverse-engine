@@ -155,12 +155,21 @@ const AFTERIMAGE_LIFE = 7; // Afterimage: frozen clone lifetime
 const RUBBLE_LIFE = 10; // Rubble Snare: how long crumbled walls stay dangerous
 const RUBBLE_RADIUS = 70;
 const RUBBLE_ROOT_SECS = 2;
+// Seeker Lv4 specials.
+const SCENT_CD = 40; // Stalker: sniff out the nearest survivor
+const SCENT_SECS = 4;
+const ECHO_CD = 6; // Howler: one ability-ping per this many seconds
+const IRON_GAZE_SLOW = 2; // Warden: dread-slow on revealed hiders
+const TANGLE_RANGE = 300; // Weaver: splash reach from the first target
+const TRAP_REARM_SECS = 4; // Trapper: a rebuilt snare arms after this
+const SHROUD_MUL = 1.15; // Wraith: cloaked glide speed
 /** ACTIVE specials — Lv4 passives that unlock a SECOND button. Everything
  *  else in the Lv4 tier triggers on its own. */
 const SPECIALS: Record<string, { upId: string; abilityId: string; emoji: string; cd: number }> = {
   engineer: { upId: 'engineer3', abilityId: 'tpad', emoji: '🌀', cd: TPAD_BTN_CD },
   trickster: { upId: 'trickster3', abilityId: 'swap', emoji: '🎭', cd: 25 },
   siren: { upId: 'siren3', abilityId: 'lullaby', emoji: '🎶', cd: 35 },
+  stalker: { upId: 'stalker3', abilityId: 'scent', emoji: '🐾', cd: SCENT_CD },
 };
 // Sixth Sense (Scout passive): the arrow flares alone when a Seeker is near.
 const SCOUT_WARN_DIST = 340;
@@ -378,7 +387,14 @@ export class MatchScene extends Scene {
   private rootUntil: Record<string, number> = {};
   private slowUntil: Record<string, number> = {};
   private hatchOpen = false;
-  private traps: { x: number; y: number; s?: number }[] = [];
+  private traps: {
+    x: number;
+    y: number;
+    s?: number;
+    owner?: string;
+    armAt?: number; // rebuilt snares arm after a beat
+    re?: boolean; // each snare rebuilds at most once
+  }[] = [];
   private nests: { x: number; y: number; owner?: string }[] = [];
   private converted: string[] = []; // hiders the Wraith turned (host truth)
   private trailUntil = 0; // Howler trail active until this game-time
@@ -532,6 +548,7 @@ export class MatchScene extends Scene {
   private specialDef: { upId: string; abilityId: string; emoji: string; cd: number } | null = null;
   // Host truth: per-player active-special cooldown (clients can't skip it).
   private specialCdAt: Record<string, number> = {};
+  private echoCdAt: Record<string, number> = {}; // Howler Echolocation pings
 
   // local ability
   private cooldownLeft = 0;
@@ -575,7 +592,7 @@ export class MatchScene extends Scene {
     this.joystick?.position.set(160, H - 180);
     this.abilityBtn?.position.set(W - 118, H - 130);
     this.sprintBtn?.position.set(W - 252, H - 112);
-    this.specialBtn?.position.set(W - 118, H - 290);
+    this.specialBtn?.position.set(W - 118, this.amSeeker ? H - 460 : H - 290);
     this.layoutClickCatcher();
     this.attackBtn?.position.set(W - 118, H - 300);
     this.homeBtn?.position.set(W - 46, 44);
@@ -1327,7 +1344,7 @@ export class MatchScene extends Scene {
     // ACTIVE specials (Pocket Portal, Switcheroo, Lullaby) get their own
     // button so the survivor chooses the moment — auto specials don't.
     const specialDef = SPECIALS[myCls.id];
-    if (!this.amSeeker && specialDef && this.ownsUp(this.session.id, specialDef.upId)) {
+    if (specialDef && this.ownsUp(this.session.id, specialDef.upId)) {
       this.specialDef = specialDef;
       this.specialLbl = specialDef.emoji;
       this.specialBtn = new UIButton(specialDef.emoji, {
@@ -1718,7 +1735,27 @@ export class MatchScene extends Scene {
   }
 
   private hostAbility(from: string, id: string, x: number, y: number): void {
+    // Echolocation: every survivor ability RINGS for Howlers with the
+    // passive — a mark blooms where it was cast (rate-limited per Howler).
+    if (!this.isSeekerRole(from)) {
+      for (const sid of this.seekerIds()) {
+        if (!this.ownsUp(sid, 'howler3')) continue;
+        if (this.t < (this.echoCdAt[sid] ?? 0)) continue;
+        this.echoCdAt[sid] = this.t + ECHO_CD;
+        this.reveal([{ x, y }], NIGHT.blood, 3);
+      }
+    }
     switch (id) {
+      case 'scent': {
+        // Stalker (second button): catch the scent — a tracking arrow
+        // points at the nearest survivor for a few seconds.
+        if (!this.isSeekerRole(from)) return;
+        if (!this.ownsUp(from, 'stalker3')) return;
+        if (this.t < (this.specialCdAt[from] ?? 0)) return;
+        this.specialCdAt[from] = this.t + SCENT_CD * this.statsOf(from).cdMul * 0.9;
+        this.broadcastFx({ type: 'fx', kind: 'warn', x, y, id: from });
+        break;
+      }
       case 'thirdeye': {
         // Warden: the unblinking eye sees EVERYTHING for a moment — every
         // living hider, even tucked in furniture or vanished. Rings mark
@@ -1731,6 +1768,13 @@ export class MatchScene extends Scene {
           if (hp) pts.push({ x: hp.x, y: hp.y });
         }
         this.reveal(pts, NIGHT.violet, 5 * this.statsOf(from).powMul);
+        // Iron Gaze: dread grips everyone the eye touched.
+        if (this.ownsUp(from, 'warden3')) {
+          for (const hid of this.activeHiders()) {
+            if (this.down[hid] !== undefined) continue;
+            this.slowUntil[hid] = Math.max(this.slowUntil[hid] ?? 0, this.t + IRON_GAZE_SLOW);
+          }
+        }
         break;
       }
       case 'screech': {
@@ -1764,6 +1808,35 @@ export class MatchScene extends Scene {
           this.slowUntil[tid] = this.t + WEB_SECONDS;
           const p = this.hostPositions[tid]!;
           this.broadcastFx({ type: 'fx', kind: 'web', x: p.x, y: p.y, id: tid, tx: x, ty: y });
+          // Tangle: the web LEAPS to another survivor standing close.
+          if (this.ownsUp(from, 'weaver3')) {
+            let tid2: string | null = null;
+            let bd2 = TANGLE_RANGE;
+            for (const hid of this.activeHiders()) {
+              if (hid === tid || this.down[hid] !== undefined) continue;
+              if ((this.vanishUntil[hid] ?? 0) > this.t) continue;
+              const hp = this.hostPositions[hid];
+              if (!hp) continue;
+              const d = Math.hypot(hp.x - p.x, hp.y - p.y);
+              if (d < bd2) {
+                bd2 = d;
+                tid2 = hid;
+              }
+            }
+            if (tid2) {
+              this.slowUntil[tid2] = this.t + WEB_SECONDS;
+              const p2 = this.hostPositions[tid2]!;
+              this.broadcastFx({
+                type: 'fx',
+                kind: 'web',
+                x: p2.x,
+                y: p2.y,
+                id: tid2,
+                tx: p.x,
+                ty: p.y,
+              });
+            }
+          }
         } else {
           // A whiff still shows the bolt fizzling at the Weaver.
           this.broadcastFx({ type: 'fx', kind: 'web', x, y });
@@ -1787,7 +1860,7 @@ export class MatchScene extends Scene {
         break;
       }
       case 'snare':
-        this.traps.push({ x, y, s: SNARE_SECONDS * this.statsOf(from).powMul });
+        this.traps.push({ x, y, s: SNARE_SECONDS * this.statsOf(from).powMul, owner: from });
         this.broadcastFx({ type: 'fx', kind: 'snare', x, y });
         break;
       case 'blind': {
@@ -2250,14 +2323,23 @@ export class MatchScene extends Scene {
     // Twin dummies whisper to their owner when hiders wander near.
     for (const [owner, d] of Object.entries(this.dummies)) {
       const alert = DUMMY_ALERT * this.statsOf(owner).powMul;
-      const nearHider = active.some((id) => {
-        if (this.down[id] !== undefined) return false;
+      let prowler: string | null = null;
+      for (const id of active) {
+        if (this.down[id] !== undefined) continue;
         const p = this.hostPositions[id];
-        return !!p && Math.hypot(p.x - d.x, p.y - d.y) < alert;
-      });
-      if (nearHider && this.t >= (this.dummyPingAt[owner] ?? 0)) {
+        if (p && Math.hypot(p.x - d.x, p.y - d.y) < alert) {
+          prowler = id;
+          break;
+        }
+      }
+      if (prowler && this.t >= (this.dummyPingAt[owner] ?? 0)) {
         this.dummyPingAt[owner] = this.t + DUMMY_PING_EVERY;
         this.broadcastFx({ type: 'fx', kind: 'dummyping', x: d.x, y: d.y, id: owner });
+        // Watchful Double: the double SEES — its warning marks the prowler.
+        if (this.ownsUp(owner, 'twin3')) {
+          const pp = this.hostPositions[prowler];
+          if (pp) this.reveal([{ x: pp.x, y: pp.y }], NIGHT.violet, 3);
+        }
       }
     }
     // Builder walls crumble on their own clock — and with Rubble Snare,
@@ -2475,10 +2557,22 @@ export class MatchScene extends Scene {
       if (!p) continue;
       for (let i = this.traps.length - 1; i >= 0; i--) {
         const tr = this.traps[i]!;
+        if (this.t < (tr.armAt ?? 0)) continue; // still rebuilding
         if (Math.hypot(tr.x - p.x, tr.y - p.y) < SNARE_RADIUS) {
           this.rootUntil[id] = this.t + (tr.s ?? SNARE_SECONDS);
           this.traps.splice(i, 1);
           this.broadcastFx({ type: 'fx', kind: 'snare', x: p.x, y: p.y, id });
+          // Double Springs: the snare rebuilds itself — once.
+          if (!tr.re && this.ownsUp(tr.owner ?? '', 'trapper3')) {
+            this.traps.push({
+              x: tr.x,
+              y: tr.y,
+              ...(tr.s !== undefined ? { s: tr.s } : {}),
+              ...(tr.owner !== undefined ? { owner: tr.owner } : {}),
+              re: true,
+              armAt: this.t + TRAP_REARM_SECS,
+            });
+          }
         }
       }
     }
@@ -3009,10 +3103,13 @@ export class MatchScene extends Scene {
         this.senseArrowG = new Graphics();
         this.me.addChild(this.senseArrowG);
       }
+      // Survivors track the nearest SEEKER; a scenting Stalker tracks the
+      // nearest SURVIVOR.
       let sp: { x: number; y: number } | null = null;
       let bd = Infinity;
       for (const [id, r] of this.remotes) {
-        if (!this.isSeekerRole(id)) continue;
+        if (this.isSeekerRole(id) === this.amSeeker) continue;
+        if (this.amSeeker && (this.escaped.has(id) || this.out.has(id))) continue;
         const d = Math.hypot(r.entity.x - this.me.x, r.entity.y - this.me.y);
         if (d < bd) {
           bd = d;
@@ -3069,7 +3166,15 @@ export class MatchScene extends Scene {
     const slowMul = this.snapSlowed.has(this.session.id) ? WEB_SLOW : 1;
     // Natural speed comes from class stats (+ passives); SPRINT is a burst.
     const sprintMul = !this.amSeeker && this.t < this.sprintUntil ? SPRINT_MUL : 1;
-    const speed = this.statsOf(this.session.id).speed * this.boostFactor * slowMul * sprintMul;
+    // Deep Shroud: a cloaked Wraith with the passive glides faster.
+    const shroudMul =
+      this.amSeeker &&
+      this.snapVanished.has(this.session.id) &&
+      this.ownsUp(this.session.id, 'wraith3')
+        ? SHROUD_MUL
+        : 1;
+    const speed =
+      this.statsOf(this.session.id).speed * this.boostFactor * slowMul * sprintMul * shroudMul;
     let sx = 1;
     let sy = 1;
     if (Math.hypot(jx, jy) > 0.12) {
@@ -3993,13 +4098,15 @@ export class MatchScene extends Scene {
         break;
       }
       case 'warn': {
-        // Sixth Sense / Town Crier: hand this survivor (or every survivor)
-        // the live tracking arrow for a moment. Seekers feel nothing.
-        if (this.amSeeker) break;
-        if (fx.id && fx.id !== this.session.id) break;
-        const secs = fx.id ? SCOUT_WARN_SECS : TOWN_CRIER_SECS;
+        // Targeted: hand THAT player the tracking arrow (Sixth Sense for
+        // scouts, Scent for stalkers). Broadcast: every survivor gets it
+        // (Town Crier) — seekers ignore those.
+        if (fx.id) {
+          if (fx.id !== this.session.id) break;
+        } else if (this.amSeeker) break;
+        const secs = fx.id ? (this.amSeeker ? SCENT_SECS : SCOUT_WARN_SECS) : TOWN_CRIER_SECS;
         this.senseUntil = Math.max(this.senseUntil, this.t + secs);
-        if (!fx.id || fx.id === this.session.id) sting('blip');
+        sting('blip');
         life = 0.1;
         break;
       }

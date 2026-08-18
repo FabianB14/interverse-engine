@@ -1033,6 +1033,15 @@ export const UPGRADES: Record<string, UpgradeDef[]> = {
       blurb: '+6 natural speed.',
       fx: { speed: 6 },
     },
+    {
+      id: 'stalker3',
+      name: 'Scent',
+      emoji: '🐾',
+      cost: 500,
+      blurb:
+        'Unlocks a 🐾 SECOND BUTTON: catch the scent — an arrow tracks the nearest survivor for a few seconds.',
+      fx: {},
+    },
   ],
   howler: [
     {
@@ -1050,6 +1059,14 @@ export const UPGRADES: Record<string, UpgradeDef[]> = {
       cost: 300,
       blurb: 'Screech recharges 20% faster.',
       fx: { cdMul: 0.8 },
+    },
+    {
+      id: 'howler3',
+      name: 'Echolocation',
+      emoji: '🔊',
+      cost: 500,
+      blurb: 'Every survivor ABILITY rings in your ears — a mark blooms where it was cast.',
+      fx: {},
     },
   ],
   warden: [
@@ -1069,6 +1086,14 @@ export const UPGRADES: Record<string, UpgradeDef[]> = {
       blurb: 'Third Eye recharges 25% faster.',
       fx: { cdMul: 0.75 },
     },
+    {
+      id: 'warden3',
+      name: 'Iron Gaze',
+      emoji: '⛓️',
+      cost: 500,
+      blurb: 'Survivors revealed by Third Eye are gripped by dread — SLOWED for a moment.',
+      fx: {},
+    },
   ],
   weaver: [
     {
@@ -1086,6 +1111,14 @@ export const UPGRADES: Record<string, UpgradeDef[]> = {
       cost: 300,
       blurb: 'Web Bolt recharges 25% faster.',
       fx: { cdMul: 0.75 },
+    },
+    {
+      id: 'weaver3',
+      name: 'Tangle',
+      emoji: '🕸️',
+      cost: 500,
+      blurb: 'Your bolt SPLASHES — the web leaps to another survivor standing close.',
+      fx: {},
     },
   ],
   trapper: [
@@ -1105,6 +1138,14 @@ export const UPGRADES: Record<string, UpgradeDef[]> = {
       blurb: 'Traps recharge 30% faster.',
       fx: { cdMul: 0.7 },
     },
+    {
+      id: 'trapper3',
+      name: 'Double Springs',
+      emoji: '⚙️',
+      cost: 500,
+      blurb: 'A sprung snare REBUILDS itself once.',
+      fx: {},
+    },
   ],
   twin: [
     {
@@ -1123,6 +1164,14 @@ export const UPGRADES: Record<string, UpgradeDef[]> = {
       blurb: 'Dummy Swap recharges 30% faster.',
       fx: { cdMul: 0.7 },
     },
+    {
+      id: 'twin3',
+      name: 'Watchful Double',
+      emoji: '👁️',
+      cost: 500,
+      blurb: "Your double's warnings also MARK the prowler with a ring.",
+      fx: {},
+    },
   ],
   wraith: [
     {
@@ -1140,6 +1189,14 @@ export const UPGRADES: Record<string, UpgradeDef[]> = {
       cost: 300,
       blurb: '+6 natural speed.',
       fx: { speed: 6 },
+    },
+    {
+      id: 'wraith3',
+      name: 'Deep Shroud',
+      emoji: '🌫️',
+      cost: 500,
+      blurb: 'Glide 15% FASTER while cloaked.',
+      fx: {},
     },
   ],
 };

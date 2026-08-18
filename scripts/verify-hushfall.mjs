@@ -972,6 +972,47 @@ for (let i = 0; i < 12 && !fadeOk; i++) {
 }
 await pgh.close();
 
+// STALKER Scent: the seeker's 🐾 second button hands them a tracking
+// arrow pointed at the nearest survivor.
+const pst = await phone('host=1&seeker=1&class=stalker&name=Sniff');
+await pst.waitForFunction(() => window.__hushfall?.scene() === 'lobby', null, { timeout: 12_000 });
+await pst.evaluate(() => window.__hushfall.grantUp?.('stalker3'));
+await pst.evaluate(() => window.__hushfall.setBots?.(1));
+await sleep(300);
+await pst.evaluate(() => window.__hushfall.start());
+await pst.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { timeout: 12_000 });
+await pst.evaluate(() => window.__hushfall.skipHide());
+await pst.waitForFunction(() => window.__hushfall.phase() === 'playing', null, { timeout: 15_000 });
+await sleep(300);
+const scentBtn = await pst.evaluate(() => window.__hushfall.hasSpecialBtn?.() ?? false);
+await pst.evaluate(() => window.__hushfall.special()); // 🐾 Scent
+let scentArrow = false;
+for (let i = 0; i < 6 && !scentArrow; i++) {
+  await sleep(400);
+  scentArrow = await pst.evaluate(() => window.__hushfall.arrowOn?.() ?? false);
+}
+const scentOk = scentBtn && scentArrow;
+await pst.close();
+
+// WARDEN Iron Gaze: Third Eye also SLOWS everyone it reveals.
+const pwa = await phone('host=1&seeker=1&class=warden&name=Gaze');
+await pwa.waitForFunction(() => window.__hushfall?.scene() === 'lobby', null, { timeout: 12_000 });
+await pwa.evaluate(() => window.__hushfall.grantUp?.('warden3'));
+await pwa.evaluate(() => window.__hushfall.setBots?.(1));
+await sleep(300);
+await pwa.evaluate(() => window.__hushfall.start());
+await pwa.waitForFunction(() => window.__hushfall?.scene() === 'match', null, { timeout: 12_000 });
+await pwa.evaluate(() => window.__hushfall.skipHide());
+await pwa.waitForFunction(() => window.__hushfall.phase() === 'playing', null, { timeout: 15_000 });
+await sleep(300);
+let gazeOk = false;
+for (let i = 0; i < 6 && !gazeOk; i++) {
+  await pwa.evaluate(() => window.__hushfall.ability()); // Third Eye
+  await sleep(500);
+  gazeOk = (await pwa.evaluate(() => window.__hushfall.slowedCount?.() ?? 0)) >= 1;
+}
+await pwa.close();
+
 // SCOUT Sixth Sense + LOOKOUT Town Crier: the scout's arrow flares alone
 // when the seeker creeps close; the lookout's Sense hands the arrow to
 // EVERY survivor.
@@ -1072,6 +1113,8 @@ const ok =
   swapOk &&
   lullabyOk &&
   fadeOk &&
+  scentOk &&
+  gazeOk &&
   sixthOk &&
   crierOk &&
   sprintOk &&
@@ -1180,6 +1223,8 @@ console.log(
       trixDist,
       lullabyOk,
       fadeOk,
+      scentOk,
+      gazeOk,
       sixthOk,
       crierOk,
       gateOnP2,
