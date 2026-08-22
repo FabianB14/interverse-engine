@@ -16,6 +16,10 @@ cpSync('site/index.html', `${out}/index.html`);
 mkdirSync(`${out}/docs`, { recursive: true });
 writeFileSync(`${out}/docs/index.html`, docsPage('docs/studio-guide.md'));
 console.log('[site] docs/studio-guide.md -> dist-site/docs/index.html');
+// Bug report form — pairs with the /api/report serverless relay to Discord.
+mkdirSync(`${out}/report`, { recursive: true });
+cpSync('site/report.html', `${out}/report/index.html`);
+console.log('[site] site/report.html -> dist-site/report/index.html');
 // Gameplay screenshots used by the landing page's featured section.
 cpSync('site/shots', `${out}/shots`, { recursive: true });
 // Android app links (TWA): proves to Android that the Hushfall app and this

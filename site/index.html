@@ -290,13 +290,45 @@
         border: 1px solid var(--line);
         margin-top: 10px;
       }
-      /* ------------------------------------------------------ donations */
+      /* ------------------------------------------------------- support */
+      .support-grid {
+        display: grid;
+        grid-template-columns: 1.2fr 1fr;
+        gap: 18px;
+        align-items: start;
+      }
       .donate-box {
         background: linear-gradient(135deg, #1d1430, #1a1726);
         border: 1px solid var(--line);
         border-radius: 22px;
         padding: 34px;
-        max-width: 560px;
+      }
+      .bug-box {
+        background: linear-gradient(135deg, #2a1420, #1a1726);
+        border: 1px solid #4e2c3a;
+        border-radius: 22px;
+        padding: 34px;
+      }
+      .bug-box h3 {
+        margin: 0 0 10px;
+        font-size: 1.3rem;
+      }
+      .bug-box p {
+        color: var(--soft);
+        margin: 0 0 18px;
+      }
+      .btn.bug {
+        background: #ff5d73;
+        border-color: transparent;
+        color: #24060d;
+      }
+      .bug-box .fine a {
+        color: var(--accent);
+      }
+      @media (max-width: 760px) {
+        .support-grid {
+          grid-template-columns: 1fr;
+        }
       }
       .donate-box p.lead {
         color: var(--soft);
@@ -662,25 +694,45 @@
       <div class="wrap">
         <p class="kicker">Support</p>
         <h2 class="title">💜 Keep the engine running</h2>
-        <div class="donate-box">
-          <div>
-            <p class="lead">
-              Interverse is built and hosted by one developer. Every contribution goes straight into
-              development, relay servers, and new games — thank you for keeping the lanterns lit.
+        <div class="support-grid">
+          <div class="donate-box">
+            <div>
+              <p class="lead">
+                Interverse is built and hosted by one developer. Every contribution goes straight
+                into development, relay servers, and new games — thank you for keeping the lanterns
+                lit.
+              </p>
+              <div class="amounts" role="group" aria-label="Donation amount">
+                <button class="amt" data-amt="5">$5</button>
+                <button class="amt" data-amt="10">$10</button>
+                <button class="amt selected" data-amt="25">$25</button>
+                <button class="amt" data-amt="50">$50</button>
+                <button class="amt" data-amt="100">$100</button>
+              </div>
+              <div class="custom-row">
+                <span class="dollar">$</span>
+                <input id="customAmt" type="number" min="1" step="1" placeholder="Custom amount" />
+              </div>
+              <button class="btn good donate-now" id="donateNow">💜 Donate now</button>
+              <p class="fine">Secure checkout via PayPal, Cash App, or Buy Me a Coffee.</p>
+            </div>
+          </div>
+          <div class="bug-box">
+            <h3>🐛 Found a bug?</h3>
+            <p>
+              Hushfall is in alpha and Studio is evolving fast — if something breaks, telling us is
+              the biggest help of all. Reports go straight to the team's Discord.
             </p>
-            <div class="amounts" role="group" aria-label="Donation amount">
-              <button class="amt" data-amt="5">$5</button>
-              <button class="amt" data-amt="10">$10</button>
-              <button class="amt selected" data-amt="25">$25</button>
-              <button class="amt" data-amt="50">$50</button>
-              <button class="amt" data-amt="100">$100</button>
-            </div>
-            <div class="custom-row">
-              <span class="dollar">$</span>
-              <input id="customAmt" type="number" min="1" step="1" placeholder="Custom amount" />
-            </div>
-            <button class="btn good donate-now" id="donateNow">💜 Donate now</button>
-            <p class="fine">Secure checkout via PayPal, Cash App, or Buy Me a Coffee.</p>
+            <a class="btn bug" href="./report/">🐛 Report a bug</a>
+            <p class="fine">
+              Or post in the
+              <a
+                href="https://discord.com/channels/1327482395414237277/1394055232396333077"
+                target="_blank"
+                rel="noopener"
+                >Discord bug-reports channel</a
+              >.
+            </p>
           </div>
         </div>
       </div>
@@ -713,7 +765,7 @@
     <footer>
       <div class="wrap">
         Built with the Interverse Engine — games are best on a phone; the Studio is best on a
-        desktop.
+        desktop. · <a href="./report/">🐛 Report a bug</a>
       </div>
     </footer>
     <script>

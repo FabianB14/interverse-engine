@@ -21,8 +21,9 @@ export default tseslint.config(
     },
   },
   {
-    // Node tooling scripts (some code inside page.evaluate runs in-browser).
-    files: ['scripts/**/*.mjs'],
+    // Node tooling scripts (some code inside page.evaluate runs in-browser)
+    // and the Vercel serverless functions in api/.
+    files: ['scripts/**/*.mjs', 'api/**/*.js'],
     languageOptions: {
       globals: {
         console: 'readonly',
