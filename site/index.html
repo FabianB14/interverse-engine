@@ -436,6 +436,73 @@
       footer a {
         color: var(--soft);
       }
+      /* ---------------------------------------------- games nav dropdown */
+      .drop {
+        position: relative;
+      }
+      .drop-toggle {
+        font: inherit;
+        font-weight: 700;
+        font-size: 0.95rem;
+        color: var(--soft);
+        background: none;
+        border: none;
+        cursor: pointer;
+        padding: 0;
+      }
+      .drop-toggle:hover {
+        color: var(--ink);
+      }
+      .drop-menu {
+        display: none;
+        position: absolute;
+        top: calc(100% + 14px);
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 10px;
+        min-width: 210px;
+        box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+        z-index: 20;
+      }
+      .drop.open .drop-menu {
+        display: block;
+      }
+      .drop-menu a {
+        display: block;
+        text-decoration: none;
+        font-weight: 700;
+        font-size: 0.92rem;
+        color: var(--ink);
+        padding: 8px 12px;
+        border-radius: 10px;
+        white-space: nowrap;
+      }
+      .drop-menu a:hover {
+        background: var(--panel2);
+        color: var(--accent);
+      }
+      .drop-menu a small {
+        color: var(--soft);
+        font-weight: 600;
+      }
+      /* ---------------------------------------------------- alpha badge */
+      .alpha {
+        display: inline-block;
+        vertical-align: middle;
+        margin-left: 10px;
+        padding: 3px 12px;
+        border-radius: 999px;
+        font-size: 0.7rem;
+        font-weight: 900;
+        letter-spacing: 0.12em;
+        background: rgba(255, 93, 115, 0.16);
+        border: 1px solid rgba(255, 93, 115, 0.55);
+        color: #ff5d73;
+        text-transform: uppercase;
+      }
       /* The nav can't fit both buttons beside the links on small screens —
          the hero repeats the Install CTA anyway. */
       @media (max-width: 900px) {
@@ -447,8 +514,20 @@
         .studio-box {
           grid-template-columns: 1fr;
         }
-        .nav a.link {
+        /* keep the Games dropdown — it's the only route to the demos; the
+           Studio buttons live on in the hero and studio section */
+        .nav a.link,
+        .nav .btn {
           display: none;
+        }
+        /* a floating panel would hang off-screen — pin it under the header */
+        .drop-menu {
+          position: fixed;
+          top: 66px;
+          left: 12px;
+          right: 12px;
+          transform: none;
+          min-width: 0;
         }
       }
     </style>
@@ -460,6 +539,24 @@
         <a class="link" href="#hushfall">Hushfall</a>
         <a class="link" href="#studio">Studio</a>
         <a class="link" href="#support">Support</a>
+        <span class="drop" id="gamesDrop">
+          <button class="drop-toggle" id="gamesToggle" aria-haspopup="true" aria-expanded="false">
+            Games ▾
+          </button>
+          <span class="drop-menu" role="menu">
+            <a href="./hushfall/">🕯️ Hushfall <small>· alpha</small></a>
+            <a href="./blobvale/">⚔️ Blobvale</a>
+            <a href="./taps/">🎉 Tap Party</a>
+            <a href="./crashers/">🥊 Blob Crashers</a>
+            <a href="./crashers3d/">🥊 Blob Crashers 3D</a>
+            <a href="./rush/">🏃 Blob Rush</a>
+            <a href="./rush3d/">🏃 Blob Rush 3D</a>
+            <a href="./haven/">🏡 Blobhaven</a>
+            <a href="./farm/">🌱 Bloomstead</a>
+            <a href="./room/">🌿 Cozy Room</a>
+            <a href="./blob-tap/">🫧 Blob Tap</a>
+          </span>
+        </span>
         <span class="spacer"></span>
         <a class="btn" href="./studio/">Open Studio</a>
         <a class="btn primary" href="./studio/?install=1">⬇ Install Studio</a>
@@ -483,13 +580,14 @@
         <div class="hush-box">
           <div>
             <p class="kicker">Featured game</p>
-            <h2>🕯️ Hushfall</h2>
+            <h2>🕯️ Hushfall <span class="alpha">Alpha</span></h2>
             <p class="lead">
               Hide-and-seek horror for you and your friends: one Seeker hunts through a haunted
               manor while seven survivors light the lanterns and slip out the gate before dawn. Pick
               from 19 classes — split into decoy clones, build barricades, drop portable
               teleporters, blind the Seeker's screen — then level them up and unlock passives. One
-              phone hosts, everyone else joins with a 4-letter code. Nothing to install.
+              phone hosts, everyone else joins with a 4-letter code. Nothing to install. Hushfall is
+              in alpha — it's evolving fast, and new powers and manors land all the time.
             </p>
             <ul class="feat">
               <li>1 Seeker vs up to 7 survivors</li>
@@ -661,6 +759,19 @@
         .addEventListener('click', () => modal.classList.remove('open'));
       modal.addEventListener('click', (e) => {
         if (e.target === modal) modal.classList.remove('open');
+      });
+
+      // Games dropdown — click toggles, clicking anywhere else closes.
+      const drop = document.getElementById('gamesDrop');
+      const toggle = document.getElementById('gamesToggle');
+      toggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const open = drop.classList.toggle('open');
+        toggle.setAttribute('aria-expanded', open);
+      });
+      document.addEventListener('click', () => {
+        drop.classList.remove('open');
+        toggle.setAttribute('aria-expanded', 'false');
       });
     </script>
   </body>
