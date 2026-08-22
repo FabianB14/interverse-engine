@@ -290,61 +290,141 @@
         border: 1px solid var(--line);
         margin-top: 10px;
       }
-      /* --------------------------------------------------------- games */
-      .grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-        gap: 16px;
-      }
-      .card {
-        display: block;
-        text-decoration: none;
+      /* ------------------------------------------------------ donations */
+      .donate-box {
+        background: linear-gradient(135deg, #1d1430, #1a1726);
         border: 1px solid var(--line);
-        border-radius: 18px;
-        padding: 20px 22px;
-        background: var(--panel);
-        transition:
-          transform 0.12s ease,
-          border-color 0.12s ease;
+        border-radius: 22px;
+        padding: 34px;
+        max-width: 560px;
       }
-      .card:hover {
+      .donate-box p.lead {
+        color: var(--soft);
+        margin: 0 0 20px;
+      }
+      .amounts {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-bottom: 14px;
+      }
+      .amt {
+        font: inherit;
+        font-weight: 800;
+        color: var(--ink);
+        background: var(--panel2);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 10px 20px;
+        cursor: pointer;
+      }
+      .amt:hover {
         border-color: var(--accent);
-        transform: translateY(-2px);
       }
-      .card h3 {
+      .amt.selected {
+        background: var(--accent);
+        border-color: transparent;
+        color: #16101f;
+      }
+      .custom-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 18px;
+      }
+      .custom-row .dollar {
+        color: var(--soft);
+        font-weight: 800;
+      }
+      .custom-row input {
+        font: inherit;
+        font-weight: 700;
+        color: var(--ink);
+        background: var(--panel2);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 10px 14px;
+        width: 180px;
+      }
+      .custom-row input:focus {
+        outline: none;
+        border-color: var(--accent);
+      }
+      .donate-now {
+        font-size: 1.05rem;
+        padding: 13px 26px;
+        cursor: pointer;
+        border: none;
+        font-family: inherit;
+      }
+      .fine {
+        color: var(--soft);
+        font-size: 0.82rem;
+        margin: 14px 0 0;
+      }
+      .modal-back {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 40;
+        background: rgba(10, 8, 18, 0.72);
+        backdrop-filter: blur(4px);
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+      }
+      .modal-back.open {
+        display: flex;
+      }
+      .modal {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        padding: 30px 28px;
+        width: min(420px, 100%);
+        text-align: center;
+        box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6);
+      }
+      .modal h3 {
         margin: 0 0 6px;
-        font-size: 1.25rem;
+        font-size: 1.35rem;
       }
-      .card h3 .gicon {
-        width: 34px;
-        height: 34px;
-        border-radius: 9px;
-        vertical-align: -9px;
-        margin-right: 8px;
-      }
-      .card p {
-        margin: 0;
+      .modal-amt {
         color: var(--soft);
-        font-size: 0.92rem;
+        margin: 0 0 18px;
       }
-      .tag {
-        display: inline-block;
-        margin-top: 12px;
-        padding: 3px 12px;
-        border-radius: 999px;
-        font-size: 0.72rem;
-        font-weight: 800;
-        background: rgba(255, 255, 255, 0.08);
-        color: var(--warn);
-        letter-spacing: 0.06em;
+      .modal .pay {
+        display: block;
+        margin-bottom: 12px;
+        font-size: 1rem;
+        padding: 13px 18px;
       }
-      .cat {
-        margin: 26px 0 12px;
+      .modal .paypal {
+        background: linear-gradient(90deg, #ff5d9e, #ffb45d);
+        border-color: transparent;
+        color: #1b0d14;
+      }
+      .modal .cashapp {
+        background: var(--good);
+        border-color: transparent;
+        color: #0c1a12;
+      }
+      .modal .coffee {
+        background: var(--warn);
+        border-color: transparent;
+        color: #241b06;
+      }
+      .modal-cancel {
+        font: inherit;
+        font-weight: 700;
+        background: none;
+        border: none;
         color: var(--soft);
-        font-weight: 800;
-        letter-spacing: 0.1em;
-        font-size: 0.85rem;
-        text-transform: uppercase;
+        cursor: pointer;
+        margin-top: 4px;
+      }
+      .modal-cancel:hover {
+        color: var(--ink);
       }
       footer {
         border-top: 1px solid var(--line);
@@ -379,7 +459,7 @@
         <a class="logo" href="#">◆ INTERVERSE</a>
         <a class="link" href="#hushfall">Hushfall</a>
         <a class="link" href="#studio">Studio</a>
-        <a class="link" href="#games">Games</a>
+        <a class="link" href="#support">Support</a>
         <span class="spacer"></span>
         <a class="btn" href="./studio/">Open Studio</a>
         <a class="btn primary" href="./studio/?install=1">⬇ Install Studio</a>
@@ -395,7 +475,6 @@
       <div class="cta">
         <a class="btn good" href="./hushfall/">🕯️ Play Hushfall</a>
         <a class="btn primary" href="./studio/?install=1">⬇ Install Interverse Studio</a>
-        <a class="btn" href="#games">🎮 All games</a>
       </div>
     </div>
 
@@ -479,116 +558,57 @@
       </div>
     </section>
 
-    <section id="games">
+    <section id="support">
       <div class="wrap">
-        <p class="kicker">Built on the engine</p>
-        <h2 class="title">🎮 The games</h2>
-
-        <p class="cat">Multiplayer — share a room code</p>
-        <div class="grid">
-          <a class="card" href="./hushfall/">
-            <h3><img class="gicon" src="./hushfall/icon-192.png" alt="" /> Hushfall</h3>
-            <p>
-              Asymmetric hide-and-seek across five haunted manors: hiders light the lanterns and
-              slip out the gate (or the dawn hatch) while the Seeker hunts. 13 classes, teleporter
-              pads, rescues — and a terror heartbeat.
+        <p class="kicker">Support</p>
+        <h2 class="title">💜 Keep the engine running</h2>
+        <div class="donate-box">
+          <div>
+            <p class="lead">
+              Interverse is built and hosted by one developer. Every contribution goes straight into
+              development, relay servers, and new games — thank you for keeping the lanterns lit.
             </p>
-            <span class="tag">1 vs 7 · HORROR</span>
-          </a>
-          <a class="card" href="./blobvale/">
-            <h3>⚔️ Blobvale</h3>
-            <p>5-player co-op RPG — pick a class and explore a shared world together.</p>
-            <span class="tag">CO-OP RPG</span>
-          </a>
-          <a class="card" href="./taps/">
-            <h3>🎉 Tap Party</h3>
-            <p>Host a room, share the 4-letter code, and see everyone's taps live.</p>
-            <span class="tag">PARTY</span>
-          </a>
-        </div>
-
-        <p class="cat">Action</p>
-        <div class="grid">
-          <a class="card" href="./crashers/">
-            <h3>🥊 Blob Crashers</h3>
-            <p>
-              A 15-stage side-scrolling brawler. Pick a blob, chain combos, launch armoured brutes,
-              and fight your way to the Blob King &mdash; alone or with three friends on a room
-              code.
-            </p>
-            <span class="tag">BEAT-'EM-UP · 15 STAGES · 1&ndash;4 CO-OP</span>
-          </a>
-          <a class="card" href="./rush/">
-            <h3>🏃 Blob Rush</h3>
-            <p>
-              An endless runner down a rotting causeway, deeper and deeper into a swamp and out the
-              far side &mdash; eight zones, from a misty bog to whatever The Mouth is. The road
-              bends away out of sight and turns hard corners the camera swings round with you. Swipe
-              to switch lanes, vault the fallen logs, duck the branches. The blob rolls; whatever
-              hat you spend your coins on stays right where you put it.
-            </p>
-            <span class="tag">ENDLESS RUNNER · 8 ZONES · 8 HATS</span>
-          </a>
-          <a class="card" href="./rush3d/">
-            <h3>🏃 Blob Rush 3D</h3>
-            <p>
-              The same swamp, rendered for real: the engine's new three.js renderer draws the
-              causeway in true 3D &mdash; a sun that casts shadows, fog you can see into, corners
-              the camera actually swings round. Same rules, same eight zones, and the
-              <em>same save</em>: coins and hats carry over between this and the 2D game, because
-              the game logic never knew which renderer it was running under.
-            </p>
-            <span class="tag">ENDLESS RUNNER · TRUE 3D · SHARED SAVE</span>
-          </a>
-          <a class="card" href="./crashers3d/">
-            <h3>🥊 Blob Crashers 3D</h3>
-            <p>
-              The brawler steps into a real canyon: animated stone golems (imported 3D models with
-              idle and swing clips) stream in along curved paths and wind up the same telegraphed
-              slams the 2D game taught you. Same combat rules under the hood &mdash; the three-hit
-              chain, the launcher, waves that gate the arena &mdash; drawn with sun, shadow and fog.
-            </p>
-            <span class="tag">BRAWLER · ANIMATED MODELS · TRUE 3D</span>
-          </a>
-        </div>
-
-        <p class="cat">Cozy &amp; solo</p>
-        <div class="grid">
-          <a class="card" href="./haven/">
-            <h3>🏡 Blobhaven</h3>
-            <p>
-              Your own big island in true 3D &mdash; walk it in third person or step into first
-              person, go inside your house, and decorate everything. Spend ⬡ Verium (the shared
-              Interverse wallet &mdash; coins earned in Bloomstead work here) on hats and coats,
-              premium furniture and 3D statues, bigger houses up to a two-story manor with a loft,
-              and five house themes. Open your world and friends join with a room code; visit theirs
-              from a friends list that knows who's online. No accounts &mdash; just a friend code.
-            </p>
-            <span class="tag">SOCIAL HUB · ⬡ STORE · 2-STORY MANORS</span>
-          </a>
-          <a class="card" href="./farm/">
-            <h3>🌱 Bloomstead</h3>
-            <p>
-              Name your farmer, then plant, water and harvest to zen music while weather and seasons
-              roll by.
-            </p>
-            <span class="tag">COZY FARMING</span>
-          </a>
-          <a class="card" href="./room/">
-            <h3>🌿 Cozy Room</h3>
-            <p>Walk a little room with a joystick and have a chat with Fern.</p>
-            <span class="tag">COZY</span>
-          </a>
-          <a class="card" href="./blob-tap/">
-            <h3>🫧 Blob Tap</h3>
-            <p>
-              Pop the blobs before they escape — 30-second arcade rounds with a saved best score.
-            </p>
-            <span class="tag">ARCADE</span>
-          </a>
+            <div class="amounts" role="group" aria-label="Donation amount">
+              <button class="amt" data-amt="5">$5</button>
+              <button class="amt" data-amt="10">$10</button>
+              <button class="amt selected" data-amt="25">$25</button>
+              <button class="amt" data-amt="50">$50</button>
+              <button class="amt" data-amt="100">$100</button>
+            </div>
+            <div class="custom-row">
+              <span class="dollar">$</span>
+              <input id="customAmt" type="number" min="1" step="1" placeholder="Custom amount" />
+            </div>
+            <button class="btn good donate-now" id="donateNow">💜 Donate now</button>
+            <p class="fine">Secure checkout via PayPal, Cash App, or Buy Me a Coffee.</p>
+          </div>
         </div>
       </div>
     </section>
+
+    <!-- donation method chooser -->
+    <div
+      class="modal-back"
+      id="donateModal"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Choose donation method"
+    >
+      <div class="modal">
+        <h3>Choose a donation method</h3>
+        <p class="modal-amt">Amount: <strong id="modalAmt">$25</strong></p>
+        <a class="btn pay paypal" id="payPaypal" target="_blank" rel="noopener"
+          >💳 Donate via PayPal</a
+        >
+        <a class="btn pay cashapp" id="payCashapp" target="_blank" rel="noopener"
+          >💵 Donate via Cash App</a
+        >
+        <a class="btn pay coffee" id="payCoffee" target="_blank" rel="noopener"
+          >☕ Buy Me a Coffee</a
+        >
+        <button class="modal-cancel" id="donateCancel">Cancel</button>
+      </div>
+    </div>
 
     <footer>
       <div class="wrap">
@@ -596,5 +616,52 @@
         desktop.
       </div>
     </footer>
+    <script>
+      // Donations — same destinations as interverse-ivx.com.
+      const PAYPAL_BUSINESS = 'fabian.brooks@interverse-ivx.com';
+      const CASHTAG = '$fabe8';
+      const COFFEE_URL = 'https://www.buymeacoffee.com/interverse';
+
+      const amtBtns = [...document.querySelectorAll('.amt')];
+      const customAmt = document.getElementById('customAmt');
+      const modal = document.getElementById('donateModal');
+      let amount = 25;
+
+      for (const b of amtBtns)
+        b.addEventListener('click', () => {
+          amtBtns.forEach((x) => x.classList.remove('selected'));
+          b.classList.add('selected');
+          customAmt.value = '';
+          amount = +b.dataset.amt;
+        });
+      customAmt.addEventListener('input', () => {
+        amtBtns.forEach((x) => x.classList.remove('selected'));
+        amount = Math.max(1, Math.floor(+customAmt.value || 0));
+      });
+
+      document.getElementById('donateNow').addEventListener('click', () => {
+        if (!amount || amount < 1) {
+          customAmt.focus();
+          return;
+        }
+        document.getElementById('modalAmt').textContent = '$' + amount;
+        document.getElementById('payPaypal').href =
+          'https://www.paypal.com/donate?business=' +
+          encodeURIComponent(PAYPAL_BUSINESS) +
+          '&amount=' +
+          amount +
+          '&currency_code=USD&item_name=' +
+          encodeURIComponent('Interverse Engine Support');
+        document.getElementById('payCashapp').href = 'https://cash.app/' + CASHTAG + '/' + amount;
+        document.getElementById('payCoffee').href = COFFEE_URL;
+        modal.classList.add('open');
+      });
+      document
+        .getElementById('donateCancel')
+        .addEventListener('click', () => modal.classList.remove('open'));
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) modal.classList.remove('open');
+      });
+    </script>
   </body>
 </html>
