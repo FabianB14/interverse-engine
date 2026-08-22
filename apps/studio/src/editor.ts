@@ -6,7 +6,13 @@
  */
 import { History } from './history.js';
 import {
-  CLIPBOARD_KEY, alignDefs, cloneForPaste, distributeDefs, isMarquee, toggleIn, withinMarquee,
+  CLIPBOARD_KEY,
+  alignDefs,
+  cloneForPaste,
+  distributeDefs,
+  isMarquee,
+  toggleIn,
+  withinMarquee,
 } from './clipboard.js';
 import type { AlignEdge } from './clipboard.js';
 import { Container, Graphics, Text } from 'pixi.js';
@@ -70,7 +76,9 @@ class EditScene extends Scene {
     // Everything sits in a pannable world so levels bigger than one screen
     // can be edited — the wheel/trackpad scrolls around them.
     this.stage.addChildAt(this.world, 0);
-    const bg = new Graphics().rect(0, 0, this.def.worldW, this.def.worldH).fill(this.def.background);
+    const bg = new Graphics()
+      .rect(0, 0, this.def.worldW, this.def.worldH)
+      .fill(this.def.background);
     if (this.def.view === 'depth') {
       // Same backdrop/ground split the runtime draws: above the horizon is
       // scenery, the band below is where players walk (Castle Crashers).
@@ -89,10 +97,16 @@ class EditScene extends Scene {
       .rect(1, 1, this.def.worldW - 2, this.def.worldH - 2)
       .stroke({ color: 0xc77dff, width: 2, alpha: 0.35 });
     for (let gx = 720; gx < this.def.worldW; gx += 720) {
-      frame.moveTo(gx, 0).lineTo(gx, this.def.worldH).stroke({ color: 0xc77dff, width: 1, alpha: 0.15 });
+      frame
+        .moveTo(gx, 0)
+        .lineTo(gx, this.def.worldH)
+        .stroke({ color: 0xc77dff, width: 1, alpha: 0.15 });
     }
     for (let gy = 1280; gy < this.def.worldH; gy += 1280) {
-      frame.moveTo(0, gy).lineTo(this.def.worldW, gy).stroke({ color: 0xc77dff, width: 1, alpha: 0.15 });
+      frame
+        .moveTo(0, gy)
+        .lineTo(this.def.worldW, gy)
+        .stroke({ color: 0xc77dff, width: 1, alpha: 0.15 });
     }
     this.world.addChild(frame);
     for (const e of this.def.entities) this.addViewFor(e);
@@ -136,7 +150,12 @@ class EditScene extends Scene {
     this.frameG.rect(x, y, fw, fh).stroke({ color: 0x8affc1, width: 3, alpha: 0.9 });
     this.frameLabel = new Text({
       text: mode === 'landscape' ? '↔ rotated screen' : '↕ portrait screen',
-      style: { fontFamily: 'system-ui, sans-serif', fontSize: 22, fontWeight: '700', fill: 0x8affc1 },
+      style: {
+        fontFamily: 'system-ui, sans-serif',
+        fontSize: 22,
+        fontWeight: '700',
+        fill: 0x8affc1,
+      },
     });
     this.frameLabel.eventMode = 'none';
     this.frameLabel.position.set(Math.max(10, x) + 12, Math.max(6, y) + 8);
@@ -167,7 +186,10 @@ class EditScene extends Scene {
         view.zIndex = 2e9;
         this.world.addChild(view);
       } else {
-        this.world.addChildAt(view, Math.min(spec.id === 'back' ? 1 : 2, this.world.children.length));
+        this.world.addChildAt(
+          view,
+          Math.min(spec.id === 'back' ? 1 : 2, this.world.children.length),
+        );
       }
       this.tileLayers.set(spec.id, view);
     }
@@ -242,7 +264,12 @@ export class StudioEditor {
   private playScene: PlayScene | null = null;
   /** A drag carries the WHOLE selection: dx/dy is the grab offset for the
    *  actor under the pointer, and `others` their offsets relative to it. */
-  private drag: { def: EntityDef; dx: number; dy: number; others: { def: EntityDef; ox: number; oy: number }[] } | null = null;
+  private drag: {
+    def: EntityDef;
+    dx: number;
+    dy: number;
+    others: { def: EntityDef; ox: number; oy: number }[];
+  } | null = null;
   /** Marquee in progress (design coords). */
   marquee: { a: { x: number; y: number }; b: { x: number; y: number } } | null = null;
   private saveTimer = 0;
@@ -510,7 +537,12 @@ export class StudioEditor {
 
   setTile(col: number, row: number, ch: string, layer?: string): void {
     this.editLabel = 'paint';
-    setTileChar(this.layerRows(layer && isTileLayerId(layer) ? layer : this.paintLayer), col, row, ch);
+    setTileChar(
+      this.layerRows(layer && isTileLayerId(layer) ? layer : this.paintLayer),
+      col,
+      row,
+      ch,
+    );
     this.editScene?.refreshTiles();
     this.touch();
   }
@@ -691,6 +723,12 @@ export class StudioEditor {
   // -------------------------------------------------------------- editing
 
   addEntity(kind: EntityKind, x: number, y: number): EntityDef {
+    // The camera actor is a 3D viewpoint; 2D and 2.5D levels have no use
+    // for it. Interactive paths refuse politely before reaching here — this
+    // throw covers the AI chat, the MCP bridge, and future callers.
+    if (kind === 'camera' && this.scene.view !== '3d') {
+      throw new Error('the 🎥 camera only works in 3D levels');
+    }
     this.editLabel = 'add actor';
     const def = defaultEntity(kind, x, y);
     // Unique, friendly name: blob, blob 2, blob 3...
@@ -973,7 +1011,10 @@ export class StudioEditor {
     const r = ring.getLocalBounds();
     const lb = v.getLocalBounds();
     const box = (x: number, y: number, w: number, h: number): Box => ({
-      x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h),
+      x: Math.round(x),
+      y: Math.round(y),
+      w: Math.round(w),
+      h: Math.round(h),
     });
     return {
       ring: box(r.x, r.y, r.width, r.height),
@@ -1124,7 +1165,10 @@ export class StudioEditor {
     // Loading a template or a file is a big step you should be able to take
     // back — but a restore driven BY undo must not record itself.
     if (!this.history.isApplying) {
-      this.history.record(this.exportJson(), this.editLabel === 'edit' ? 'load project' : this.editLabel);
+      this.history.record(
+        this.exportJson(),
+        this.editLabel === 'edit' ? 'load project' : this.editLabel,
+      );
       this.onHistory();
     }
     this.onChanged();

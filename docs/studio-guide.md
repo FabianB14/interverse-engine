@@ -8,22 +8,22 @@ edit is the real engine, live — press **▶ Play** at any moment.
 
 - **✚ New** — pick a template:
 
-  | Template | View | What you get |
-  | --- | --- | --- |
-  | Blank | 2D | Empty canvas + a hero |
-  | Garden Explorer | Top-down | Walk anywhere, collect fireflies |
-  | Sunset Street | 2.5D · 3 screens wide | A long street to journey down, camera follows |
-  | Blob Dash | 2D | Endless runner with jumping + ramping speed |
-  | Slash Frenzy | 2D | Fruit-ninja tap-slashing |
-  | Blob Arena | Top-down | Action survival waves |
-  | A Quiet Evening | 2D | Cozy room, stories, no fail state |
-  | Tiny Quest | Top-down RPG | NPCs, training, branching **skill tree** |
-  | Hilltop Hop | Gravity run · wide | Run + JUMP across 3 screens, camera follows |
-  | Firefly Party | Multiplayer co-op | Host a room code, catch fireflies together |
-  | Hero's Errand | Menu → Quest | Title menu, village shop, find 2 chests, boss lair |
-  | ⚔️ Blobvale | Co-op RPG · multiplayer | Menu, class pick, shared world, wolves + a direwolf |
-  | 🌱 Bloomstead | Cozy farming | Plant, harvest, sell at the stall — no enemies, no fail state |
-  | 🕯️ Hushfall | Hide & seek · multiplayer | Light every lantern, reach the gate before the Seeker |
+  | Template        | View                      | What you get                                                  |
+  | --------------- | ------------------------- | ------------------------------------------------------------- |
+  | Blank           | 2D                        | Empty canvas + a hero                                         |
+  | Garden Explorer | Top-down                  | Walk anywhere, collect fireflies                              |
+  | Sunset Street   | 2.5D · 3 screens wide     | A long street to journey down, camera follows                 |
+  | Blob Dash       | 2D                        | Endless runner with jumping + ramping speed                   |
+  | Slash Frenzy    | 2D                        | Fruit-ninja tap-slashing                                      |
+  | Blob Arena      | Top-down                  | Action survival waves                                         |
+  | A Quiet Evening | 2D                        | Cozy room, stories, no fail state                             |
+  | Tiny Quest      | Top-down RPG              | NPCs, training, branching **skill tree**                      |
+  | Hilltop Hop     | Gravity run · wide        | Run + JUMP across 3 screens, camera follows                   |
+  | Firefly Party   | Multiplayer co-op         | Host a room code, catch fireflies together                    |
+  | Hero's Errand   | Menu → Quest              | Title menu, village shop, find 2 chests, boss lair            |
+  | ⚔️ Blobvale     | Co-op RPG · multiplayer   | Menu, class pick, shared world, wolves + a direwolf           |
+  | 🌱 Bloomstead   | Cozy farming              | Plant, harvest, sell at the stall — no enemies, no fail state |
+  | 🕯️ Hushfall     | Hide & seek · multiplayer | Light every lantern, reach the gate before the Seeker         |
 
   **Hero's Errand** is the capstone — it uses almost everything in this
   guide at once (a start-button menu level, a shopkeeper NPC selling
@@ -69,7 +69,7 @@ level picker, ✚ New, ↶ undo and the project name never move.
 ## 1½ · ↶ Undo and redo
 
 Every edit can be taken back: **↶ / ↷** in the toolbar, or **Ctrl/⌘+Z** and
-**Ctrl/⌘+Shift+Z**. Hovering the buttons tells you *what* will be taken
+**Ctrl/⌘+Shift+Z**. Hovering the buttons tells you _what_ will be taken
 back ("Undo move", "Undo add actor") rather than just "undo".
 
 A drag counts as one step, not one per pixel — continuous edits (moving,
@@ -99,12 +99,12 @@ member and the whole group travels with it, spacing intact.
 
 With more than one selected, the inspector becomes a group panel:
 
-| Action | What it does |
-| --- | --- |
-| ⇤ ⇥ ⤒ ⤓ | Line them up on an edge |
-| ↔ ↕ | Centre them on an axis |
-| ≡ | Space them evenly (along whichever axis they are most spread out on) |
-| ⧉ Duplicate · 📋 Copy · 🗑 Delete | Do it to all of them |
+| Action                           | What it does                                                         |
+| -------------------------------- | -------------------------------------------------------------------- |
+| ⇤ ⇥ ⤒ ⤓                          | Line them up on an edge                                              |
+| ↔ ↕                              | Centre them on an axis                                               |
+| ≡                                | Space them evenly (along whichever axis they are most spread out on) |
+| ⧉ Duplicate · 📋 Copy · 🗑 Delete | Do it to all of them                                                 |
 
 **Arrow keys** nudge the selection by one unit; hold **Shift** for a whole
 tile (32).
@@ -177,10 +177,14 @@ a landscape phone/tablet simply sees a wide window into the same world,
 like every classic mobile RPG.
 
 - **👁 Top-down** — the player moves freely in all directions.
-- **👁 2.5D** — plays like *Castle Crashers*: the board is **one landscape
+- **🔒 3D** — an experimental true-3D view exists in the selector but is
+  **locked for now** while its bugs get fixed; it will unlock in a later
+  update. (The 🎥 camera actor belongs to 3D levels only — 2D and 2.5D
+  levels film themselves, so the palette doesn't offer it there.)
+- **👁 2.5D** — plays like _Castle Crashers_: the board is **one landscape
   screen tall (720)** with a backdrop above the **horizon** and a walkable
   ground band below it, and the journey runs **left-to-right** — you never
-  see the whole map at once. Walking "up" walks a short way *into* the
+  see the whole map at once. Walking "up" walks a short way _into_ the
   scene (slower than the run, and never past the horizon); characters keep
   near-constant size — depth reads through draw order and a subtle
   far/near scale, not fake 3D shrinking. The editor shows the
@@ -193,9 +197,9 @@ like every classic mobile RPG.
   the wheel/trackpad to pan along the board; faint guide lines mark each
   screen.
 - **Gravity** — level physics, not a view, and it adapts to the view:
-  - *Top-down levels*: platformer physics — ← → run, ↑ / W / joystick-up
+  - _Top-down levels_: platformer physics — ← → run, ↑ / W / joystick-up
     to **jump** (Hilltop Hop is the example).
-  - *2.5D levels*: the **brawler jump** (Castle Crashers) — **Space** or
+  - _2.5D levels_: the **brawler jump** (Castle Crashers) — **Space** or
     the auto-added **Jump button** hops you above the ground plane with a
     shadow below; you keep steering in every direction while airborne and
     **land wherever you are on the plane** — never yanked back to the row
@@ -227,7 +231,7 @@ thing on all of them, where "x: 16, y: 12" does not.
 - **Size** each piece independently (a bigger joystick for small hands).
 - **Safe areas** keep everything clear of a notch and the home bar; the
   striped bands show where the hardware will cover the screen. 44–60 is
-  typical. The ability cluster also grows *inward* from its anchor, so
+  typical. The ability cluster also grows _inward_ from its anchor, so
   moving it to the left corner makes it stack rightward.
 
 Edits apply immediately while Play is running, so you can nudge the HUD
@@ -241,17 +245,17 @@ actor should have. When that actor is the player, each one becomes an
 **on-screen button automatically** — no code, no `api.ability()` call.
 
 **✚ Create an ability…** makes a new one and opens the editor. You choose
-what it *does* from a list, and only the numbers that effect uses are
+what it _does_ from a list, and only the numbers that effect uses are
 shown:
 
-| Effect | What it does | You set |
-| --- | --- | --- |
-| 🗡 Attack nearby enemies | Hits everything in reach | Damage, Reach |
-| 🏹 Shoot the nearest enemy | Fires a homing shot | Damage, Shot speed |
-| ❤ Heal yourself | Restores hearts | Hearts |
-| 👟 Dash forward | Leaps the way you face | Distance |
-| 🐣 Drop something | Spawns an actor beside you | What to drop |
-| 📝 Custom code | Anything the list misses | Your code |
+| Effect                     | What it does               | You set            |
+| -------------------------- | -------------------------- | ------------------ |
+| 🗡 Attack nearby enemies    | Hits everything in reach   | Damage, Reach      |
+| 🏹 Shoot the nearest enemy | Fires a homing shot        | Damage, Shot speed |
+| ❤ Heal yourself            | Restores hearts            | Hearts             |
+| 👟 Dash forward            | Leaps the way you face     | Distance           |
+| 🐣 Drop something          | Spawns an actor beside you | What to drop       |
+| 📝 Custom code             | Anything the list misses   | Your code          |
 
 Plus a cooldown, an icon, a particle burst, a sound, and an optional
 **key** — handy while editing on a desktop, though phone players just tap
@@ -298,7 +302,7 @@ flowers, dirt and stone paths, sand, water, rock walls, trees, brick.
 Click/drag on the canvas to paint terrain (18×32 grid per level), use the
 eraser to clear, and **✓ Done painting** to go back to placing things.
 
-Tiles marked *solid* (water, rock, trees, brick) **block players** in Play
+Tiles marked _solid_ (water, rock, trees, brick) **block players** in Play
 mode automatically — paint a maze and it just works. The Garden Explorer
 template ships with a painted garden to start from.
 
@@ -332,17 +336,17 @@ points widened or returned to the sea.
 
 Terrain paints onto one of three layers, chosen at the top of the paintbox:
 
-| Layer | Where it draws | Blocks players |
-| --- | --- | --- |
-| ⬓ Behind | Under everything — ground, paths, rugs | No |
-| ⬛ Main | The level itself | **Yes**, for solid tiles |
-| ⬒ In front | Over the actors — treetops, roofs, mist | No |
+| Layer      | Where it draws                          | Blocks players           |
+| ---------- | --------------------------------------- | ------------------------ |
+| ⬓ Behind   | Under everything — ground, paths, rugs  | No                       |
+| ⬛ Main    | The level itself                        | **Yes**, for solid tiles |
+| ⬒ In front | Over the actors — treetops, roofs, mist | No                       |
 
 Only the **Main** layer collides. That is a rule, not a default: terrain
 that could quietly block the player is exactly the confusion layers exist
 to remove, so "solid" only appears on a swatch while you are painting Main.
 
-The ⬒ In front layer is what lets a character walk *behind* a tree canopy
+The ⬒ In front layer is what lets a character walk _behind_ a tree canopy
 or a roof. In the editor it is drawn faded so you can still see what you
 are placing underneath it; in Play it is solid-looking and actors pass
 beneath it.
@@ -370,14 +374,14 @@ them cost nothing.
   `api.playClip('Hero', 'walk')`. Characters and models also
   **auto-face** their movement direction.
 - **Property animation from code** — `api.tween(thing, { x, y, rotation,
-  alpha, scale }, seconds)` for cutscenes and juice.
+alpha, scale }, seconds)` for cutscenes and juice.
 - From code: `api.sfx.pop()`, `.blip()`, `.chime()`, `.buzz()`.
 - **Music** — looping chiptune BGM, synthesized live (no downloads):
   `api.music.play('adventure' | 'cozy' | 'battle' | 'spooky')`,
   `.stop()`, and `.fanfare()` — a victory jingle that ducks the BGM and
   lets it resume, RPG-Maker style. Events have a 🎵 Music action too, so
   no code is needed. Volumes: `api.music.setVolume('music'|'sfx'|'master',
-  0..1)` — remembered per device. Garden Explorer opens on 'adventure',
+0..1)` — remembered per device. Garden Explorer opens on 'adventure',
   Blob Arena on 'battle'.
 
 ## 4¼ · 🏠 Menus — main, pause and settings
@@ -425,35 +429,36 @@ machine with zero wiring.
 An action row is **[ action ] [ box ]**, and the box means something
 different for every action. Hovering it says so; here is the whole list:
 
-| Action | The box holds |
-| --- | --- |
-| 💬 Say message | The line of dialogue. `YOU ESCAPED!` |
-| 🚪 Go to level… | The level's **name**, exactly as it appears in the level picker. `Village` |
-| 🔛 / ⏹ Turn switch ON/OFF | A **switch name** you invent. `gate-open` |
-| 🔢 Add to variable | A **counter name** you invent, plus how much to add. `lanterns` `+1` |
-| 🏆 Win / 💀 Lose | The banner text shown on the end screen. `ROOM CLEAR` |
-| 🐣 Spawn a thing | What to spawn. `crate` |
-| 🪙 ⭐ ✨ ❤ (coins, score, XP, heal) | Just a number — no text box. |
-| 🔊 🎵 ✨ 🎁 (sound, music, effect, item) | A menu, not free text. |
-| 🛒 🎒 ⚙ ⏸ 🏠 🗑 | Nothing — they take no settings. |
+| Action                                   | The box holds                                                              |
+| ---------------------------------------- | -------------------------------------------------------------------------- |
+| 💬 Say message                           | The line of dialogue. `YOU ESCAPED!`                                       |
+| 🚪 Go to level…                          | The level's **name**, exactly as it appears in the level picker. `Village` |
+| 🔛 / ⏹ Turn switch ON/OFF                | A **switch name** you invent. `gate-open`                                  |
+| 🔢 Add to variable                       | A **counter name** you invent, plus how much to add. `lanterns` `+1`       |
+| 🏆 Win / 💀 Lose                         | The banner text shown on the end screen. `ROOM CLEAR`                      |
+| 🐣 Spawn a thing                         | What to spawn. `crate`                                                     |
+| 🪙 ⭐ ✨ ❤ (coins, score, XP, heal)      | Just a number — no text box.                                               |
+| 🔊 🎵 ✨ 🎁 (sound, music, effect, item) | A menu, not free text.                                                     |
+| 🛒 🎒 ⚙ ⏸ 🏠 🗑                           | Nothing — they take no settings.                                           |
 
 Switch and counter names are yours to invent: there is no list to register
 them in, and **the same name anywhere means the same thing**. That is how
 one actor's action reaches another actor's condition.
 
-The two boxes *above* the actions are conditions on the whole event, not
+The two boxes _above_ the actions are conditions on the whole event, not
 actions:
 
 - **only if switch…** — a switch name. Blank means always run.
 - **needs counter… ≥ n** — a counter name and a number. Blank means always.
 
 Three extras make real quests possible:
+
 - **only if switch…** — the event runs only while a named switch is ON.
   A chest can `Turn switch ON: opened`, and a door gated with
   `only if switch: opened` starts working after the chest is found.
 - **needs variable… ≥ n** — the event runs only once a counter has
-  reached a number. Switches answer *did it happen?*; variables answer
-  *how many?* Give two chests a `🔢 Add to variable: chests +1` action
+  reached a number. Switches answer _did it happen?_; variables answer
+  _how many?_ Give two chests a `🔢 Add to variable: chests +1` action
   and gate the gate on `needs variable: chests` ≥ `2`, and the player
   must find **both** before it opens. That's a collect-N quest with no
   code at all.
@@ -494,7 +499,7 @@ The **🗄** toolbar button opens the project database:
   **🛒 Open shop** action and you have a working store: the panel lists
   the wares with prices, shows the live coin wallet, and tapping a row
   buys it (a buzz if the player is short). From code it's
-  `api.shop.open()`. No shop scene to build — the database *is* the shop.
+  `api.shop.open()`. No shop scene to build — the database _is_ the shop.
 - **🌐 Languages** — a translation table. Any text starting with `@key`
   (labels, buttons, stories, 💬 events) shows the player's language:
   `{"en": {"greet": "Hello"}, "es": {"greet": "Hola"}}`. From code:
@@ -602,12 +607,12 @@ Drag a **👾 Monster** or **👹 Boss** from the palette — they're real actor
 with combat stats in the inspector: **Health**, **Contact damage**, **XP
 reward**, **Move speed**, and a **Behavior** AI you pick from a dropdown:
 
-| Behavior | What it does |
-| --- | --- |
-| 🏃 Chase | hunts the player |
-| ↔ Patrol | walks left-right around its spot |
-| 🎲 Wander | drifts randomly |
-| 🛡 Guard | stays home, chases when you get close, then returns |
+| Behavior  | What it does                                        |
+| --------- | --------------------------------------------------- |
+| 🏃 Chase  | hunts the player                                    |
+| ↔ Patrol  | walks left-right around its spot                    |
+| 🎲 Wander | drifts randomly                                     |
+| 🛡 Guard   | stays home, chases when you get close, then returns |
 
 Monsters show a health bar when hurt; a Boss gets a big named bar at the
 top of the screen. Touching a mob costs the player a **heart** (with
@@ -618,7 +623,7 @@ set them yourself with `api.hearts(5)`.
 **Ranged enemies** — set **Shoot every** (secs) in the inspector and the
 mob fires glowing projectiles at the player; they're dodgeable (sidestep,
 or jump over them in 2.5D). **Bosses have phases**: at half HP a boss
-*enrages* — it flushes red, moves 40% faster, and shoots almost twice as
+_enrages_ — it flushes red, moves 40% faster, and shoots almost twice as
 often, with an announcement toast. **NPC routes**: walk any character
 along a looping waypoint path with
 `api.patrol('Villager', [[160, 300], [560, 300]], 90)` — great for town
@@ -630,10 +635,10 @@ sweep and an optional keyboard hotkey:
 
 ```js
 api.ability('Slash', { icon: 'sword', cooldown: 0.5, key: 'j' }, () => {
-  api.meleeAttack(140, 1);          // hit mobs within 140 for 1 damage
+  api.meleeAttack(140, 1); // hit mobs within 140 for 1 damage
 });
 api.ability('Heal', { icon: 'heart', cooldown: 8, key: 'h' }, () => {
-  api.hearts(3);                    // any code works — it's just a button
+  api.hearts(3); // any code works — it's just a button
 });
 ```
 
@@ -641,10 +646,10 @@ Built-in icons: `sword fire bolt snow shield boot heart star` — or use an
 imported image with `icon: '@<assetId>'`. More combat tools:
 
 ```js
-api.meleeAttack(140, 1)     // swing around the player, returns hits
-api.hurt('Warden', 2)       // damage a mob/boss by name
-api.hpOf('Warden')          // its current HP (0 = defeated)
-api.onDefeat((name) => {})  // react to any defeat (loot! win checks!)
+api.meleeAttack(140, 1); // swing around the player, returns hits
+api.hurt('Warden', 2); // damage a mob/boss by name
+api.hpOf('Warden'); // its current HP (0 = defeated)
+api.onDefeat((name) => {}); // react to any defeat (loot! win checks!)
 ```
 
 **Leveling** ties it together: call `api.levels()` and defeated mobs grant
@@ -664,7 +669,7 @@ a wall stops charging rather than grinding along it.
 
 🏃 Chase and 🛡 Guard enemies **path around walls**. With a clear line to
 the player they steer straight at them; with something in the way they
-route around it — including heading *away* from the player first, if that
+route around it — including heading _away_ from the player first, if that
 is where the door is.
 
 There is nothing to switch on and nothing to author: paint terrain and
@@ -682,19 +687,19 @@ them, rather than standing still looking broken.
 
 Pick a pattern on any 👾 monster or 👹 boss, and set **Attack every (secs)**:
 
-| Pattern | What the player sees |
-| --- | --- |
-| 👊 Just touch me | No special attack — bumping into the player costs a heart. |
-| 🎯 Aimed shot | One shot straight at them. Easy to sidestep. |
-| 🔱 Spread shot | Three in a fan — sidestepping is not enough. |
-| 💨 Burst fire | Three quick shots, then a long pause. Punishes standing still. |
+| Pattern          | What the player sees                                             |
+| ---------------- | ---------------------------------------------------------------- |
+| 👊 Just touch me | No special attack — bumping into the player costs a heart.       |
+| 🎯 Aimed shot    | One shot straight at them. Easy to sidestep.                     |
+| 🔱 Spread shot   | Three in a fan — sidestepping is not enough.                     |
+| 💨 Burst fire    | Three quick shots, then a long pause. Punishes standing still.   |
 | 💥 Ring of shots | Shots in every direction. Find the gap and run. Good for bosses. |
-| 🐗 Charge | Winds up, then rushes where the player **was**. |
-| 🌊 Ground slam | A shockwave rolls outward. It only hurts as the ring passes. |
+| 🐗 Charge        | Winds up, then rushes where the player **was**.                  |
+| 🌊 Ground slam   | A shockwave rolls outward. It only hurts as the ring passes.     |
 
 Every attack **telegraphs** first: the enemy stops and a ring closes in
 around it. That wind-up is the player's whole chance to react, so the
-engine owns it — you cannot turn it off, and aim is only taken at the *end*
+engine owns it — you cannot turn it off, and aim is only taken at the _end_
 of it, which is what makes stepping aside actually work. An enraged boss
 telegraphs faster, but never so fast that the tell disappears.
 
@@ -716,7 +721,7 @@ persistent storage that survives closing the browser.
 #### 💾 Three save slots
 
 `api.title()` shows a title screen listing **three separate runs**. Each
-one remembers *where* it was, not just that it happened:
+one remembers _where_ it was, not just that it happened:
 
 ```
 Hero's Errand
@@ -741,9 +746,9 @@ standing. In practice that means the game opens up as they get through
 it, while a level they never reached stays shut.
 
 ```js
-api.save.levelDone()   // mark this level finished (the 🏆 Win block does this too)
-api.save.unlocked()    // ['Menu', 'Village', 'Cave'] — what they may replay
-api.save.slot()        // 1..3, which run this is
+api.save.levelDone(); // mark this level finished (the 🏆 Win block does this too)
+api.save.unlocked(); // ['Menu', 'Village', 'Cave'] — what they may replay
+api.save.slot(); // 1..3, which run this is
 ```
 
 Each slot has its own `api.save` storage, coins, XP and skill unlocks, so
@@ -751,9 +756,10 @@ two runs never see each other's progress. A game saved before slots
 existed is slot 1's run — nothing is lost.
 
 ```js
-api.save.set('quest', 'met-the-elder')  // any JSON-serializable value
-api.save.get('quest', '')               // read with a fallback
-api.save.remove('quest');  api.save.clear()
+api.save.set('quest', 'met-the-elder'); // any JSON-serializable value
+api.save.get('quest', ''); // read with a fallback
+api.save.remove('quest');
+api.save.clear();
 ```
 
 Progress persists automatically, no code needed: with `api.levels()` on,
@@ -764,9 +770,9 @@ over them to bank them (🪙 HUD chip). The balance persists in the save
 file, ready for shops:
 
 ```js
-api.coins.get()                  // current balance
-api.coins.spend(10)              // true if they could afford it
-api.coins.add(5)                 // grant bonus coins from code
+api.coins.get(); // current balance
+api.coins.spend(10); // true if they could afford it
+api.coins.add(5); // grant bonus coins from code
 ```
 
 ### Dress-up: cosmetics & attachments
@@ -787,13 +793,13 @@ Everything you place in a scene is an **actor** — selectable, editable in
 the inspector, scriptable by name, and eligible for ⚡ events. The
 palette groups them by what they're for:
 
-| Group | Kinds | Extra powers |
-| --- | --- | --- |
-| **Characters** | Blob, Story character | outfits, stories, player control |
-| **Enemies** | Monster, Boss | HP/AI/loot, outfits, boss bar |
-| **Props** | Crate, Lantern, Plant | events, tap sounds |
-| **UI** | Text, Button | fonts, tap handlers |
-| **Assets** | Imported images | spritesheet clips, any art you own |
+| Group          | Kinds                 | Extra powers                       |
+| -------------- | --------------------- | ---------------------------------- |
+| **Characters** | Blob, Story character | outfits, stories, player control   |
+| **Enemies**    | Monster, Boss         | HP/AI/loot, outfits, boss bar      |
+| **Props**      | Crate, Lantern, Plant | events, tap sounds                 |
+| **UI**         | Text, Button          | fonts, tap handlers                |
+| **Assets**     | Imported images       | spritesheet clips, any art you own |
 
 ### The title / save-slot screen
 
@@ -812,15 +818,19 @@ optional big hex **action skill**, and a grid of skills in **tiers**:
 api.skills.define({
   title: 'VAULT HUNTER',
   points: 1,
-  pointsPerTier: 5,          // points spent IN a branch to open its next tier
-  branches: [{
-    id: 'brawl', name: 'BRAWLER', color: 0xff6b6b,
-    action: { id: 'rampage', name: 'Rampage', emoji: 'fire', cost: 1, maxRank: 1, tier: 0 },
-    nodes: [
-      { id: 'muscle', name: 'Muscle', emoji: 'sword', cost: 1, maxRank: 5, tier: 0 },
-      { id: 'cleave', name: 'Cleave', emoji: 'sword', cost: 1, maxRank: 3, tier: 1 },
-    ],
-  }],
+  pointsPerTier: 5, // points spent IN a branch to open its next tier
+  branches: [
+    {
+      id: 'brawl',
+      name: 'BRAWLER',
+      color: 0xff6b6b,
+      action: { id: 'rampage', name: 'Rampage', emoji: 'fire', cost: 1, maxRank: 1, tier: 0 },
+      nodes: [
+        { id: 'muscle', name: 'Muscle', emoji: 'sword', cost: 1, maxRank: 5, tier: 0 },
+        { id: 'cleave', name: 'Cleave', emoji: 'sword', cost: 1, maxRank: 3, tier: 1 },
+      ],
+    },
+  ],
 });
 ```
 
@@ -831,7 +841,7 @@ api.skills.define({
   them.
 - **↺ RESPEC** refunds every point, so experimenting is free.
 - Icons use the built-in art ids (`sword fire bolt snow shield boot heart
-  star`); any other string is drawn as an emoji.
+star`); any other string is drawn as an emoji.
 - Three branches do not fit across a 720-wide portrait phone, so portrait
   shows **one branch with a switcher** and landscape shows them side by
   side; either way the panel shrinks to fit rather than running off screen.
@@ -846,11 +856,11 @@ The **Vault Hunter** template is the worked example.
 Your game is one JSON file, and it can live in four places:
 
 1. **This device** — continuous autosave + named **💾 My Games** slots.
-2. **A folder on your computer** — Publish → *A folder on this computer*
+2. **A folder on your computer** — Publish → _A folder on this computer_
    saves `<name>.interverse.json` anywhere you pick (documents, a synced
    drive, or a local git checkout you commit yourself). Chrome/Edge;
    on Safari/iPhone use Export/Import — the files are identical.
-3. **Your GitHub repo** — Publish → *Push to your GitHub repo* with your
+3. **Your GitHub repo** — Publish → _Push to your GitHub repo_ with your
    own token; everyone gets a play link.
 4. **The Interverse world** — register it against an IVX node.
 
@@ -875,7 +885,7 @@ blinking cursor, and pressing **Apply to game** on an empty script runs
 that starter, so the first thing you do produces a result.
 
 When a script fails, the error appears **under the code** with a
-plain-language hint ("There is no *apu* here. Every command starts with
+plain-language hint ("There is no _apu_ here. Every command starts with
 api.") instead of a browser pop-up.
 
 ## 7⅞ · 📍 Where your project lives
@@ -909,14 +919,14 @@ From the Code window (`api.net` is null when playing solo):
 
 ```js
 if (api.net) {
-  api.net.code                    // the room code
-  api.net.isHost                  // am I the host?
-  api.net.players()               // everyone in the room
-  api.net.setState('score', 5)    // shared state — host-authoritative,
-  api.net.state('score')          //   synced to every player
-  api.net.onState((k, v) => {})   // react to changes
-  api.net.send({ hi: true })      // custom messages
-  api.net.onMessage((from, d) => {})
+  api.net.code; // the room code
+  api.net.isHost; // am I the host?
+  api.net.players(); // everyone in the room
+  api.net.setState('score', 5); // shared state — host-authoritative,
+  api.net.state('score'); //   synced to every player
+  api.net.onState((k, v) => {}); // react to changes
+  api.net.send({ hi: true }); // custom messages
+  api.net.onMessage((from, d) => {});
 }
 ```
 
@@ -939,11 +949,11 @@ So in a room:
   monsters glide instead of teleporting. A jump bigger than a third of a
   screen snaps instead, because easing that far reads as walking through
   walls.
-- **Damage to enemies** — a joiner's hit is a *request*. The host applies
+- **Damage to enemies** — a joiner's hit is a _request_. The host applies
   it and the new health comes back in the next snapshot. Your swing still
   flashes immediately so it feels connected; what it cannot do is kill
   something locally that nobody else agrees is dead.
-- **Your hearts, your shots** — local. Being hurt is about where *you*
+- **Your hearts, your shots** — local. Being hurt is about where _you_
   are, and waiting for a round-trip to see your own attack leave your
   hands is the one delay every player notices.
 - **Shared state** (`api.net.setState`) — host-authoritative already, and
@@ -1022,6 +1032,7 @@ two ways:
    - On the hosted https page use **Chrome or Edge** — Safari blocks
      pages from talking to local programs, so the bridge can't connect
      there (the dev server at `localhost:5179` works in any browser).
+
 2. **Claude Code driving the Studio directly over MCP.** Open this repo
    in Claude Code and the `interverse` MCP server exposes studio tools
    (`studio_open`, `studio_project`, `studio_add_entity`,

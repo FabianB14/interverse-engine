@@ -33,6 +33,7 @@ export class MenuScene extends Scene {
   private status: Text | null = null;
   private mascot!: Entity;
   private titleT!: Text;
+  private alphaT!: Text;
   private sub!: Text;
   private hostBtn!: UIButton;
   private joinBtn!: UIButton;
@@ -75,6 +76,7 @@ export class MenuScene extends Scene {
       this.moon.position.set(W * 0.88, H * 0.16);
       this.titleT.position.set(W * 0.3, H * 0.2);
       this.sub.position.set(W * 0.3, H * 0.2 + 74);
+      this.alphaT.position.set(W * 0.3, H * 0.2 + 112);
       this.mascot.position.set(W * 0.3, H * 0.62);
       this.hostBtn.position.set(W * 0.72, H * 0.24);
       this.joinBtn.position.set(W * 0.72, H * 0.24 + 118);
@@ -94,6 +96,7 @@ export class MenuScene extends Scene {
     this.moon.position.set(W * 0.78, H * 0.14);
     this.titleT.position.set(W / 2, H * 0.2);
     this.sub.position.set(W / 2, H * 0.2 + 74);
+    this.alphaT.position.set(W / 2, H * 0.2 + 112);
     this.mascot.position.set(W / 2, H * 0.44);
     this.hostBtn.position.set(W / 2, H * 0.6);
     this.joinBtn.position.set(W / 2, H * 0.6 + 118);
@@ -305,6 +308,8 @@ export class MenuScene extends Scene {
 
     this.titleT = makeText(GAME_TITLE, 96, { color: NIGHT.ink, letterSpacing: 8 });
     this.stage.addChild(this.titleT);
+    this.alphaT = makeText('· ALPHA ·', 22, { color: NIGHT.blood, letterSpacing: 6 });
+    this.stage.addChild(this.alphaT);
     this.sub = makeText('light the lanterns · escape the dark', 24, {
       color: NIGHT.inkSoft,
       weight: 'bold',

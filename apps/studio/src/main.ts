@@ -9,13 +9,30 @@ import { isEditorUndoTarget } from './history.js';
 import { isEditorClipboardTarget, withinMarquee } from './clipboard.js';
 import { wireToolbar } from './toolbar.js';
 import {
-  FOLDS_KEY, foldArrow, foldId, isFolded, loadFolds, pruneFolds, saveFolds, toggleFold,
+  FOLDS_KEY,
+  foldArrow,
+  foldId,
+  isFolded,
+  loadFolds,
+  pruneFolds,
+  saveFolds,
+  toggleFold,
 } from './folds.js';
 import { ensureHud, moveHudPart, openHudEditor } from './hud.js';
 import { createAbility, grantTo, openAbilityEditor } from './abilities.js';
 import {
-  ASSET_BUDGET, assetBytes, assetList, assetUsers, assignAsset, deleteAsset,
-  formatBytes, frameCount, frameRect, guessFrameSize, importRejectReason, unusedAssets,
+  ASSET_BUDGET,
+  assetBytes,
+  assetList,
+  assetUsers,
+  assignAsset,
+  deleteAsset,
+  formatBytes,
+  frameCount,
+  frameRect,
+  guessFrameSize,
+  importRejectReason,
+  unusedAssets,
 } from './assets.js';
 import { STARTER_SCRIPT } from './apidocs.js';
 import { PALETTE } from './palette.js';
@@ -24,7 +41,14 @@ import { genGame, validateGame } from './gengame.js';
 import type { GenParams } from './gengame.js';
 import { TILE_LAYERS, TILE_TYPES, tileLayerSpec } from './tiles.js';
 import { pushToGitHub, registerInWorld, slugify, store as pubStore } from './publish.js';
-import { getOrigin, originLabel, readFromGitHub, setOrigin, stripSecrets, syncIcon } from './origin.js';
+import {
+  getOrigin,
+  originLabel,
+  readFromGitHub,
+  setOrigin,
+  stripSecrets,
+  syncIcon,
+} from './origin.js';
 import type { Origin, SyncState } from './origin.js';
 import { normalizeDialogue } from './model.js';
 import type { EntityKind } from './model.js';
@@ -62,7 +86,8 @@ async function main(): Promise<void> {
     }
     viewSelect.value = editor.scene.view ?? 'top';
     sizeSelect.value = String(editor.scene.worldW);
-    if (![...sizeSelect.options].some((o) => o.value === sizeSelect.value)) sizeSelect.value = '720';
+    if (![...sizeSelect.options].some((o) => o.value === sizeSelect.value))
+      sizeSelect.value = '720';
     chkGravity.checked = !!editor.scene.gravity;
     playBtn.textContent = editor.playing ? '⏹ Stop' : '▶ Play';
     playBtn.className = editor.playing ? 'btn good' : 'btn primary';
@@ -83,6 +108,13 @@ async function main(): Promise<void> {
   sceneSelect.onchange = () => editor.switchScene(sceneSelect.value);
   viewSelect.onchange = () => {
     const v = viewSelect.value as 'top' | 'depth' | '3d';
+    // 3D is locked until its bugs are fixed — the option is disabled in the
+    // markup; this guard covers anything that flips the value another way.
+    if (v === '3d' && editor.scene.view !== '3d') {
+      viewSelect.value = editor.scene.view ?? 'top';
+      say('🔒 3D is locked while we fix its bugs');
+      return;
+    }
     editor.scene.view = v;
     // 2.5D boards are one landscape screen tall; top-down boards a phone
     // tall. 3D edits like top-down (the layout IS top-down data — x across,
@@ -95,6 +127,7 @@ async function main(): Promise<void> {
       // Re-open so the change is visible immediately (depth previews live).
       editor.openEditScene();
     }
+    refreshPanels(); // the palette offers different actors per view
     editor.touch();
   };
   sizeSelect.onchange = () => {
@@ -214,7 +247,12 @@ async function main(): Promise<void> {
     } else if (key.startsWith('arrow')) {
       // Nudge by 1, or a whole tile with shift held.
       const step = e.shiftKey ? 32 : 1;
-      const d = { arrowleft: [-step, 0], arrowright: [step, 0], arrowup: [0, -step], arrowdown: [0, step] }[key]!;
+      const d = {
+        arrowleft: [-step, 0],
+        arrowright: [step, 0],
+        arrowup: [0, -step],
+        arrowdown: [0, step],
+      }[key]!;
       if (!editor.nudge(d[0]!, d[1]!)) return;
     } else {
       return;
@@ -272,7 +310,9 @@ async function main(): Promise<void> {
             closeModal();
             alert(`Room open! Share this code: ${code}\n(Friends: Play → JOIN → ${code})`);
           })
-          .catch((err) => show(`Could not host: ${err instanceof Error ? err.message : String(err)}`));
+          .catch((err) =>
+            show(`Could not host: ${err instanceof Error ? err.message : String(err)}`),
+          );
       };
       root.querySelector<HTMLButtonElement>('#mp-join')!.onclick = () => {
         const code = root.querySelector<HTMLInputElement>('#mp-code')!.value.trim();
@@ -281,7 +321,9 @@ async function main(): Promise<void> {
         editor
           .joinMultiplayer(code)
           .then(() => closeModal())
-          .catch((err) => show(`Could not join: ${err instanceof Error ? err.message : String(err)}`));
+          .catch((err) =>
+            show(`Could not join: ${err instanceof Error ? err.message : String(err)}`),
+          );
       };
       root.querySelector<HTMLButtonElement>('#mp-solo')!.onclick = () => {
         closeModal();
@@ -329,7 +371,10 @@ async function main(): Promise<void> {
       sync = 'saving';
       refreshWhere();
       try {
-        await pushToGitHub({ token, owner: o.owner, repo: o.repo, branch: o.branch, path: o.path }, editor.exportJson());
+        await pushToGitHub(
+          { token, owner: o.owner, repo: o.repo, branch: o.branch, path: o.path },
+          editor.exportJson(),
+        );
         sync = 'clean';
         refreshWhere();
         return `Pushed to ${o.owner}/${o.repo}.`;
@@ -371,7 +416,8 @@ async function main(): Promise<void> {
       out.style.display = 'block';
       out.textContent = m;
     };
-    box.querySelector<HTMLInputElement>('#gh-t')!.value = localStorage.getItem(pubStore.ghToken) ?? '';
+    box.querySelector<HTMLInputElement>('#gh-t')!.value =
+      localStorage.getItem(pubStore.ghToken) ?? '';
     const originOf = (): Extract<Origin, { kind: 'github' }> => ({
       kind: 'github',
       owner: v('#gh-o'),
@@ -424,7 +470,8 @@ async function main(): Promise<void> {
         <div id="as-slicer" style="margin-top:14px"></div>`;
       const grid = root.querySelector<HTMLElement>('#as-grid')!;
       if (!list.length) {
-        grid.innerHTML = '<p class="muted" style="font-size:12px">Nothing imported yet. A PNG spritesheet of your character is the usual first thing.</p>';
+        grid.innerHTML =
+          '<p class="muted" style="font-size:12px">Nothing imported yet. A PNG spritesheet of your character is the usual first thing.</p>';
       }
       for (const a of list) {
         const card = document.createElement('div');
@@ -586,7 +633,11 @@ async function main(): Promise<void> {
   refreshWhere();
 
   // ------------------------------------------------------- 🎮 controls
-  const controlsUi = wireControls(() => editor.project, () => editor.touch(), openModal);
+  const controlsUi = wireControls(
+    () => editor.project,
+    () => editor.touch(),
+    openModal,
+  );
   $('btn-controls').onclick = () => controlsUi.open();
 
   // ------------------------------------------------- templates ("✚ New")
@@ -748,7 +799,12 @@ async function main(): Promise<void> {
           const row = document.createElement('div');
           row.className = 'row';
           row.style.marginBottom = '6px';
-          const mk = (val: string, w: number, cb: (v: string) => void, ph = ''): HTMLInputElement => {
+          const mk = (
+            val: string,
+            w: number,
+            cb: (v: string) => void,
+            ph = '',
+          ): HTMLInputElement => {
             const inp = document.createElement('input');
             inp.type = 'text';
             inp.style.width = `${w}px`;
@@ -810,7 +866,15 @@ async function main(): Promise<void> {
         add.className = 'btn';
         add.textContent = '+ item';
         add.onclick = () => {
-          db.items.push({ id: `item${db.items.length + 1}`, name: 'New item', emoji: '🎁', desc: '', price: 0, effect: 'none', n: 1 });
+          db.items.push({
+            id: `item${db.items.length + 1}`,
+            name: 'New item',
+            emoji: '🎁',
+            desc: '',
+            price: 0,
+            effect: 'none',
+            n: 1,
+          });
           editor.touch();
           renderItems();
         };
@@ -822,7 +886,10 @@ async function main(): Promise<void> {
       root.querySelector<HTMLButtonElement>('#db-locales-save')!.onclick = () => {
         const out = root.querySelector<HTMLElement>('#db-locales-out')!;
         try {
-          editor.project.locales = JSON.parse(locBox.value || '{}') as Record<string, Record<string, string>>;
+          editor.project.locales = JSON.parse(locBox.value || '{}') as Record<
+            string,
+            Record<string, string>
+          >;
           editor.touch();
           out.textContent = 'Saved ✓';
         } catch (err) {
@@ -838,7 +905,8 @@ async function main(): Promise<void> {
   saveBtn.onclick = () => {
     saveBtn.textContent = '⟳ Saving…';
     void saveToOrigin().then((msg) => {
-      saveBtn.textContent = msg.startsWith('Could not') || msg.startsWith('No GitHub') ? '⚠ Failed' : '✓ Saved';
+      saveBtn.textContent =
+        msg.startsWith('Could not') || msg.startsWith('No GitHub') ? '⚠ Failed' : '✓ Saved';
       if (msg.startsWith('Could not') || msg.startsWith('No GitHub')) alert(msg);
       setTimeout(() => (saveBtn.textContent = '💾 Save'), 1400);
     });
@@ -871,7 +939,9 @@ async function main(): Promise<void> {
       const folder = root.querySelector<HTMLElement>('#pub-folder')!;
       // File System Access: save/open .interverse.json in a folder the user
       // picks — their PC's documents, a synced drive, a git checkout, etc.
-      type DirPicker = { showDirectoryPicker?: (o?: { mode?: string }) => Promise<FileSystemDirectoryHandle> };
+      type DirPicker = {
+        showDirectoryPicker?: (o?: { mode?: string }) => Promise<FileSystemDirectoryHandle>;
+      };
       const picker = window as unknown as DirPicker;
       if (picker.showDirectoryPicker) {
         const row = document.createElement('div');
@@ -879,7 +949,8 @@ async function main(): Promise<void> {
         const fOut = document.createElement('div');
         fOut.className = 'muted';
         fOut.style.cssText = 'font-size:12px;margin-top:6px';
-        fOut.textContent = 'Works great with a local git checkout — commit the saved file with your usual tools.';
+        fOut.textContent =
+          'Works great with a local git checkout — commit the saved file with your usual tools.';
         const saveBtn = document.createElement('button');
         saveBtn.className = 'btn primary';
         saveBtn.textContent = '📁 Save to a folder…';
@@ -889,12 +960,20 @@ async function main(): Promise<void> {
               const dir = await picker.showDirectoryPicker!({ mode: 'readwrite' });
               const name = `${slugify(editor.project.name) || 'game'}.interverse.json`;
               const fh = await dir.getFileHandle(name, { create: true });
-              const w = await (fh as unknown as { createWritable: () => Promise<{ write: (s: string) => Promise<void>; close: () => Promise<void> }> }).createWritable();
+              const w = await (
+                fh as unknown as {
+                  createWritable: () => Promise<{
+                    write: (s: string) => Promise<void>;
+                    close: () => Promise<void>;
+                  }>;
+                }
+              ).createWritable();
               await w.write(editor.exportJson());
               await w.close();
               fOut.textContent = `Saved ${name} ✓`;
             } catch (err) {
-              if ((err as Error).name !== 'AbortError') fOut.textContent = `Could not save: ${(err as Error).message}`;
+              if ((err as Error).name !== 'AbortError')
+                fOut.textContent = `Could not save: ${(err as Error).message}`;
             }
           })();
         };
@@ -926,7 +1005,8 @@ async function main(): Promise<void> {
       } else {
         const note = document.createElement('p');
         note.className = 'muted';
-        note.textContent = 'This browser (Safari/iPhone/iPad) can’t write folders directly — use Export/Import in the toolbar; the files are identical.';
+        note.textContent =
+          'This browser (Safari/iPhone/iPad) can’t write folders directly — use Export/Import in the toolbar; the files are identical.';
         folder.appendChild(note);
       }
 
@@ -1133,13 +1213,26 @@ async function main(): Promise<void> {
 
   // 🌲 Hierarchy: every level and its actors as a tree — click to select.
   const KIND_EMOJI: Record<string, string> = {
-    blob: '🙂', npc: '💬', mob: '👾', boss: '👹', crate: '📦', lantern: '🏮',
-    plant: '🪴', text: '🔤', button: '🔘', image: '🖼', shape: '🧊', camera: '🎥',
+    blob: '🙂',
+    npc: '💬',
+    mob: '👾',
+    boss: '👹',
+    crate: '📦',
+    lantern: '🏮',
+    plant: '🪴',
+    text: '🔤',
+    button: '🔘',
+    image: '🖼',
+    shape: '🧊',
+    camera: '🎥',
   };
   const refreshHierarchy = (): void => {
     hier.innerHTML = '';
     // Levels come and go; their fold state should not outlive them.
-    folded = pruneFolds(folded, editor.project.scenes.map((sc) => sc.id));
+    folded = pruneFolds(
+      folded,
+      editor.project.scenes.map((sc) => sc.id),
+    );
     foldSection(hier, foldId.hierarchy(), '🌲 Hierarchy', (body) => {
       for (const scene of editor.project.scenes) {
         const active = scene.id === editor.sceneId;
@@ -1258,7 +1351,10 @@ async function main(): Promise<void> {
       const solidHere = t.solid && tileLayerSpec(editor.paintLayer).solid;
       item.innerHTML = `<span class="em" style="display:inline-block;width:20px;height:20px;border-radius:5px;background:#${t.color
         .toString(16)
-        .padStart(6, '0')}"></span>${t.name}${solidHere ? ' <span class="muted" style="font-size:11px">solid</span>' : ''}`;
+        .padStart(
+          6,
+          '0',
+        )}"></span>${t.name}${solidHere ? ' <span class="muted" style="font-size:11px">solid</span>' : ''}`;
       item.onclick = () => pick(item, t.ch);
       palTiles.appendChild(item);
     }
@@ -1272,7 +1368,11 @@ async function main(): Promise<void> {
     genHead.style.marginTop = '8px';
     genHead.textContent = '🎲 Generate a level';
     palTiles.appendChild(genHead);
-    for (const [kind, label] of [['maze', '🌀 Maze'], ['dungeon', '🏰 Dungeon'], ['island', '🏝 Island']] as const) {
+    for (const [kind, label] of [
+      ['maze', '🌀 Maze'],
+      ['dungeon', '🏰 Dungeon'],
+      ['island', '🏝 Island'],
+    ] as const) {
       const b = document.createElement('div');
       b.className = 'pal-item';
       b.innerHTML = `<span class="em"></span>${label}`;
@@ -1355,6 +1455,9 @@ async function main(): Promise<void> {
     for (const group of PALETTE) {
       foldSection(palEntities, foldId.palette(group.title), group.title, (body) => {
         for (const item of group.items) {
+          // The camera is a 3D-only actor — 2D and 2.5D levels film
+          // themselves, so offering it there just invites confusion.
+          if (item.kind === 'camera' && editor.scene.view !== '3d') continue;
           const btn = document.createElement('div');
           btn.className = 'pal-item';
           btn.innerHTML = `<span class="em">${item.emoji}</span>${item.label}`;
@@ -1372,6 +1475,8 @@ async function main(): Promise<void> {
           // Click also places (center of design space) — friendlier on touch.
           btn.addEventListener('click', () => {
             if (kind === 'image') placeImage(360, 640);
+            else if (kind === 'camera' && editor.scene.view !== '3d')
+              say('🎥 The camera only works in 3D levels');
             else editor.addEntity(kind, 360, 640);
           });
           body.appendChild(btn);
@@ -1402,6 +1507,8 @@ async function main(): Promise<void> {
     if (!kind || editor.playing) return;
     const p = editor.toDesign(e.clientX, e.clientY);
     if (kind === 'image') placeImage(p.x, p.y);
+    else if (kind === 'camera' && editor.scene.view !== '3d')
+      say('🎥 The camera only works in 3D levels');
     else editor.addEntity(kind, p.x, p.y);
   });
 
@@ -1430,7 +1537,9 @@ async function main(): Promise<void> {
     appEl.classList.toggle('bottom-float', on);
     if (on) appEl.classList.remove('bottom-min');
     floatBtn.textContent = on ? '⇲' : '⇱';
-    floatBtn.title = on ? 'Dock this panel back at the bottom' : 'Undock this panel — drag it anywhere';
+    floatBtn.title = on
+      ? 'Dock this panel back at the bottom'
+      : 'Undock this panel — drag it anywhere';
     if (pos) {
       appEl.style.setProperty('--float-x', `${pos.x}px`);
       appEl.style.setProperty('--float-y', `${pos.y}px`);
@@ -1455,8 +1564,14 @@ async function main(): Promise<void> {
     const oy = down.clientY - rect.top;
     bottomEl.classList.add('grabbing');
     const move = (e: PointerEvent): void => {
-      appEl.style.setProperty('--float-x', `${Math.max(0, Math.min(window.innerWidth - 200, e.clientX - ox))}px`);
-      appEl.style.setProperty('--float-y', `${Math.max(0, Math.min(window.innerHeight - 80, e.clientY - oy))}px`);
+      appEl.style.setProperty(
+        '--float-x',
+        `${Math.max(0, Math.min(window.innerWidth - 200, e.clientX - ox))}px`,
+      );
+      appEl.style.setProperty(
+        '--float-y',
+        `${Math.max(0, Math.min(window.innerHeight - 80, e.clientY - oy))}px`,
+      );
     };
     const up = (): void => {
       window.removeEventListener('pointermove', move);
@@ -1468,14 +1583,19 @@ async function main(): Promise<void> {
     window.addEventListener('pointerup', up);
   });
   try {
-    const saved = JSON.parse(localStorage.getItem(FLOAT_KEY) ?? 'null') as { on?: boolean; x?: number; y?: number } | null;
+    const saved = JSON.parse(localStorage.getItem(FLOAT_KEY) ?? 'null') as {
+      on?: boolean;
+      x?: number;
+      y?: number;
+    } | null;
     if (saved?.on) applyFloat(true, { x: saved.x ?? 240, y: saved.y ?? 120 });
   } catch {
     /* a corrupt preference is not worth failing boot over */
   }
 
   const minBtn = $<HTMLButtonElement>('btn-minimize');
-  minBtn.style.cssText = 'background:transparent;border:0;color:var(--ink-soft);cursor:pointer;font-weight:800';
+  minBtn.style.cssText =
+    'background:transparent;border:0;color:var(--ink-soft);cursor:pointer;font-weight:800';
   minBtn.onclick = () => {
     const app = document.getElementById('app')!;
     const min = app.classList.toggle('bottom-min');
@@ -1495,7 +1615,10 @@ async function main(): Promise<void> {
     // An empty Code window used to be a blinking cursor with no clue what
     // "api" was. Show a runnable starter instead — greyed, so it is clearly
     // a suggestion until the author types.
-    codeText.placeholder = STARTER_SCRIPT.replace('the level starts', `"${editor.scene.name}" starts`);
+    codeText.placeholder = STARTER_SCRIPT.replace(
+      'the level starts',
+      `"${editor.scene.name}" starts`,
+    );
   };
   codeText.oninput = () => {
     editor.scene.script = codeText.value;
@@ -1538,7 +1661,8 @@ async function main(): Promise<void> {
 
   // ------------------------------------------------------------ wire-ups
   wireInspector(editor, {
-    openAbilityEditor: (id) => openAbilityEditor({ project: editor.project, touch: () => editor.touch(), openModal }, id),
+    openAbilityEditor: (id) =>
+      openAbilityEditor({ project: editor.project, touch: () => editor.touch(), openModal }, id),
   });
   const chat = wireChat(editor);
   const prevSelection = editor.onSelection;
@@ -1672,13 +1796,15 @@ async function main(): Promise<void> {
     },
     leftRowCount: () => document.querySelectorAll('#left .pal-item').length,
     setWorldSize: (w: number, h: number) => editor.setWorldSize(w, h),
-    worldSize: () => editor.getPlayScene()?.worldSize() ?? { w: editor.scene.worldW, h: editor.scene.worldH },
+    worldSize: () =>
+      editor.getPlayScene()?.worldSize() ?? { w: editor.scene.worldW, h: editor.scene.worldH },
     cameraX: () => editor.getPlayScene()?.cameraX() ?? 0,
     setGravity: (g: boolean) => {
       editor.scene.gravity = g;
       editor.touch();
     },
     setView: (v: 'top' | 'depth' | '3d') => {
+      if (v === '3d' && editor.scene.view !== '3d') return; // locked
       editor.scene.view = v;
       editor.touch();
       if (!editor.playing) editor.openEditScene();
@@ -1720,7 +1846,9 @@ async function main(): Promise<void> {
     syncState: () => sync,
     projectHasSecrets: () => {
       const raw = JSON.parse(editor.exportJson()) as Record<string, unknown>;
-      return ['origin', 'github', 'token', 'pat', 'secrets', 'apiKey', 'api_key'].filter((k) => k in raw);
+      return ['origin', 'github', 'token', 'pat', 'secrets', 'apiKey', 'api_key'].filter(
+        (k) => k in raw,
+      );
     },
     setDialogue: (name: string, tree: unknown) => {
       const d = editor.entityByName(name);
@@ -1759,7 +1887,8 @@ async function main(): Promise<void> {
       editor.touch();
       editor.getPlayScene()?.layoutHud();
     },
-    hudScreenPos: (part: string) => editor.getPlayScene()?.hudScreenPos(part as Parameters<typeof moveHudPart>[1]) ?? null,
+    hudScreenPos: (part: string) =>
+      editor.getPlayScene()?.hudScreenPos(part as Parameters<typeof moveHudPart>[1]) ?? null,
     undo: () => editor.undo(),
     redo: () => editor.redo(),
     historyState: () => editor.historyState(),
@@ -1823,12 +1952,14 @@ async function main(): Promise<void> {
     skillBranchCount: () => editor.getPlayScene()?.skillTree()?.branchCount() ?? 0,
     skillRank: (id: string) => editor.getPlayScene()?.skillTree()?.rankOf(id) ?? 0,
     skillInvest: (id: string) => editor.getPlayScene()?.skillTree()?.invest(id) ?? false,
-    skillCanInvest: (id: string) => editor.getPlayScene()?.skillTree()?.canInvest(id) ?? 'needsRequires',
+    skillCanInvest: (id: string) =>
+      editor.getPlayScene()?.skillTree()?.canInvest(id) ?? 'needsRequires',
     skillSpentIn: (b: string) => editor.getPlayScene()?.skillTree()?.spentIn(b) ?? 0,
     skillRespec: () => editor.getPlayScene()?.skillTree()?.respec() ?? 0,
     skillOpen: () => editor.getPlayScene()?.skillTree()?.open(),
     skillIsOpen: () => editor.getPlayScene()?.skillTree()?.isOpen ?? false,
-    skillLayout: () => editor.getPlayScene()?.skillTree()?.layout() ?? { mode: 'single', cols: 0, cell: 0, fit: 1 },
+    skillLayout: () =>
+      editor.getPlayScene()?.skillTree()?.layout() ?? { mode: 'single', cols: 0, cell: 0, fit: 1 },
     bindKey: (action: string, key: string) => controlsUi.bind(action, key),
     unbindKey: (action: string, key: string) => controlsUi.unbind(action, key),
     keysOf: (action: string) => controlsUi.keysOf(action),
@@ -1864,7 +1995,11 @@ async function main(): Promise<void> {
     paletteHighlighted: () => flow.palette()?.highlighted() ?? null,
     paletteCommit: (id?: string) => flow.palette()?.commit(id) ?? false,
     paletteClose: () => flow.palette()?.close(),
-    flowNodeIds: () => editor.project.scenes.flatMap((sc) => [`lvl:${sc.id}`, ...sc.entities.map((e) => `ent:${e.id}`)]),
+    flowNodeIds: () =>
+      editor.project.scenes.flatMap((sc) => [
+        `lvl:${sc.id}`,
+        ...sc.entities.map((e) => `ent:${e.id}`),
+      ]),
     flowLink: (fromName: string, toName: string) => {
       let fromId = '';
       let toId = '';

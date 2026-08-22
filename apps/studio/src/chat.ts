@@ -40,7 +40,10 @@ const TOOLS: ToolSpec[] = [
         kind: { type: 'string' },
         x: { type: 'number' },
         y: { type: 'number' },
-        props: { type: 'object', description: 'Optional EntityDef overrides (name, color, text, lines, ...)' },
+        props: {
+          type: 'object',
+          description: 'Optional EntityDef overrides (name, color, text, lines, ...)',
+        },
       },
       required: ['kind', 'x', 'y'],
     },
@@ -77,7 +80,12 @@ function runTool(editor: StudioEditor, name: string, input: Record<string, unkno
     case 'get_project':
       return editor.exportJson();
     case 'add_entity': {
-      const def = editor.addEntity(String(input.kind) as EntityKind, Number(input.x), Number(input.y));
+      let def;
+      try {
+        def = editor.addEntity(String(input.kind) as EntityKind, Number(input.x), Number(input.y));
+      } catch (err) {
+        return err instanceof Error ? err.message : String(err);
+      }
       if (input.props && typeof input.props === 'object') {
         Object.assign(def, input.props as Partial<EntityDef>);
         editor.updateEntity(def);
@@ -160,7 +168,15 @@ export function wireChat(editor: StudioEditor): { bridged: () => boolean } {
       const ws = new WebSocket(BRIDGE_URL);
       ws.onopen = () => ws.send(JSON.stringify({ type: 'hello' }));
       ws.onmessage = (ev) => {
-        let msg: { type: string; id?: string; name?: string; input?: Record<string, unknown>; text?: string; message?: string; mode?: string };
+        let msg: {
+          type: string;
+          id?: string;
+          name?: string;
+          input?: Record<string, unknown>;
+          text?: string;
+          message?: string;
+          mode?: string;
+        };
         try {
           msg = JSON.parse(String(ev.data)) as typeof msg;
         } catch {
@@ -171,7 +187,9 @@ export function wireChat(editor: StudioEditor): { bridged: () => boolean } {
           bridgeReady = true;
           connecting = false;
           keyInput.style.display = 'none';
-          setStatus(`✦ Connected to Claude through your local bridge${msg.mode === 'mock' ? ' (mock)' : ''} — no API key needed. Ask away!`);
+          setStatus(
+            `✦ Connected to Claude through your local bridge${msg.mode === 'mock' ? ' (mock)' : ''} — no API key needed. Ask away!`,
+          );
         } else if (msg.type === 'text' && msg.text) {
           say('bot', `Claude: ${msg.text}`);
         } else if (msg.type === 'tool_use') {
@@ -193,7 +211,10 @@ export function wireChat(editor: StudioEditor): { bridged: () => boolean } {
         keyInput.style.display = '';
         bridgeDone?.();
         bridgeDone = null;
-        if (wasReady) setStatus('Bridge disconnected — restart it with `pnpm ai`; this chat reconnects automatically.');
+        if (wasReady)
+          setStatus(
+            'Bridge disconnected — restart it with `pnpm ai`; this chat reconnects automatically.',
+          );
       };
       ws.onerror = () => ws.close();
     } catch {

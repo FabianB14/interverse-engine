@@ -35,7 +35,10 @@
         height: 100%;
         background: var(--bg);
         color: var(--ink);
-        font: 14px/1.45 system-ui, 'Segoe UI', sans-serif;
+        font:
+          14px/1.45 system-ui,
+          'Segoe UI',
+          sans-serif;
         overflow: hidden;
       }
       #app {
@@ -216,7 +219,11 @@
         font: inherit;
       }
       textarea {
-        font: 12.5px/1.5 ui-monospace, Menlo, Consolas, monospace;
+        font:
+          12.5px/1.5 ui-monospace,
+          Menlo,
+          Consolas,
+          monospace;
         resize: none;
         white-space: pre;
       }
@@ -570,47 +577,113 @@
   <body>
     <div id="app">
       <div id="top">
-        <span class="logo" id="top-logo"><b>◆</b><span class="logo-word"> INTERVERSE STUDIO</span></span>
-        <button class="btn" id="btn-new" title="Start from a template, or open one of your saved games">✚ New</button>
+        <span class="logo" id="top-logo"
+          ><b>◆</b><span class="logo-word"> INTERVERSE STUDIO</span></span
+        >
+        <button
+          class="btn"
+          id="btn-new"
+          title="Start from a template, or open one of your saved games"
+        >
+          ✚ New
+        </button>
         <button class="btn" id="btn-undo" title="Undo (Ctrl+Z)">↶</button>
         <button class="btn" id="btn-redo" title="Redo (Ctrl+Shift+Z)">↷</button>
-        <button class="btn" id="btn-save" title="Save this game to My Games (kept on this device)">💾<span class="w"> Save</span></button>
+        <button class="btn" id="btn-save" title="Save this game to My Games (kept on this device)">
+          💾<span class="w"> Save</span>
+        </button>
         <span id="project-where" class="muted" title="Where this project lives"></span>
         <input id="project-name" type="text" title="Project name" />
         <select id="scene-select" title="Scene"></select>
-        <button class="btn" id="btn-add-scene" title="Add a scene/level">+<span class="w"> Level</span></button>
-        <select id="view-select" title="How this level is viewed (rotating the device just letterboxes — that's not a game style)">
+        <button class="btn" id="btn-add-scene" title="Add a scene/level">
+          +<span class="w"> Level</span>
+        </button>
+        <select
+          id="view-select"
+          title="How this level is viewed (rotating the device just letterboxes — that's not a game style)"
+        >
           <option value="top">👁 Top-down</option>
           <option value="depth">👁 2.5D</option>
-          <option value="3d">👁 3D</option>
+          <option value="3d" disabled title="Locked while we fix 3D's bugs">🔒 3D</option>
         </select>
-        <select id="size-select" title="Level length — the board progresses left-to-right and the camera follows; you never see the whole map at once">
+        <select
+          id="size-select"
+          title="Level length — the board progresses left-to-right and the camera follows; you never see the whole map at once"
+        >
           <option value="720">⛶ 1 screen</option>
           <option value="1440">⛶ 2 long</option>
           <option value="2160">⛶ 3 long</option>
           <option value="2880">⛶ 4 long</option>
         </select>
-        <label class="muted" id="lbl-gravity" title="Top-down: platformer physics (run + jump with up/W). 2.5D: brawler jump — Space or the Jump button, steer mid-air, land anywhere on the plane"
+        <label
+          class="muted"
+          id="lbl-gravity"
+          title="Top-down: platformer physics (run + jump with up/W). 2.5D: brawler jump — Space or the Jump button, steer mid-air, land anywhere on the plane"
           ><input type="checkbox" id="chk-gravity" /> Gravity</label
         >
-        <button class="btn" id="btn-tiles" title="Paint terrain tiles onto this level">🗺<span class="w"> Tiles</span></button>
-        <button class="btn" id="btn-frame" title="Preview how things fit on a phone screen — rotated (landscape) or portrait">📱<span class="w"> Fit</span></button>
-        <button class="btn" id="btn-db" title="Project database: items, shops and languages">🗄<span class="w"> Database</span></button>
-        <button class="btn" id="btn-hud" title="HUD layout: where hearts, score and buttons sit">🎛<span class="w"> HUD</span></button>
-        <button class="btn" id="btn-assets" title="Imported pictures: reuse, rename, delete, slice spritesheets">🖼<span class="w"> Art</span></button>
-        <button class="btn" id="btn-controls" title="Key + on-screen button binds — what every control does">🎮<span class="w"> Controls</span></button>
-        <button class="btn" id="btn-install" style="display: none" title="Install Interverse Studio as an app">⬇<span class="w"> Install</span></button>
+        <button class="btn" id="btn-tiles" title="Paint terrain tiles onto this level">
+          🗺<span class="w"> Tiles</span>
+        </button>
+        <button
+          class="btn"
+          id="btn-frame"
+          title="Preview how things fit on a phone screen — rotated (landscape) or portrait"
+        >
+          📱<span class="w"> Fit</span>
+        </button>
+        <button class="btn" id="btn-db" title="Project database: items, shops and languages">
+          🗄<span class="w"> Database</span>
+        </button>
+        <button class="btn" id="btn-hud" title="HUD layout: where hearts, score and buttons sit">
+          🎛<span class="w"> HUD</span>
+        </button>
+        <button
+          class="btn"
+          id="btn-assets"
+          title="Imported pictures: reuse, rename, delete, slice spritesheets"
+        >
+          🖼<span class="w"> Art</span>
+        </button>
+        <button
+          class="btn"
+          id="btn-controls"
+          title="Key + on-screen button binds — what every control does"
+        >
+          🎮<span class="w"> Controls</span>
+        </button>
+        <button
+          class="btn"
+          id="btn-install"
+          style="display: none"
+          title="Install Interverse Studio as an app"
+        >
+          ⬇<span class="w"> Install</span>
+        </button>
         <span id="top-spacer" style="flex: 1 1 0; min-width: 0"></span>
-        <label class="muted" id="lbl-multiplayer" title="Play opens a host/join lobby; friends share a 4-letter room code"
+        <label
+          class="muted"
+          id="lbl-multiplayer"
+          title="Play opens a host/join lobby; friends share a 4-letter room code"
           ><input type="checkbox" id="chk-multiplayer" /> Multiplayer</label
         >
-        <label class="muted" id="lbl-interverse" title="Adds the Verium wallet + Interverse hooks to your game"
+        <label
+          class="muted"
+          id="lbl-interverse"
+          title="Adds the Verium wallet + Interverse hooks to your game"
           ><input type="checkbox" id="chk-interverse" /> Interverse</label
         >
-        <button class="btn" id="btn-import" title="Open a game file (.json)">⤓<span class="w"> Import</span></button>
-        <button class="btn" id="btn-export" title="Save this game out as a file (.json)">⤒<span class="w"> Export</span></button>
-        <button class="btn" id="btn-publish" title="Publish to your repo and the Interverse world">🌍<span class="w"> Publish</span></button>
-        <button class="btn" id="btn-more" title="Everything that does not fit on this screen">⋯<span class="w"> More</span></button>
+        <button class="btn" id="btn-import" title="Open a game file (.json)">
+          ⤓<span class="w"> Import</span>
+        </button>
+        <button class="btn" id="btn-export" title="Save this game out as a file (.json)">
+          ⤒<span class="w"> Export</span>
+        </button>
+        <button class="btn" id="btn-publish" title="Publish to your repo and the Interverse world">
+          🌍<span class="w"> Publish</span>
+        </button>
+        <button class="btn" id="btn-more" title="Everything that does not fit on this screen">
+          ⋯<span class="w"> More</span>
+        </button>
         <button class="btn primary" id="btn-play">▶ Play</button>
       </div>
       <div id="top-more"></div>
@@ -631,8 +704,13 @@
           <button data-tab="story">Story</button>
           <button data-tab="flow">⛓ Flow</button>
           <button data-tab="chat">AI Chat</button>
-          <span style="flex:1"></span>
-          <button id="btn-float" title="Undock this panel — drag it anywhere, resize it, snap it back">⇱</button>
+          <span style="flex: 1"></span>
+          <button
+            id="btn-float"
+            title="Undock this panel — drag it anywhere, resize it, snap it back"
+          >
+            ⇱
+          </button>
           <button id="btn-minimize" title="Minimize this panel">▾</button>
         </div>
         <div class="tabpane active" data-pane="code">
@@ -642,7 +720,12 @@
           </div>
           <div id="api-dock">
             <button class="btn primary" id="btn-apply-code">Apply to game</button>
-            <input id="api-search" type="search" placeholder="🔍 Find a command…" autocomplete="off" />
+            <input
+              id="api-search"
+              type="search"
+              placeholder="🔍 Find a command…"
+              autocomplete="off"
+            />
             <div id="api-list"></div>
             <div id="api-help" class="muted">
               Click any command to drop a working line into your script.
@@ -663,7 +746,8 @@
         </div>
         <div class="tabpane" data-pane="flow" style="flex-direction: column">
           <div class="muted" style="font-size: 12px; margin-bottom: 6px">
-            ⛓ Visual scripting map — every actor's events as nodes; wires show switch gates and level doors. Click a node to edit it in the inspector; drag to arrange.
+            ⛓ Visual scripting map — every actor's events as nodes; wires show switch gates and
+            level doors. Click a node to edit it in the inspector; drag to arrange.
           </div>
           <div id="flow-canvas"></div>
         </div>
@@ -676,7 +760,12 @@
               placeholder="Anthropic API key (stays on this device)"
               style="width: 260px"
             />
-            <input id="chat-input" type="text" placeholder="Ask Claude to build something…" style="flex: 1" />
+            <input
+              id="chat-input"
+              type="text"
+              placeholder="Ask Claude to build something…"
+              style="flex: 1"
+            />
             <button class="btn primary" id="btn-chat-send">Send</button>
           </div>
         </div>
